@@ -4,6 +4,7 @@
 //! Guitar Pro and the remaining export formats are under development.
 
 mod guitarset;
+mod guitarset_notes;
 
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
@@ -74,8 +75,14 @@ enum Cmd {
         #[arg(long)]
         annotations: Option<PathBuf>,
         /// Evaluate string assignment on ground-truth notes (not audio transcription)
-        #[arg(long)]
+        #[arg(long, conflicts_with = "predictions")]
         oracle_notes: bool,
+        /// Score a JSONL note transcription against one matching GuitarSet JAMS file
+        #[arg(long, conflicts_with = "oracle_notes")]
+        predictions: Option<PathBuf>,
+        /// Limit both note sets to this many seconds, clipping note offsets
+        #[arg(long, requires = "predictions")]
+        clip_duration: Option<f64>,
         /// Write a markdown report to this path (default: stdout)
         #[arg(long)]
         report: Option<PathBuf>,
@@ -194,11 +201,15 @@ fn run(cli: Cli) -> Result<()> {
             corpus,
             annotations,
             oracle_notes,
+            predictions,
+            clip_duration,
             report,
         }) => eval(
             &corpus,
             annotations.as_deref(),
             oracle_notes,
+            predictions.as_deref(),
+            clip_duration,
             report.as_deref(),
         ),
         Some(Cmd::Transcribe(args)) => transcribe(args),
@@ -311,6 +322,8 @@ fn eval(
     corpus: &str,
     annotations: Option<&std::path::Path>,
     oracle_notes: bool,
+    predictions: Option<&std::path::Path>,
+    clip_duration: Option<f64>,
     report: Option<&std::path::Path>,
 ) -> Result<()> {
     if corpus != "guitarset" {
@@ -318,15 +331,19 @@ fn eval(
             "only GuitarSet evaluation is supported",
         ));
     }
-    if !oracle_notes {
-        return Err(MtabError::NotImplemented("end-to-end audio evaluation; use --oracle-notes with --annotations for the preliminary fingering-only metric"));
+    if !oracle_notes && predictions.is_none() {
+        return Err(MtabError::NotImplemented("automatic end-to-end corpus evaluation; provide --predictions <JSONL> or use --oracle-notes"));
     }
     let path = annotations.ok_or_else(|| {
         MtabError::InvalidModelSource(
             "provide --annotations <local GuitarSet .jams file or directory>".into(),
         )
     })?;
-    guitarset::evaluate(path, report)
+    if let Some(predictions) = predictions {
+        guitarset_notes::evaluate(path, predictions, clip_duration, report)
+    } else {
+        guitarset::evaluate(path, report)
+    }
 }
 
 fn transcribe(args: TranscribeArgs) -> Result<()> {

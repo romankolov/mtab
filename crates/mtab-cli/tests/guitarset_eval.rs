@@ -125,3 +125,72 @@ fn sequential_annotation_roundoff_does_not_discard_excerpt() {
         "{text}"
     );
 }
+
+#[test]
+fn scores_predicted_notes_with_onset_offset_and_clipping() {
+    let dir = Scratch::new();
+    let jams = dir.0.join("reference.jams");
+    let predictions = dir.0.join("prediction.jsonl");
+    let mut annotations = Vec::new();
+    for string in 0..6 {
+        let data = match string {
+            0 => vec![serde_json::json!({"time":0.0,"duration":1.0,"value":40.0})],
+            1 => vec![serde_json::json!({"time":1.0,"duration":1.0,"value":45.0})],
+            _ => vec![],
+        };
+        annotations.push(serde_json::json!({"namespace":"note_midi", "annotation_metadata":{"data_source":string.to_string()}, "data":data}));
+    }
+    std::fs::write(
+        &jams,
+        serde_json::to_vec(&serde_json::json!({"annotations":annotations})).unwrap(),
+    )
+    .unwrap();
+    let jsonl = concat!(
+        "{\"start\":0.02,\"end\":1.02,\"midi\":40,\"velocity\":100,\"instrument\":24}\n",
+        "{\"start\":1.02,\"end\":1.6,\"midi\":45,\"velocity\":100,\"instrument\":24}\n",
+        "{\"start\":1.5,\"end\":1.8,\"midi\":50,\"velocity\":100,\"instrument\":24}\n"
+    );
+    std::fs::write(&predictions, jsonl).unwrap();
+    let binary = env!("CARGO_BIN_EXE_mtab");
+    let run = |extra: &[&str]| {
+        let mut cmd = Command::new(binary);
+        cmd.args(["eval", "--annotations"])
+            .arg(&jams)
+            .arg("--predictions")
+            .arg(&predictions)
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let output = run(&[]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        text.contains("| Pitch + onset | 2 | 1 | 0 | 66.67% | 100.00% | 80.00% |"),
+        "{text}"
+    );
+    assert!(
+        text.contains("| Pitch + onset + offset | 1 | 2 | 1 | 33.33% | 50.00% | 40.00% |"),
+        "{text}"
+    );
+    let output = run(&["--clip-duration", "1"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        text.contains("| Pitch + onset + offset | 1 | 0 | 0 | 100.00% | 100.00% | 100.00% |"),
+        "{text}"
+    );
+    assert!(!run(&["--clip-duration", "0"]).status.success());
+    assert!(!run(&["--report", predictions.to_str().unwrap()])
+        .status
+        .success());
+    assert_eq!(std::fs::read_to_string(predictions).unwrap(), jsonl);
+}

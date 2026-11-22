@@ -11,8 +11,8 @@ use mtab_guitar::{assign_notes, assign_notes_with_stretch, Capo, FingeringOption
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
-struct Reference {
-    note: NoteEvent,
+pub(super) struct Reference {
+    pub(super) note: NoteEvent,
     string: u8,
 }
 
@@ -51,7 +51,7 @@ fn invalid(path: &Path, reason: &str) -> MtabError {
     ))
 }
 
-fn parse_jams(path: &Path) -> Result<Vec<Reference>> {
+pub(super) fn parse_jams(path: &Path) -> Result<Vec<Reference>> {
     let json: Value = serde_json::from_reader(std::fs::File::open(path)?)?;
     let annotations = json
         .get("annotations")
