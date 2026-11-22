@@ -180,6 +180,15 @@ A transcription with no detected notes produces a warning and one empty guitar
 track for notation export; it does not invent notes. This is covered by a
 synthetic-model CLI test, not a real-checkpoint quality assessment.
 
+### Experimental monophonic pitch-track API
+
+`mtab_audio::pitch_track::PitchTracker` uses the existing FFT-based YIN-style
+periodicity estimator to return frame-centered F0 values for a bounded region
+of mono 16 kHz audio. Frames stay within the requested region. Synthetic sine,
+sweep, silence and noise tests exercise the implementation. It is **not**
+source separation or bend inference, is not reliable on arbitrary polyphonic
+mixtures, and is not currently used by `--techniques`.
+
 ### Experimental ASCII library exporter
 
 `mtab_export::ascii::ascii_tab` returns text and its notation plan; the

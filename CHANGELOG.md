@@ -7,6 +7,10 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Experimental reusable monophonic F0 frame tracking for note-bounded regions,
+  sharing the tuning detector's FFT-accelerated YIN-style estimator. Tests use
+  synthetic steady tones, a frequency sweep, silence, noise and window bounds.
+  No audio-to-bend inference or polyphonic isolation is claimed.
 - Added an opt-in official-small CLI-to-GP5 test comparing independently
   reconstructed quantized notes against the emitted IR. The checker is covered
   by model-free tied-note fixtures in CI; the gated real-checkpoint test has

@@ -5,16 +5,14 @@
 //! separator: chords, bass and percussion can create spurious fundamentals.
 //! The histogram represents evidence, not guaranteed open-string pitches.
 
+use crate::{
+    pitch_track::{YinDetector, WINDOW},
+    AudioBuffer, MODEL_SAMPLE_RATE,
+};
 use mtab_core::{MtabError, Result};
-use rustfft::{num_complex::Complex, FftPlanner};
 
-use crate::{AudioBuffer, MODEL_SAMPLE_RATE};
-
-const WINDOW: usize = 2048;
-const FFT_SIZE: usize = WINDOW * 2;
 const HOP: usize = 1024;
 const MAX_FRAMES: usize = 512;
-const THRESHOLD: f64 = 0.15;
 
 /// MIDI-pitch evidence and coverage from a monophonic audio analysis.
 #[derive(Debug, Clone, PartialEq)]
@@ -53,14 +51,7 @@ pub fn pitch_histogram(audio: &AudioBuffer) -> Result<PitchHistogram> {
     }
     let available = 1 + (audio.samples.len() - WINDOW) / HOP;
     let count = available.min(MAX_FRAMES);
-    let mut planner = FftPlanner::<f64>::new();
-    let fft = planner.plan_fft_forward(FFT_SIZE);
-    let inverse = planner.plan_fft_inverse(FFT_SIZE);
-    let mut spectrum = vec![Complex::new(0.0, 0.0); FFT_SIZE];
-    let mut cumulative = vec![0.0; WINDOW + 1];
-    let mut cmnd = vec![1.0; WINDOW + 1];
-    let min_tau = (MODEL_SAMPLE_RATE / 1000) as usize;
-    let max_tau = (MODEL_SAMPLE_RATE / 38) as usize;
+    let mut detector = YinDetector::new();
     for i in 0..count {
         let frame_index = if count == 1 {
             0
@@ -68,66 +59,16 @@ pub fn pitch_histogram(audio: &AudioBuffer) -> Result<PitchHistogram> {
             ((i as u128 * (available - 1) as u128) / (count - 1) as u128) as usize
         };
         let start = frame_index * HOP;
-        let frame = &audio.samples[start..start + WINDOW];
-        let mean = frame.iter().map(|&x| f64::from(x)).sum::<f64>() / WINDOW as f64;
-        cumulative[0] = 0.0;
-        for (j, &value) in frame.iter().enumerate() {
-            let x = f64::from(value) - mean;
-            spectrum[j] = Complex::new(x, 0.0);
-            cumulative[j + 1] = cumulative[j] + x * x;
-        }
-        spectrum[WINDOW..].fill(Complex::new(0.0, 0.0));
         result.frames_examined += 1;
-        if cumulative[WINDOW] / (WINDOW as f64) < 1e-8 {
-            continue;
+        if let Some((frequency, confidence)) =
+            detector.analyze(&audio.samples[start..start + WINDOW])
+        {
+            let midi = (69.0 + 12.0 * (frequency / 440.0).log2()).round();
+            if (0.0..=127.0).contains(&midi) {
+                result.weights[midi as usize] += confidence;
+                result.voiced_frames += 1;
+            }
         }
-        fft.process(&mut spectrum);
-        for value in &mut spectrum {
-            *value = Complex::new(value.norm_sqr(), 0.0);
-        }
-        inverse.process(&mut spectrum);
-        cmnd[0] = 1.0;
-        let mut running = 0.0;
-        for tau in 1..=max_tau + 1 {
-            let autocorrelation = spectrum[tau].re / FFT_SIZE as f64;
-            let diff = (cumulative[WINDOW - tau] + cumulative[WINDOW]
-                - cumulative[tau]
-                - 2.0 * autocorrelation)
-                .max(0.0);
-            running += diff;
-            cmnd[tau] = if running > 0.0 {
-                diff * tau as f64 / running
-            } else {
-                1.0
-            };
-        }
-        let mut tau = min_tau;
-        while tau <= max_tau && cmnd[tau] >= THRESHOLD {
-            tau += 1;
-        }
-        if tau > max_tau {
-            continue;
-        }
-        while tau < max_tau && cmnd[tau + 1] < cmnd[tau] {
-            tau += 1;
-        }
-        // Parabolic sub-sample interpolation of the difference minimum.
-        let left = cmnd[tau - 1];
-        let middle = cmnd[tau];
-        let right = cmnd[tau + 1];
-        let denominator = left - 2.0 * middle + right;
-        let offset = if denominator.abs() > 1e-12 {
-            (0.5 * (left - right) / denominator).clamp(-0.5, 0.5)
-        } else {
-            0.0
-        };
-        let frequency = f64::from(MODEL_SAMPLE_RATE) / (tau as f64 + offset);
-        let midi = (69.0 + 12.0 * (frequency / 440.0).log2()).round();
-        if !(0.0..=127.0).contains(&midi) {
-            continue;
-        }
-        result.weights[midi as usize] += (1.0 - middle).clamp(0.0, 1.0);
-        result.voiced_frames += 1;
     }
     Ok(result)
 }
@@ -135,7 +76,9 @@ pub fn pitch_histogram(audio: &AudioBuffer) -> Result<PitchHistogram> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rustfft::{num_complex::Complex, FftPlanner};
     use std::f64::consts::PI;
+    const FFT_SIZE: usize = WINDOW * 2;
     fn sine(midi: u8, seconds: f64) -> AudioBuffer {
         let hz = 440.0 * 2.0f64.powf((f64::from(midi) - 69.0) / 12.0);
         let samples = (0..(seconds * 16000.0) as usize)
