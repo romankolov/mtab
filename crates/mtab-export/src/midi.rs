@@ -6,7 +6,8 @@
 //! (a tempo change lands BEFORE notes on the same tick), programs claim
 //! channels 0–8 then 10–15 in order of first appearance. Product upgrades
 //! over upstream: per-note velocities (upstream exports a fixed 100) and
-//! pitch bends from the IR.
+//! pitch bends from the IR. MIDI pitch bend is channel-wide, so overlapping
+//! notes on the same track share bends; per-note isolation is not yet implemented.
 
 use std::path::Path;
 
@@ -39,12 +40,12 @@ fn gm_program_for(instrument: Option<&str>) -> u8 {
 }
 
 /// Absolute-tick MIDI event for the merge step.
-struct AbsEvent {
+struct AbsEvent<'a> {
     tick: u64,
-    /// Sort priority at equal ticks: tempo(0) < bend(1) < note_off(2) < note_on(3).
+    /// Equal-tick ordering: metadata, existing bend, note-off, reset, new bend, note-on.
     prio: u8,
     order: u32,
-    kind: TrackEventKind<'static>,
+    kind: TrackEventKind<'a>,
 }
 
 /// Tempo map → (tick, microseconds per beat) list.
@@ -84,33 +85,20 @@ fn time_to_tick(tempo: &mtab_guitar::TempoMap, ppq: u16, t: f64) -> u64 {
     tick_acc.round() as u64
 }
 
-/// Bar-boundary ticks for the document's time-signature changes
-/// (`(bar_index, numerator, denominator)`), computed by walking bars at the
-/// tempo in effect at each bar start (approximation under tempo changes
-/// within a bar — documented).
+/// Bar boundaries in ticks are determined by meter, not elapsed seconds;
+/// therefore they remain exact even if tempo changes within a bar.
 fn time_sig_ticks(doc: &TabDocument, ppq: u16) -> Vec<(u64, u8, u8)> {
     let mut sigs = doc.meta.time_signatures.clone();
-    if sigs.is_empty() {
-        return Vec::new();
-    }
     sigs.sort_by_key(|(bar, _, _)| *bar);
     let mut out = Vec::new();
-    let mut t = 0.0f64;
+    let mut tick = 0u64;
     let mut bar = 0u32;
-    let mut num = sigs[0].1;
-    let mut den = sigs[0].2;
+    let mut num = 4u32;
+    let mut den = 4u32;
     for &(sig_bar, s_num, s_den) in &sigs {
-        while bar < sig_bar {
-            let bpm = doc.meta.tempo_map.bpm_at(t);
-            let beats = num as f64 * (4.0 / den as f64);
-            t += beats * 60.0 / bpm;
-            bar += 1;
-        }
-        out.push((
-            time_to_tick(&doc.meta.tempo_map, ppq, t),
-            s_num as u8,
-            s_den as u8,
-        ));
+        tick += (sig_bar - bar) as u64 * num as u64 * 4 * ppq as u64 / den as u64;
+        bar = sig_bar;
+        out.push((tick, s_num as u8, s_den.trailing_zeros() as u8));
         num = s_num;
         den = s_den;
     }
@@ -149,6 +137,54 @@ fn midi_event(channel: u4, message: MidiMessage) -> TrackEventKind<'static> {
 pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
     let ppq = PPQ;
     let tempo = &doc.meta.tempo_map;
+    let invalid = |reason: &str| MtabError::DecodeFailure {
+        chunk_index: 0,
+        reason: format!("invalid MIDI document: {reason}"),
+    };
+    if doc.tracks.len() > 15 {
+        return Err(invalid(
+            "at most 15 independent melodic MIDI channels are available",
+        ));
+    }
+    if tempo.changes.is_empty()
+        || tempo.changes[0].time != 0.0
+        || tempo.changes.iter().any(|c| {
+            !c.time.is_finite()
+                || !c.bpm.is_finite()
+                || c.bpm <= 0.0
+                || 60_000_000.0 / c.bpm > 16_777_215.0
+                || 60_000_000.0 / c.bpm < 1.0
+        })
+        || tempo.changes.windows(2).any(|p| p[0].time >= p[1].time)
+    {
+        return Err(invalid("tempo changes must start at zero, be strictly ordered, and have finite MIDI-representable BPM"));
+    }
+    if doc.meta.time_signatures.iter().any(|(_, num, den)| {
+        *num == 0 || *num > 255 || *den == 0 || *den > 128 || !den.is_power_of_two()
+    }) {
+        return Err(invalid(
+            "time signatures need numerator 1–255 and power-of-two denominator 1–128",
+        ));
+    }
+    if doc.tracks.iter().flat_map(|t| &t.notes).any(|n| {
+        n.midi > 127
+            || !n.start.is_finite()
+            || !n.end.is_finite()
+            || n.start < 0.0
+            || n.end < n.start
+            || n.bend.is_some_and(|b| {
+                !b.start.is_finite()
+                    || !b.peak.is_finite()
+                    || !b.depth_cents.is_finite()
+                    || b.start < n.start
+                    || b.peak < b.start
+                    || b.peak > n.end
+            })
+    }) {
+        return Err(invalid(
+            "notes and bends need MIDI pitches 0–127 and finite, ordered times within the note",
+        ));
+    }
 
     // --- Meta track: time signatures + tempo changes ---
     let mut meta_events: Vec<AbsEvent> = Vec::new();
@@ -173,7 +209,17 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
     }
 
     // --- One track per guitar ---
-    let mut track_events: Vec<Vec<AbsEvent>> = Vec::new();
+    let names: Vec<String> = doc
+        .tracks
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            t.instrument
+                .clone()
+                .unwrap_or_else(|| format!("guitar {}", i + 1))
+        })
+        .collect();
+    let mut track_events: Vec<Vec<AbsEvent<'_>>> = Vec::new();
     let mut channel_pool: Vec<u4> = (0..9u8).chain(10..16u8).map(u4::from).collect();
     for (ti, track) in doc.tracks.iter().enumerate() {
         let channel = channel_pool.first().copied().unwrap_or(u4::from(15u8));
@@ -182,13 +228,7 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
         }
         let mut events = Vec::new();
         let mut order = 0u32;
-        let name: &'static str = Box::leak(
-            track
-                .instrument
-                .clone()
-                .unwrap_or_else(|| format!("guitar {}", ti + 1))
-                .into_boxed_str(),
-        );
+        let name = &names[ti];
         events.push(AbsEvent {
             tick: 0,
             prio: 0,
@@ -211,12 +251,15 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
 
         for note in &track.notes {
             let on_tick = time_to_tick(tempo, ppq, note.start);
-            let off_tick = time_to_tick(tempo, ppq, note.end).max(on_tick + 1);
+            let min_off_tick = on_tick
+                .checked_add(1)
+                .ok_or_else(|| invalid("note tick overflow"))?;
+            let off_tick = time_to_tick(tempo, ppq, note.end).max(min_off_tick);
             let vel = note.velocity.clamp(1, 127);
             for (tick, wheel) in bend_events(note, ppq, tempo) {
                 events.push(AbsEvent {
                     tick,
-                    prio: 1,
+                    prio: if tick == on_tick { 4 } else { 1 },
                     order,
                     kind: midi_event(
                         channel,
@@ -240,9 +283,23 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
                 ),
             });
             order += 1;
+            if note.bend.is_some_and(|bend| bend.kind == BendKind::Bend) {
+                events.push(AbsEvent {
+                    tick: off_tick,
+                    prio: 3,
+                    order,
+                    kind: midi_event(
+                        channel,
+                        MidiMessage::PitchBend {
+                            bend: PitchBend::from_int(0),
+                        },
+                    ),
+                });
+                order += 1;
+            }
             events.push(AbsEvent {
                 tick: on_tick,
-                prio: 3,
+                prio: 5,
                 order,
                 kind: midi_event(
                     channel,
@@ -258,25 +315,35 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
     }
 
     // --- Assemble: deltas ---
-    let to_delta = |events: &mut Vec<AbsEvent>| -> Vec<TrackEvent<'static>> {
+    fn to_delta<'a>(events: &mut Vec<AbsEvent<'a>>) -> Result<Vec<TrackEvent<'a>>> {
         events.sort_by_key(|e| (e.tick, e.prio, e.order));
-        let mut last = 0i64;
+        let mut last = 0u64;
         let mut out = Vec::with_capacity(events.len());
         for e in events.drain(..) {
-            let delta = (e.tick as i64 - last).max(0) as u32;
-            last = e.tick as i64;
+            let delta = e.tick - last;
+            if delta > 0x0fff_ffff {
+                return Err(MtabError::DecodeFailure {
+                    chunk_index: 0,
+                    reason: "MIDI event delta exceeds the 28-bit SMF limit".into(),
+                });
+            }
+            last = e.tick;
             out.push(TrackEvent {
-                delta: u28::from(delta),
+                delta: u28::from(delta as u32),
                 kind: e.kind,
             });
         }
-        out
-    };
+        out.push(TrackEvent {
+            delta: u28::from(0u32),
+            kind: TrackEventKind::Meta(MetaMessage::EndOfTrack),
+        });
+        Ok(out)
+    }
 
     let mut tracks = Vec::with_capacity(1 + track_events.len());
-    tracks.push(to_delta(&mut meta_events));
+    tracks.push(to_delta(&mut meta_events)?);
     for mut evs in track_events {
-        tracks.push(to_delta(&mut evs));
+        tracks.push(to_delta(&mut evs)?);
     }
 
     let smf = Smf {
@@ -392,7 +459,7 @@ mod tests {
             .collect();
         assert!(meta
             .iter()
-            .any(|m| matches!(m, MetaMessage::TimeSignature(4, 4, 24, 8))));
+            .any(|m| matches!(m, MetaMessage::TimeSignature(4, 2, 24, 8))));
         let tempos: Vec<u32> = meta
             .iter()
             .filter_map(|m| match m {
@@ -457,5 +524,56 @@ mod tests {
             })
             .collect();
         assert_eq!(wheels, vec![0, 8191, 0]); // 200 cents = full tone = max wheel (+8191)
+    }
+    #[test]
+    fn time_signatures_use_log2_and_bar_ticks_ignore_tempo_changes() {
+        let mut doc = doc_with_tempo_change();
+        doc.meta.tempo_map.changes[1].time = 1.0;
+        doc.meta.time_signatures = vec![(0, 4, 4), (2, 3, 8)];
+        assert_eq!(time_sig_ticks(&doc, 480), vec![(0, 4, 2), (3840, 3, 3)]);
+        let bytes = midi_bytes(&doc).unwrap();
+        let smf = Smf::parse(&bytes).unwrap();
+        for track in &smf.tracks {
+            assert!(matches!(
+                track.last().unwrap().kind,
+                TrackEventKind::Meta(MetaMessage::EndOfTrack)
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_meter_tempo_and_channel_overflow() {
+        let mut doc = doc_with_tempo_change();
+        doc.meta.time_signatures = vec![(0, 4, 3)];
+        assert!(midi_bytes(&doc).is_err());
+        doc.meta.time_signatures.clear();
+        doc.meta.tempo_map.changes[0].bpm = 0.0;
+        assert!(midi_bytes(&doc).is_err());
+        doc.meta.tempo_map = TempoMap::constant(120.0);
+        doc.tracks = vec![doc.tracks[0].clone(); 16];
+        assert!(midi_bytes(&doc).is_err());
+    }
+    #[test]
+    fn resets_unreleased_bend_after_note_off() {
+        let mut doc = doc_with_tempo_change();
+        doc.tracks[0].notes[1].bend.as_mut().unwrap().kind = BendKind::Bend;
+        let bytes = midi_bytes(&doc).unwrap();
+        let smf = Smf::parse(&bytes).unwrap();
+        let track = &smf.tracks[1];
+        let off = track.iter().position(|e| matches!(e.kind, TrackEventKind::Midi { message: MidiMessage::NoteOff { key, .. }, .. } if key.as_int() == 62)).unwrap();
+        assert!(
+            matches!(track[off + 1].kind, TrackEventKind::Midi { message: MidiMessage::PitchBend { bend }, .. } if bend.as_int() == 0)
+        );
+    }
+
+    #[test]
+    fn rejects_nonfinite_bends_and_unrepresentable_deltas() {
+        let mut doc = doc_with_tempo_change();
+        doc.tracks[0].notes[1].bend.as_mut().unwrap().peak = f64::NAN;
+        assert!(midi_bytes(&doc).is_err());
+        doc.tracks[0].notes[1].bend = None;
+        doc.tracks[0].notes[1].start = 1.0e10;
+        doc.tracks[0].notes[1].end = 1.0e10 + 1.0;
+        assert!(midi_bytes(&doc).is_err());
     }
 }
