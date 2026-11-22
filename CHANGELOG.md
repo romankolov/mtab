@@ -7,6 +7,10 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Manually opened and GP5-re-exported two generated fixtures in TuxGuitar
+  1.6.6; independent comparisons cover musical fields and bend points. The
+  app check exposed and fixed a half-height bend mapping that the parser
+  alone did not detect. Audio playback was unavailable in this environment.
 - GP5 can encode explicitly supplied bend, prebend-release, and bend-release
   contours on a single unsplit beat, with positive 100/200-cent heights and an
   interior peak on the 1/12-note bend grid. Unsupported contours are errors.
@@ -25,7 +29,7 @@ versioning: [SemVer](https://semver.org/).
   ties, string/fret, capo, tuning and GP5 dynamic levels. The export dispatcher
   and CLI can write MIDI plus GP5 together; changing tempo/meter, eight strings,
   unsupported bends, most techniques and colliding quantized notes remain unsupported.
-  Not yet manually checked in a notation program.
+  Limited TuxGuitar fixture checks; Guitar Pro itself is not yet checked.
 - **M6 groundwork:** a deterministic 4/4, constant-integer-tempo rhythmic
   planning API on a 1/32 grid. It creates rests and tied note segments across
   attacks and bar lines, reports timing displacement, and rejects unsupported

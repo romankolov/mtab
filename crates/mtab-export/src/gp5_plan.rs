@@ -267,7 +267,7 @@ fn plan_bend(note: &TabNote) -> Result<Option<PlannedBend>> {
         || bend.start != note.start
         || bend.peak <= note.start
         || bend.peak >= note.end
-        || !matches!(bend.depth_cents, 100.0 | 200.0)
+        || (bend.depth_cents != 100.0 && bend.depth_cents != 200.0)
         || note.technique.contains(&Technique::DeadNote)
     {
         return Err(invalid("bend must start at the note attack, have an interior peak and a positive height of 100 or 200 cents, and not be a dead note"));

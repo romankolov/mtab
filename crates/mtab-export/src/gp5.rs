@@ -131,7 +131,9 @@ pub fn gp5_bytes(doc: &TabDocument) -> Result<(Vec<u8>, ScorePlan)> {
                     };
                     target_note.effect.palm_mute = note.palm_mute;
                     if let Some(bend) = note.bend {
-                        let height = bend.semitones as i8;
+                        // GP5 point values use quarter-tone units: two units
+                        // per semitone. TuxGuitar renders a value of one as 1/4.
+                        let height = (bend.semitones * 2) as i8;
                         let (kind, values) = match bend.kind {
                             BendKind::Bend => (BendType::Bend, [0, height, height]),
                             BendKind::Release => (BendType::PrebendRelease, [height, height, 0]),

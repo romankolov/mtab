@@ -65,8 +65,10 @@ encode dead-note, palm-mute and restricted bend markings supplied in the library
 IR, but does not infer them from audio. It rejects same-string quantization
 collisions, unsupported bends, eight-string tracks and other unsupported
 notation rather than dropping notes.
-The exporter has not yet been manually checked in Guitar Pro or TuxGuitar, and
-real-checkpoint CLI-to-GP5 output has not yet been validated. MIDI remains
+Two generated fixtures were opened and GP5-re-exported with TuxGuitar 1.6.6;
+their tested musical fields and bend points survived. This is not a general
+compatibility or playback guarantee, and real-checkpoint CLI-to-GP5 output has
+not yet been validated. MIDI remains
 unquantized. Pitch bends are not yet inferred. The MIDI writer isolates bent
 overlapping notes onto separate channels and reports an error if its available
 15 melodic channels are exhausted. Bend contours use stepped control points
@@ -187,8 +189,9 @@ dead notes are rejected. The peak's relative position is preserved on the
 quantized beat, so its absolute time shifts with the note boundaries. GP5
 stores interpolated bend points; the MIDI exporter currently emits stepped
 pitch-wheel events at those points, so their playback can differ. Velocity is
-rounded to GP5 dynamic levels. It has **not** been manually verified in Guitar
-Pro or TuxGuitar.
+rounded to GP5 dynamic levels. Two small fixtures have been visually checked and re-exported in TuxGuitar
+1.6.6; see `benches/m6-tuxguitar.md` for scope and limitations. Guitar Pro
+itself has not yet been checked.
 
 An independent PyGuitarPro round-trip fixture check is required in CI. To run
 it locally, install `PyGuitarPro==0.10.1` in a Python environment and use:

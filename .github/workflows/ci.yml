@@ -72,9 +72,12 @@ jobs:
       - name: Verify GP5 using independent parser
         env:
           MTAB_PYGUITARPRO_PYTHON: python
+          MTAB_GP5_FIXTURE_DIR: ${{ runner.temp }}/mtab-gp5-fixtures
         run: |
           cargo test --locked -p mtab-export --test gp5_roundtrip -- --ignored --nocapture
           cargo test --locked -p mtab-cli --bin mtab mixed_midi_gp5_outputs_and_format_conflicts -- --nocapture
+          python tools/check_gp5_tuxguitar_roundtrip.py "$MTAB_GP5_FIXTURE_DIR/bends.gp5" crates/mtab-export/tests/fixtures/tuxguitar-1.6.6/bends.gp5
+          python tools/check_gp5_tuxguitar_roundtrip.py "$MTAB_GP5_FIXTURE_DIR/techniques.gp5" crates/mtab-export/tests/fixtures/tuxguitar-1.6.6/techniques.gp5
 
   msrv:
     name: Minimum Rust 1.75

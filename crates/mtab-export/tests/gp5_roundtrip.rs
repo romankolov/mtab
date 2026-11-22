@@ -12,6 +12,15 @@ impl Drop for Scratch {
     }
 }
 
+// Opt-in for reproducing external notation-application round trips.
+fn keep_fixture(path: &std::path::Path) {
+    if let Some(dir) = std::env::var_os("MTAB_GP5_FIXTURE_DIR") {
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::copy(path, dir.join(path.file_name().unwrap())).unwrap();
+    }
+}
+
 fn note(start: f64, end: f64, midi: u8, string: u8, fret: u8, velocity: u8) -> TabNote {
     TabNote {
         start,
@@ -153,6 +162,7 @@ fn pyguitarpro_reads_tracks_ties_and_dynamics() {
     marked.tracks[0].notes[2].technique = vec![mtab_guitar::Technique::DeadNote];
     let marked_file = dir.0.join("techniques.gp5");
     gp5::write_gp5(&marked, &marked_file).unwrap();
+    keep_fixture(&marked_file);
     let technique_check =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_techniques.py");
     let output = Command::new(&python)
@@ -194,6 +204,7 @@ fn pyguitarpro_reads_tracks_ties_and_dynamics() {
     let (bent_bytes, _) = gp5::gp5_bytes(&bent).unwrap();
     assert_eq!(bent_bytes, gp5::gp5_bytes(&bent).unwrap().0);
     std::fs::write(&bent_file, bent_bytes).unwrap();
+    keep_fixture(&bent_file);
     let bend_check =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_bends.py");
     let output = Command::new(&python)

@@ -11,9 +11,9 @@ actual = [(note.type.name, note.effect.palmMute, note.effect.bend.type.name,
            [(p.position, p.value, p.vibrato) for p in note.effect.bend.points])
           for note in notes]
 expected = [
-    ('normal', True, 'bend', 25, [(0, 0, False), (4, 1, False), (12, 1, False)]),
-    ('normal', False, 'prebendRelease', 50, [(0, 2, False), (6, 2, False), (12, 0, False)]),
-    ('normal', False, 'bendRelease', 25, [(0, 0, False), (8, 1, False), (12, 0, False)]),
+    ('normal', True, 'bend', 50, [(0, 0, False), (4, 2, False), (12, 2, False)]),
+    ('normal', False, 'prebendRelease', 100, [(0, 4, False), (6, 4, False), (12, 0, False)]),
+    ('normal', False, 'bendRelease', 50, [(0, 0, False), (8, 2, False), (12, 0, False)]),
 ]
 assert actual == expected, f"actual={actual!r}\nexpected={expected!r}"
 print("PyGuitarPro verified bend, prebend release, bend-release and palm-mute control points")
