@@ -11,6 +11,7 @@
 //! <https://github.com/muscriptor/muscriptor>; attribution is retained per
 //! file where code is ported (NOTICE).
 
+pub mod chunk;
 pub mod error;
 pub mod event;
 pub mod lm;
