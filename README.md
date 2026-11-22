@@ -190,7 +190,9 @@ source separation and is not reliable on arbitrary polyphonic mixtures.
 `mtab_audio::bend_analysis::suggest_bends` can also suggest simple bend shapes
 for non-overlapping notes, with explicit abstention reasons. It is tested only
 on synthetic signals, does not modify the transcription, and is not currently
-used by `--techniques`; suggestions require human review.
+used by `--techniques`; suggestions require human review. One isolated real
+GuitarSet note also provides a small F0 sanity check, not a bend-quality
+benchmark; see `benches/m7-pitch-fixture.md`.
 
 ### Experimental ASCII library exporter
 

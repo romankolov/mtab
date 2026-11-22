@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Added a licensed five-second GuitarSet pitch-contour fixture and a real-audio
+  F0 regression on one isolated reference note. It is a small sanity check,
+  not corpus-level accuracy or a labeled-bend benchmark.
 - Added a conservative, opt-in library API for tentative bends on isolated
   notes. It abstains on overlap, short notes, unvoiced frames, extreme pitch
   deviations and ambiguous contours; it has synthetic tests only and is not

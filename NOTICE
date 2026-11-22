@@ -44,7 +44,8 @@ software. Licenses of third-party components:
    Johan Pauwels and Juan P. Bello; Zenodo 3371780 (2019).
    License: CC BY 4.0, https://creativecommons.org/licenses/by/4.0/
    Source: https://doi.org/10.5281/zenodo.3371780
-   Used for: one modified five-second test audio and note-annotation excerpt.
+   Used for: one modified five-second test audio, note-annotation excerpt,
+   and derived per-string pitch-contour excerpt.
    Modifications and hashes: crates/mtab-cli/tests/fixtures/guitarset/README.md.
    This fixture license is separate from the MIT software license and the
    CC BY-NC MuScriptor weights, which are not distributed.
