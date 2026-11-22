@@ -79,6 +79,27 @@ jobs:
           python tools/check_gp5_tuxguitar_roundtrip.py "$MTAB_GP5_FIXTURE_DIR/bends.gp5" crates/mtab-export/tests/fixtures/tuxguitar-1.6.6/bends.gp5
           python tools/check_gp5_tuxguitar_roundtrip.py "$MTAB_GP5_FIXTURE_DIR/techniques.gp5" crates/mtab-export/tests/fixtures/tuxguitar-1.6.6/techniques.gp5
 
+  independent-musicxml:
+    name: Independent MusicXML 3.1 validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: musicxml-validation
+      - run: python -m pip install lxml==5.3.2 music21==9.7.1
+      - name: Validate schema and independently interpret notes
+        env:
+          MTAB_XML_PYTHON: python
+          MTAB_XML_FIXTURE_DIR: ${{ runner.temp }}/mtab-musicxml
+        run: |
+          cargo test --locked -p mtab-export --test musicxml -- --ignored --nocapture
+          python tools/check_musicxml_music21.py "$MTAB_XML_FIXTURE_DIR/fixture.musicxml"
+
   msrv:
     name: Minimum Rust 1.75
     runs-on: ubuntu-latest

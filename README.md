@@ -13,8 +13,8 @@ of these are not yet implemented or reliably inferred.
 > **Status: in development.** The audio frontend, transformer inference,
 > chunk decoder, and MIDI writer have preliminary implementations. The CLI
 > supports raw-note JSONL and preliminary MIDI export with string/fret assignment.
-> Experimental, restricted GP5 and library ASCII tab export are available;
-> MusicXML is not implemented. The preliminary
+> Experimental, restricted GP5, MusicXML and library ASCII tab export are
+> available. The preliminary
 > fingering search has not been compared with tab-labeler-v3 on held-out audio.
 > The official small checkpoint has
 > been checked against upstream on a synthetic plucked-string fixture and
@@ -184,6 +184,18 @@ constraints. Each bar shows beat durations above aligned strings. The legend
 explains ties, dead notes, palm mutes and the supported bend notation; velocities
 are omitted. It is a readable quantized view, not a lossless performance format.
 CLI integration is not yet available.
+
+### Experimental MusicXML library exporter
+
+`mtab_export::musicxml::musicxml` returns MusicXML 3.1 and the quantized
+notation plan; `ExportFormat::MusicXml` writes `.musicxml` or `.xml`. It emits
+standard concert-pitch and tablature staves, tuning, capo, bars, durations,
+chords, ties, string/fret, dead-note heads and palm-mute annotations. It uses
+the restricted GP5 planner and rejects timed bends rather than discarding
+them. Velocities are not encoded; the two notation staves duplicate notes and
+may double playback in applications. It has not been checked in a notation
+application. CI validates the W3C 3.1 schema and reads a fixture with
+music21; Python is test-only. CLI integration is not yet available.
 
 ### Experimental GP5 library encoder
 

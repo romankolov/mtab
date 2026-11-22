@@ -49,6 +49,12 @@ software. Licenses of third-party components:
    This fixture license is separate from the MIT software license and the
    CC BY-NC MuScriptor weights, which are not distributed.
 
+7. MusicXML 3.1 W3C XML Schema test fixtures
+   Copyright 2004–2017 Contributors to the MusicXML Specification; published
+   under the W3C Community Final Specification Agreement. Schema dependencies
+   include W3C XML and XLink schemas with their own notices in their headers.
+   Source and hashes: tools/musicxml-3.1-xsd/README.md. Test-only.
+
 Other Rust crate dependencies and their licenses are listed by
 `cargo deny list` / the SBOM generated at release time.
 --------------------------------------------------------------------------

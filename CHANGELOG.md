@@ -7,6 +7,10 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- An experimental MusicXML 3.1 library exporter with standard and tab staves,
+  validated in CI against the official schema and read independently with
+  music21. It uses the restricted notation planner, rejects bends, and does
+  not yet encode note velocities or guarantee single-voice playback.
 - An experimental ASCII tab library exporter with bar-aligned strings, beat
   durations, ties, dead notes, palm muting and supported bend markings. It uses
   the restricted GP5 plan; velocities are omitted and output is quantized.
