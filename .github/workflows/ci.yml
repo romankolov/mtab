@@ -45,6 +45,20 @@ jobs:
       - name: release smoke build
         run: cargo build --workspace --release --locked
 
+  msrv:
+    name: Minimum Rust 1.75
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.75.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv-1.75
+      - name: cargo test on MSRV
+        run: cargo test --workspace --locked
+
   doc:
     name: Docs
     runs-on: ubuntu-latest

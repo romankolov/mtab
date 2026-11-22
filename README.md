@@ -48,6 +48,9 @@ MIDI and Guitar Pro tablature; the remaining features are tracked in
 
 ## Development
 
+The workspace supports Rust 1.75 or later with the checked-in lockfile; CI
+also tests that minimum version.
+
 ```console
 $ cargo test --workspace      # tests (see .github/workflows/ci.yml)
 $ cargo run -p mtab-cli -- --models
