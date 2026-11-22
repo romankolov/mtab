@@ -61,7 +61,8 @@ pub fn standard_candidates() -> Vec<TuningCandidate> {
 /// A candidate scores the fraction of observed weight at its sounding open
 /// string pitches. `sufficient_evidence` requires >=8 total weight, >=4
 /// matched open pitches, >=75% open fraction, at least two candidates and a
-/// >=0.10 lead over the next candidate. These are conservative but **uncalibrated** thresholds and assume
+/// lead of at least 0.10 over the next candidate. These **uncalibrated**
+/// thresholds assume
 /// the recorded phrase actually includes open strings. Silence and equivalent
 /// or near-tied templates abstain. Arbitrary spectra, chords and fretted notes
 /// can fool this heuristic even when it passes the threshold.
