@@ -87,3 +87,41 @@ fn evaluates_jams_and_protects_annotations() {
         "full evaluation must not silently claim oracle results"
     );
 }
+
+#[test]
+fn sequential_annotation_roundoff_does_not_discard_excerpt() {
+    let dir = Scratch::new();
+    let jams = dir.0.join("boundary.jams");
+    let mut annotations = Vec::new();
+    for string in 0..6 {
+        let data = if string == 0 {
+            vec![
+                serde_json::json!({"time": 0.0, "duration": 1.0000000000005, "value": 40.0}),
+                serde_json::json!({"time": 1.0, "duration": 1.0, "value": 40.0}),
+            ]
+        } else {
+            vec![]
+        };
+        annotations.push(serde_json::json!({"namespace":"note_midi", "annotation_metadata":{"data_source":string.to_string()}, "data":data}));
+    }
+    std::fs::write(
+        &jams,
+        serde_json::to_vec(&serde_json::json!({"annotations": annotations})).unwrap(),
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_mtab"))
+        .args(["eval", "--oracle-notes", "--annotations"])
+        .arg(&jams)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        text.contains("| Bounded beam | 2 | 0 | 2 | 100.00% | 0.00% |"),
+        "{text}"
+    );
+}

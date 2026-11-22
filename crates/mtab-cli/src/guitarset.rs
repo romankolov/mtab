@@ -350,6 +350,7 @@ Reference pitches and onset/offsets, not model predictions, are provided to all 
 String accuracy is correct assignments divided by **all** reference notes; unassigned notes count as incorrect.\n\
 Wrong-string rate is incorrect assigned notes divided by assigned notes. Beam-search failures mark the entire excerpt unassigned.\n\
 Adaptive search retries failed excerpts with a seven-fret span, which may be uncomfortable and needs review.\n\
+Fingering clips sequential note-boundary overlaps of at most 1 ns; reference times otherwise remain unchanged.\n\
 The greedy baseline chooses the lowest fret per note independently and does not enforce overlaps.\n\
 This is not end-to-end accuracy, a TabCNN/TDR metric, or a tab-labeler-v3 comparison.\n\n\
 - Annotation files: {}\n- Reference notes: {}\n- Beam-search failed excerpts: {}\n- Adaptive retry recovered excerpts: {}\n- Recovered excerpts with actual span above four: {}\n- Largest actual span in recovered excerpts: {} frets\n- Adaptive retry still failed excerpts: {}\n- Greedy notes overlapping another note on the same string: {}\n\

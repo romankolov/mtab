@@ -45,7 +45,8 @@ result or set `--tuning` and `--capo` explicitly. Run
 `mtab detect-tuning --list` for tunings.
 
 Beat tracking and quantization are not implemented: MIDI preserves note times
-with a fixed 120 BPM / 4/4 map. Fret assignment may
+with a fixed 120 BPM / 4/4 map, apart from clipping sequential boundary
+roundoff of at most one nanosecond. Fret assignment may
 fail on unplayable or beam-pruned polyphony; it is not a quality evaluation.
 The optional `--allow-wide-stretch` retries a failed assignment with a maximum
 seven-fret span instead of four, without dropping notes or allowing same-string
@@ -128,11 +129,12 @@ mtab eval --corpus guitarset --oracle-notes --annotations /path/to/annotations \
   --report oracle-report.md
 ```
 
-[Our 360-excerpt report](benches/guitarset-oracle.md) documents a 57.53%
-all-note string accuracy for the bounded beam solver, with 46 excerpts left
-unassigned. An optional wider-stretch retry recovered 41 of those excerpts and
-scored 65.90%; every recovered excerpt contained a span above four frets. The
-collision-ignoring per-note greedy baseline scored 45.40%. This is **not** end-to-end audio accuracy or a tab-labeler-v3 comparison; the
+[Our 360-excerpt report](benches/guitarset-oracle.md) documents a 59.65%
+all-note string accuracy for the bounded beam solver, with 40 excerpts left
+unassigned. An optional wider-stretch retry recovered 38 of those excerpts and
+scored 67.04%; every recovered excerpt contained a span above four frets. The
+collision-ignoring per-note greedy baseline scored 45.40%. The same corpus
+was used to diagnose the solver, so these are not held-out results. This is **not** end-to-end audio accuracy or a tab-labeler-v3 comparison; the
 full acceptance evaluation remains outstanding. The optional `Nightly`
 workflow can run this annotation-only check with `run_oracle=true`.
 

@@ -14,6 +14,11 @@ use mtab_core::{MtabError, NoteEvent, Result};
 
 use crate::{Capo, TabNote, Tuning};
 
+// Collapse sub-nanosecond arithmetic jitter at sequential note boundaries.
+// Output note ends are clipped correspondingly, preserving the no-overlap
+// invariant rather than treating physically overlapping notes as disjoint.
+const BOUNDARY_EPSILON: f64 = 1e-9;
+
 const NO_FEASIBLE: &str = "no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)";
 
 /// Search constraints and beam width.
@@ -41,7 +46,12 @@ impl Default for FingeringOptions {
 struct Active {
     string: u8,
     fret: u8,
+    start: f64,
     end: f64,
+}
+
+fn sounding_at(active: &Active, onset: f64) -> bool {
+    active.end > onset && !(active.start < onset && active.end - onset <= BOUNDARY_EPSILON)
 }
 
 struct PathNode {
@@ -62,8 +72,9 @@ struct State {
 
 /// Assign raw notes from a **single instrument track** to a tuning and capo.
 /// Returns notes in the same order as input; their velocities and timings are
-/// preserved, not estimated. All pitches, string collisions, and simultaneous
-/// fret spans are checked. Unplayable input returns an error rather than
+/// preserved, not estimated, except that sub-nanosecond boundary overlaps are
+/// clipped to the following onset to remove floating-point jitter. All pitches,
+/// string collisions, and simultaneous fret spans are checked. Unplayable input returns an error rather than
 /// silently dropping notes. No chord-shape dictionary or measured GuitarSet
 /// accuracy is implied by this preliminary solver.
 pub fn assign_notes(
@@ -143,7 +154,7 @@ pub fn assign_notes(
             let active: Vec<Active> = state
                 .active
                 .iter()
-                .filter(|a| a.end > note.start)
+                .filter(|a| sounding_at(a, note.start))
                 .cloned()
                 .collect();
             for &(string, fret) in &candidates {
@@ -181,6 +192,7 @@ pub fn assign_notes(
                 active_next.push(Active {
                     string,
                     fret,
+                    start: note.start,
                     end: note.end,
                 });
                 next.push((
@@ -212,10 +224,10 @@ pub fn assign_notes(
         next.sort_by(|a, b| a.0.score.total_cmp(&b.0.score));
         let mut seen = HashSet::new();
         next.retain(|(state, _, _)| {
-            let mut active: Vec<(u8, u8, u64)> = state
+            let mut active: Vec<(u8, u8, u64, u64)> = state
                 .active
                 .iter()
-                .map(|a| (a.string, a.fret, a.end.to_bits()))
+                .map(|a| (a.string, a.fret, a.start.to_bits(), a.end.to_bits()))
                 .collect();
             active.sort_unstable();
             seen.insert((state.position, state.last_string, active))
@@ -255,6 +267,23 @@ pub fn assign_notes(
         out[node.index].string = node.string;
         out[node.index].fret = node.fret;
         path = node.previous;
+    }
+    // Mirror the search's boundary tolerance in the returned notes. A note
+    // clipped here started before the later onset, so its duration stays >0.
+    // This also keeps simultaneous-span constraints true in the returned IR.
+    let mut live: Vec<usize> = Vec::new();
+    for &index in &order {
+        let onset = out[index].start;
+        for &previous in &live {
+            if out[previous].start < onset
+                && out[previous].end > onset
+                && out[previous].end - onset <= BOUNDARY_EPSILON
+            {
+                out[previous].end = onset;
+            }
+        }
+        live.retain(|&previous| out[previous].end > onset);
+        live.push(index);
     }
     Ok(out)
 }
@@ -578,5 +607,44 @@ mod tests {
             7
         )
         .is_err());
+    }
+    #[test]
+    fn clips_only_subnanosecond_sequential_overlap() {
+        let opts = FingeringOptions::default();
+        let notes = [note(40, 0.0, 1.0 + 5e-13), note(40, 1.0, 2.0)];
+        let out = assign_notes(&notes, &Tuning::standard(), Capo::NONE, opts).unwrap();
+        assert_eq!(out[0].end, 1.0);
+        assert_eq!(out[1].start, 1.0);
+        assert_eq!(out[0].string, out[1].string);
+        let real_overlap = [note(40, 0.0, 1.0 + 1e-6), note(40, 1.0, 2.0)];
+        assert!(assign_notes(&real_overlap, &Tuning::standard(), Capo::NONE, opts).is_err());
+    }
+
+    #[test]
+    fn boundary_tolerance_does_not_release_same_onset_tiny_notes() {
+        let notes = [note(40, 0.0, 5e-10), note(40, 0.0, 1.0)];
+        assert!(assign_notes(
+            &notes,
+            &Tuning::standard(),
+            Capo::NONE,
+            FingeringOptions::default()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn boundary_tolerance_keeps_span_valid_in_returned_notes() {
+        // A previously held fretted note has a numerical end just after the
+        // next attack; after clipping, the exact returned intervals no longer
+        // overlap, preserving the strict four-fret span constraint.
+        let notes = [note(41, 0.0, 1.0 + 5e-13), note(85, 1.0, 2.0)];
+        let out = assign_notes(
+            &notes,
+            &Tuning::standard(),
+            Capo::NONE,
+            FingeringOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(out[0].end, out[1].start);
     }
 }
