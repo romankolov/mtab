@@ -37,6 +37,16 @@ software. Licenses of third-party components:
    - UVR-MDX-Net models — see upstream license
    These are NOT distributed with this repository.
 
+6. GuitarSet fixture audio and annotation excerpt
+   GuitarSet v1.1.0 by Qingyang Xi, Rachel M. Bittner, Xuzhou Ye,
+   Johan Pauwels and Juan P. Bello; Zenodo 3371780 (2019).
+   License: CC BY 4.0, https://creativecommons.org/licenses/by/4.0/
+   Source: https://doi.org/10.5281/zenodo.3371780
+   Used for: one modified five-second test audio and note-annotation excerpt.
+   Modifications and hashes: crates/mtab-cli/tests/fixtures/guitarset/README.md.
+   This fixture license is separate from the MIT software license and the
+   CC BY-NC MuScriptor weights, which are not distributed.
+
 Other Rust crate dependencies and their licenses are listed by
 `cargo deny list` / the SBOM generated at release time.
 --------------------------------------------------------------------------

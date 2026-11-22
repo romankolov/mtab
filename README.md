@@ -13,9 +13,11 @@ tuning, capo, string/fret assignment, rhythm, bends, dead notes.
 > chunk decoder, and MIDI writer have preliminary implementations. The CLI
 > supports raw-note JSONL and preliminary MIDI export with string/fret assignment.
 > GP5 and other tablature exports are not implemented yet. The preliminary
-> fingering search is not benchmarked. The official small checkpoint has
-> been smoke-tested and checked against upstream on a synthetic plucked-string
-> fixture; accuracy on real music and end-to-end performance targets are unverified.
+> fingering search has not been compared with tab-labeler-v3 on held-out audio.
+> The official small checkpoint has
+> been checked against upstream on a synthetic plucked-string fixture and
+> tested on one real-guitar excerpt. Corpus-level accuracy and end-to-end
+> performance targets remain unverified.
 
 ## Current usage
 
@@ -77,6 +79,7 @@ MIDI and Guitar Pro tablature; the remaining features are tracked in
 ## Weights & licensing
 
 - **Code:** [MIT](LICENSE) — see [NOTICE](NOTICE) for third-party components.
+- **GuitarSet excerpt:** CC BY 4.0; see its [attribution and changes](crates/mtab-cli/tests/fixtures/guitarset/README.md).
 - **MuScriptor weights:** **CC BY-NC 4.0 (non-commercial), gated on
   [Hugging Face](https://huggingface.co/MuScriptor)**. They are **not** included
   in this repo or in release artifacts. Accept the license on the model page,
@@ -137,6 +140,25 @@ collision-ignoring per-note greedy baseline scored 45.40%. The same corpus
 was used to diagnose the solver, so these are not held-out results. This is **not** end-to-end audio accuracy or a tab-labeler-v3 comparison; the
 full acceptance evaluation remains outstanding. The optional `Nightly`
 workflow can run this annotation-only check with `run_oracle=true`.
+
+### Real-guitar note smoke and evaluation
+
+The official small model was also tested on one five-second, CC BY 4.0
+GuitarSet guitar excerpt. [The report](benches/guitarset-small-note-smoke.md)
+records 82.35% pitch-plus-onset F1 and 52.94% pitch-plus-onset-plus-offset F1
+on that **single development excerpt**; neither is a corpus accuracy claim.
+The optional ignored test uses a user-provided licensed checkpoint. To score
+other note JSONL against the matching JAMS annotation:
+
+```sh
+mtab eval --corpus guitarset --annotations recording.jams \
+  --predictions notes.jsonl --clip-duration 5
+```
+
+This is note-event matching, not full transcription or tablature evaluation.
+The Nightly `run_real_small` option performs the fixture check using an
+accepted Hugging Face account's `HF_TOKEN` repository secret; no model
+weights are uploaded as artifacts.
 
 ### Optional independent MIDI reader check
 

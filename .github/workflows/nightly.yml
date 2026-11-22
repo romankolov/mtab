@@ -20,6 +20,10 @@ on:
         description: "Run oracle-note fingering eval on GuitarSet annotations"
         type: boolean
         default: false
+      run_real_small:
+        description: "Test real guitar with official small weights (requires HF_TOKEN)"
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -107,4 +111,40 @@ jobs:
         with:
           name: guitarset-oracle-report
           path: eval-oracle.md
+          if-no-files-found: error
+
+  real-small-guitar:
+    name: Official small real-guitar smoke (optional)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.run_real_small
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: nightly-real-small
+      - name: Download and verify gated small checkpoint
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo '::error::Set the HF_TOKEN repository secret for an account with accepted model conditions.'
+            exit 1
+          fi
+          curl -fL --retry 3 -H "Authorization: Bearer $HF_TOKEN" \
+            -o "$RUNNER_TEMP/mtab-small.safetensors" \
+            'https://huggingface.co/MuScriptor/muscriptor-small/resolve/main/model.safetensors'
+          echo "bbd482c786b895cf7d8f44185073d951adae2ebb8a66f82ca84cd1f84569549c  $RUNNER_TEMP/mtab-small.safetensors" | sha256sum -c -
+      - name: Transcribe and score real GuitarSet excerpt
+        env:
+          MTAB_SMALL_WEIGHTS: ${{ runner.temp }}/mtab-small.safetensors
+          MATMUL_NUM_THREADS: '2'
+        run: |
+          cargo test --locked --release -p mtab-cli --test small_checkpoint_smoke \
+            real_small_guitarset_excerpt_note_evaluation -- --ignored --nocapture 2>&1 | tee real-small-test.log
+      - name: Upload test log (no model weights)
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-small-guitar-test
+          path: real-small-test.log
           if-no-files-found: error

@@ -238,3 +238,68 @@ fn real_small_cli_smoke_and_determinism() {
         report.estimated
     );
 }
+
+#[test]
+#[ignore = "requires an authorized official small checkpoint and is computationally expensive"]
+fn real_small_guitarset_excerpt_note_evaluation() {
+    let weights = std::env::var_os("MTAB_SMALL_WEIGHTS")
+        .expect("set MTAB_SMALL_WEIGHTS to the authorized official small checkpoint");
+    assert!(std::path::Path::new(&weights).is_file());
+    let id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir =
+        Scratch(std::env::temp_dir().join(format!("mtab-guitarset-{}-{id}", std::process::id())));
+    std::fs::create_dir(&dir.0).unwrap();
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/guitarset");
+    let audio = fixture.join("guitarset_solo_5s.wav");
+    let jams = fixture.join("guitarset_solo_5s.jams");
+    let notes = dir.0.join("notes.jsonl");
+    let prediction = Command::new(env!("CARGO_BIN_EXE_mtab"))
+        .arg("transcribe")
+        .arg(audio)
+        .args(["--size", "small", "--weights"])
+        .arg(weights)
+        .args([
+            "--instruments",
+            "guitar",
+            "--format",
+            "jsonl",
+            "--strict-eos",
+            "--max-gen-len",
+            "512",
+            "--seed",
+            "0",
+            "-o",
+        ])
+        .arg(&notes)
+        .output()
+        .expect("launch mtab");
+    assert!(
+        prediction.status.success(),
+        "transcription failed: {}",
+        String::from_utf8_lossy(&prediction.stderr)
+    );
+    assert!(
+        !std::fs::read(&notes).unwrap().is_empty(),
+        "expected some note output from the official checkpoint"
+    );
+    let evaluation = Command::new(env!("CARGO_BIN_EXE_mtab"))
+        .args(["eval", "--annotations"])
+        .arg(jams)
+        .arg("--predictions")
+        .arg(notes)
+        .args(["--clip-duration", "5"])
+        .output()
+        .expect("launch evaluation");
+    assert!(
+        evaluation.status.success(),
+        "evaluation failed: {}",
+        String::from_utf8_lossy(&evaluation.stderr)
+    );
+    let report = String::from_utf8(evaluation.stdout).unwrap();
+    assert!(report.contains("Reference notes: 20"), "{report}");
+    assert!(report.contains("| Pitch + onset + offset |"), "{report}");
+    eprintln!("{report}");
+}

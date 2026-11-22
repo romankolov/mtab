@@ -1,0 +1,258 @@
+{
+  "annotations": [
+    {
+      "annotation_metadata": {
+        "curator": {
+          "name": "",
+          "email": ""
+        },
+        "annotator": {},
+        "version": "",
+        "corpus": "",
+        "annotation_tools": "",
+        "annotation_rules": "",
+        "validation": "",
+        "data_source": "0"
+      },
+      "namespace": "note_midi",
+      "data": [
+        {
+          "time": 0.009972789115749947,
+          "duration": 0.21478458049887195,
+          "value": 46.00026427896257,
+          "confidence": null
+        }
+      ],
+      "sandbox": {},
+      "time": 0.0,
+      "duration": 5.0
+    },
+    {
+      "annotation_metadata": {
+        "curator": {
+          "name": "",
+          "email": ""
+        },
+        "annotator": {},
+        "version": "",
+        "corpus": "",
+        "annotation_tools": "",
+        "annotation_rules": "",
+        "validation": "",
+        "data_source": "1"
+      },
+      "namespace": "note_midi",
+      "data": [
+        {
+          "time": 0.015052154195132061,
+          "duration": 0.16834467120179397,
+          "value": 51.21675296624269,
+          "confidence": null
+        },
+        {
+          "time": 0.18695691609980258,
+          "duration": 0.30185941043089315,
+          "value": 53.18443623507049,
+          "confidence": null
+        },
+        {
+          "time": 0.4973650793651814,
+          "duration": 0.42376417233560915,
+          "value": 52.2123770817538,
+          "confidence": null
+        },
+        {
+          "time": 0.928090702947884,
+          "duration": 0.0986848072562907,
+          "value": 52.14656365527136,
+          "confidence": null
+        },
+        {
+          "time": 1.0274104308390406,
+          "duration": 0.4063492063492049,
+          "value": 53.07841828567036,
+          "confidence": null
+        },
+        {
+          "time": 1.4386802721088543,
+          "duration": 0.3657142857142617,
+          "value": 52.01523902007524,
+          "confidence": null
+        },
+        {
+          "time": 2.3135102040816946,
+          "duration": 0.5921088435374031,
+          "value": 53.15455395263383,
+          "confidence": null
+        }
+      ],
+      "sandbox": {},
+      "time": 0.0,
+      "duration": 5.0
+    },
+    {
+      "annotation_metadata": {
+        "curator": {
+          "name": "",
+          "email": ""
+        },
+        "annotator": {},
+        "version": "",
+        "corpus": "",
+        "annotation_tools": "",
+        "annotation_rules": "",
+        "validation": "",
+        "data_source": "2"
+      },
+      "namespace": "note_midi",
+      "data": [
+        {
+          "time": 0.008544217687131095,
+          "duration": 0.17414965986392872,
+          "value": 56.17883958529012,
+          "confidence": null
+        },
+        {
+          "time": 0.18770521541955532,
+          "duration": 0.29024943310662366,
+          "value": 57.73527096026936,
+          "confidence": null
+        },
+        {
+          "time": 0.49881632653068664,
+          "duration": 0.34829931972785744,
+          "value": 52.136443730345526,
+          "confidence": null
+        },
+        {
+          "time": 1.4380226757369883,
+          "duration": 0.24380952380954568,
+          "value": 57.1529278271196,
+          "confidence": null
+        },
+        {
+          "time": 1.6824671201815136,
+          "duration": 0.21478458049887195,
+          "value": 58.084386401950304,
+          "confidence": null
+        },
+        {
+          "time": 1.9067755102041701,
+          "duration": 0.8475283446712183,
+          "value": 57.08974215285449,
+          "confidence": null
+        },
+        {
+          "time": 2.7899954648527228,
+          "duration": 1.404807256235813,
+          "value": 57.1002513747925,
+          "confidence": null
+        },
+        {
+          "time": 4.2262993197279,
+          "duration": 0.7737006802720998,
+          "value": 58.08257883923532,
+          "confidence": null
+        }
+      ],
+      "sandbox": {},
+      "time": 0.0,
+      "duration": 5.0
+    },
+    {
+      "annotation_metadata": {
+        "curator": {
+          "name": "",
+          "email": ""
+        },
+        "annotator": {},
+        "version": "",
+        "corpus": "",
+        "annotation_tools": "",
+        "annotation_rules": "",
+        "validation": "",
+        "data_source": "3"
+      },
+      "namespace": "note_midi",
+      "data": [
+        {
+          "time": 3.2396326530612214,
+          "duration": 0.47600907029482187,
+          "value": 62.10838798559483,
+          "confidence": null
+        },
+        {
+          "time": 3.716367346938796,
+          "duration": 0.48761904761909136,
+          "value": 62.10335144897807,
+          "confidence": null
+        },
+        {
+          "time": 4.460789115646321,
+          "duration": 0.5392108843536789,
+          "value": 62.033450315136356,
+          "confidence": null
+        }
+      ],
+      "sandbox": {},
+      "time": 0.0,
+      "duration": 5.0
+    },
+    {
+      "annotation_metadata": {
+        "curator": {
+          "name": "",
+          "email": ""
+        },
+        "annotator": {},
+        "version": "",
+        "corpus": "",
+        "annotation_tools": "",
+        "annotation_rules": "",
+        "validation": "",
+        "data_source": "4"
+      },
+      "namespace": "note_midi",
+      "data": [
+        {
+          "time": 4.916458049886614,
+          "duration": 0.08354195011338561,
+          "value": 65.12288018716855,
+          "confidence": null
+        }
+      ],
+      "sandbox": {},
+      "time": 0.0,
+      "duration": 5.0
+    },
+    {
+      "annotation_metadata": {
+        "curator": {
+          "name": "",
+          "email": ""
+        },
+        "annotator": {},
+        "version": "",
+        "corpus": "",
+        "annotation_tools": "",
+        "annotation_rules": "",
+        "validation": "",
+        "data_source": "5"
+      },
+      "namespace": "note_midi",
+      "data": [],
+      "sandbox": {},
+      "time": 0.0,
+      "duration": 5.0
+    }
+  ],
+  "file_metadata": {
+    "title": "00_BN1-129-Eb_solo_first5s",
+    "artist": "",
+    "release": "",
+    "duration": 5.0,
+    "identifiers": {},
+    "jams_version": "0.3.1"
+  },
+  "sandbox": {}
+}
