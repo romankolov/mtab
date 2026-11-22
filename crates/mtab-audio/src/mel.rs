@@ -17,6 +17,7 @@
 //! normalize_audio FALSE. Parity goldens: `tools/gen_mel_fixtures.py` +
 //! `tests/mel_parity.rs` (PROMPT.md §6.2 — the sacred gate).
 
+use mtab_core::{MtabError, Result};
 use rustfft::num_complex::Complex;
 use rustfft::FftPlanner;
 
@@ -149,6 +150,40 @@ impl MelFrontend {
     /// The upstream configuration.
     pub fn upstream() -> Self {
         Self::new(MelConfig::upstream())
+    }
+
+    /// Build a frontend from a checkpoint's stored `spectrogram.window`
+    /// `[n_fft]` and `mel_scale.fb` `[n_freqs, n_mels]` tensors (f32 values as
+    /// saved). Upstream constructs these buffers in torch's default f32
+    /// dtype, so released checkpoints carry f32-rounded filterbanks — model
+    /// parity requires using the stored values, not recomputing in f64.
+    pub fn with_bank(cfg: MelConfig, window: &[f32], fb_flat: &[f32]) -> Result<Self> {
+        let n_fft = cfg.n_fft;
+        let n_freqs = n_fft / 2 + 1;
+        if window.len() != n_fft {
+            return Err(MtabError::ShapeMismatch {
+                expected: format!("`spectrogram.window` [{n_fft}]"),
+                found: format!("[{}]", window.len()),
+            });
+        }
+        if fb_flat.len() != n_freqs * cfg.n_mels {
+            return Err(MtabError::ShapeMismatch {
+                expected: format!("`mel_scale.fb` [{n_freqs}, {}]", cfg.n_mels),
+                found: format!("[{}]", fb_flat.len()),
+            });
+        }
+        let fb = fb_flat
+            .chunks_exact(cfg.n_mels)
+            .map(|row| row.iter().map(|&v| v as f64).collect())
+            .collect();
+        let mut planner = FftPlanner::new();
+        let fft = planner.plan_fft_forward(n_fft);
+        Ok(Self {
+            cfg,
+            fb,
+            window: window.iter().map(|&v| v as f64).collect(),
+            fft,
+        })
     }
 
     pub fn config(&self) -> &MelConfig {

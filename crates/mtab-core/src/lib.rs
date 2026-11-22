@@ -13,8 +13,10 @@
 
 pub mod error;
 pub mod event;
+pub mod lm;
 pub mod model;
 pub mod mt3;
+pub mod nn;
 pub mod safetensors;
 
 pub use error::{MtabError, Result};

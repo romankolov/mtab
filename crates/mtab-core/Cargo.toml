@@ -15,3 +15,7 @@ name = "mtab_core"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+libm = "0.2"
+
+[dev-dependencies]
+mtab-audio = { path = "../mtab-audio" }
