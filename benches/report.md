@@ -62,3 +62,15 @@ One separate run took 23.5 seconds including checkpoint load, with peak RSS
 synthetic input, not a GuitarSet evaluation, and does not establish accuracy or
 the performance targets in §6.13. Current velocity remains the upstream
 constant 100. Model weights and generated reference logits are not committed.
+
+## Independent MIDI reader check (2026-11-22)
+
+With the same official small checkpoint and five-second synthetic plucked-string
+waveform, separate CLI runs generated JSONL and preliminary MIDI. An independent
+Mido 1.3.3 parser read the SMF type 1 file: 2 tracks, 10 note-ons and 10
+note-offs matching the JSONL pitches, velocities and tick positions, with the
+expected 120 BPM / 4/4 map. Reproduce with identical input, model and generation
+settings, then `python tools/check_midi_mido.py notes.jsonl song.mid` (Mido is a
+**test-only** Python dependency). This checks file structure and events only;
+it is not playback, a DAW round-trip, musical-accuracy evaluation, or validation
+of dynamics and bends (which the transcription path does not yet infer).

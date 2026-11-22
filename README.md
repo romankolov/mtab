@@ -100,6 +100,14 @@ It defaults to 80 generated tokens; override with `MTAB_SMOKE_MAX_GEN_LEN`.
 This is a **smoke test**, not an accuracy test. It never downloads or commits
 weights.
 
+### Optional independent MIDI reader check
+
+Produce JSONL and MIDI from the same input and generation settings, then use
+`python -m pip install mido==1.3.3` and run
+`python tools/check_midi_mido.py notes.jsonl song.mid`. The development-only
+checker compares note events and the fixed tempo/meter using Mido; it is not a
+DAW playback or round-trip test. Python is not required by the Rust application.
+
 ### Optional small-checkpoint upstream parity test
 
 With a local upstream MuScriptor checkout and its Python dependencies (`torch`,
