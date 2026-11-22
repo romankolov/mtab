@@ -1,0 +1,16 @@
+[package]
+name = "mtab-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+description = "mtab CLI — audio to guitar tablature (MIDI + Guitar Pro) on MuScriptor (scaffold — see PROMPT.md)"
+
+[[bin]]
+name = "mtab"
+path = "src/main.rs"
+
+[dependencies]
+mtab-core = { path = "../mtab-core" }

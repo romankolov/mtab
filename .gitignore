@@ -1,0 +1,30 @@
+# Rust
+**/*.rs.bk
+target/
+
+# Model weights & large binary artifacts — NEVER commit (size + CC BY-NC 4.0)
+*.safetensors
+*.onnx
+*.pt
+*.pth
+*.ckpt
+*.gguf
+models/
+weights/
+
+# Secrets — NEVER commit (PROMPT.md §11.5)
+.env
+.env.*
+*.token
+credentials*
+*credentials
+gh_token*
+GH_TOKEN*
+
+# Generated audio renders / eval output
+eval-report/
+renders/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db

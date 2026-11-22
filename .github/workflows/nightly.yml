@@ -1,0 +1,81 @@
+# Nightly / extended runs — weekly + on demand.
+# Part of the mtab scaffold (PROMPT.md §12):
+#   1. extended tests in release mode
+#   2. cargo audit (RustSec advisory DB)
+#   3. optional GuitarSet eval (needs run_eval=true AND the HF_TOKEN repo
+#      secret, since MuScriptor weights are gated behind CC BY-NC 4.0)
+
+name: Nightly
+
+on:
+  schedule:
+    - cron: "17 4 * * 1" # Mondays 04:17 UTC (off the top of the hour)
+  workflow_dispatch:
+    inputs:
+      run_eval:
+        description: "Run the GuitarSet eval job (requires HF_TOKEN secret)"
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  extended-tests:
+    name: Extended tests (release mode)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: nightly
+      - name: cargo test --release
+        run: cargo test --workspace --release --locked
+      - name: cargo build --release (all default-feature targets)
+        run: cargo build --workspace --release --locked
+
+  audit:
+    name: cargo audit (RustSec)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: cargo audit
+        run: cargo audit
+
+  eval:
+    name: GuitarSet eval (optional)
+    runs-on: ubuntu-latest
+    # The job is only meaningful when weights can be fetched (gated, CC BY-NC).
+    if: github.event_name == 'workflow_dispatch' && inputs.run_eval
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: nightly-eval
+      - name: Check HF_TOKEN secret
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::error::HF_TOKEN repo secret is not set. Add it in Settings > Secrets > Actions (needed to accept the MuScriptor CC BY-NC license and fetch gated weights)."
+            exit 1
+          fi
+      - name: Run eval harness
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        # Implemented in milestone M5 (PROMPT.md §6.14). Fails until then if
+        # triggered manually — that is intentional.
+        run: cargo run --release --locked -p mtab-cli -- eval --corpus guitarset --report eval.md
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: eval.md
+          if-no-files-found: warn

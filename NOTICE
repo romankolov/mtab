@@ -1,0 +1,42 @@
+muscriptor-tab (mtab)
+Copyright (c) 2026 romankolov
+
+This repository contains original code and ports/derivatives of third-party
+software. Licenses of third-party components:
+
+--------------------------------------------------------------------------
+1. MuScriptor inference code
+   Copyright (c) Kyutai & Mirelo
+   License: MIT
+   Source: https://github.com/muscriptor/muscriptor
+   Used for: reference implementation of the mel frontend, decoder-only
+   transformer architecture, MT3 tokenization and decoding (ported to Rust
+   per PROMPT.md). MIT attribution notices are retained in ported files.
+
+2. MuScriptor model weights (muscriptor-small / -medium / -large)
+   Copyright (c) Kyutai & Mirelo
+   License: CC BY-NC 4.0 (NON-COMMERCIAL USE ONLY), gated on Hugging Face
+   Source: https://huggingface.co/MuScriptor
+   NOT distributed with this repository. Users must accept the license and
+   provide weights themselves (see docs/weights.md).
+
+3. guitarpro (Rust crate) — GP3/GP4/GP5 read/write
+   License: MIT
+   Used for: Guitar Pro 5 export.
+
+4. PyGuitarPro
+   Copyright (c) Sviatoslav Sviridov et al.
+   License: LGPL-3.0
+   Used for: TESTS ONLY (GP5 round-trip validation). Not linked into
+   distributed binaries.
+
+5. Auxiliary ONNX models used by optional cargo features (each feature
+   documents its own model license in docs/weights.md):
+   - Demucs / htdemucs (guitar stem separation) — MIT
+   - CREPE (f0 tracking) — see upstream license
+   - UVR-MDX-Net models — see upstream license
+   These are NOT distributed with this repository.
+
+Other Rust crate dependencies and their licenses are listed by
+`cargo deny list` / the SBOM generated at release time.
+--------------------------------------------------------------------------
