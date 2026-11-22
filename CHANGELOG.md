@@ -7,6 +7,10 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Added a conservative, opt-in library API for tentative bends on isolated
+  notes. It abstains on overlap, short notes, unvoiced frames, extreme pitch
+  deviations and ambiguous contours; it has synthetic tests only and is not
+  wired into CLI or transcription results.
 - Experimental reusable monophonic F0 frame tracking for note-bounded regions,
   sharing the tuning detector's FFT-accelerated YIN-style estimator. Tests use
   synthetic steady tones, a frequency sweep, silence, noise and window bounds.

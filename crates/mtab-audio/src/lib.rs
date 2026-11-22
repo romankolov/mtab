@@ -12,6 +12,7 @@
 //! (`tools/upstream/mel_spectrogram_mit.py`, torch float64 goldens generated
 //! by `tools/gen_mel_fixtures.py`); measured max relative error ~4e-12.
 
+pub mod bend_analysis;
 pub mod decode;
 pub mod dsp;
 pub mod dynamics;

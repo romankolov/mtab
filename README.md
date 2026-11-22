@@ -186,8 +186,11 @@ synthetic-model CLI test, not a real-checkpoint quality assessment.
 periodicity estimator to return frame-centered F0 values for a bounded region
 of mono 16 kHz audio. Frames stay within the requested region. Synthetic sine,
 sweep, silence and noise tests exercise the implementation. It is **not**
-source separation or bend inference, is not reliable on arbitrary polyphonic
-mixtures, and is not currently used by `--techniques`.
+source separation and is not reliable on arbitrary polyphonic mixtures.
+`mtab_audio::bend_analysis::suggest_bends` can also suggest simple bend shapes
+for non-overlapping notes, with explicit abstention reasons. It is tested only
+on synthetic signals, does not modify the transcription, and is not currently
+used by `--techniques`; suggestions require human review.
 
 ### Experimental ASCII library exporter
 
