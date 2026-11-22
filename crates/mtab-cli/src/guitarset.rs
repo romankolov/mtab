@@ -26,6 +26,15 @@ struct Counts {
     greedy_assigned: usize,
     greedy_correct: usize,
     greedy_collisions: usize,
+    reference_span_over_four: usize,
+    reference_string_overlaps: usize,
+    reference_other: usize,
+}
+
+#[derive(Debug)]
+struct Failure {
+    index: Option<usize>,
+    reason: String,
 }
 
 fn invalid(path: &Path, reason: &str) -> MtabError {
@@ -120,7 +129,7 @@ fn parse_jams(path: &Path) -> Result<Vec<Reference>> {
     Ok(refs)
 }
 
-fn score_file(refs: &[Reference], counts: &mut Counts) -> Option<String> {
+fn score_file(refs: &[Reference], counts: &mut Counts) -> Option<Failure> {
     let tuning = Tuning::standard();
     let notes: Vec<NoteEvent> = refs.iter().map(|r| r.note).collect();
     counts.files += 1;
@@ -138,8 +147,14 @@ fn score_file(refs: &[Reference], counts: &mut Counts) -> Option<String> {
         Err(error) => {
             counts.failures += 1;
             failure = Some(match error {
-                MtabError::UnplayableNote { index, reason } => format!("note {index}: {reason}"),
-                other => other.to_string(),
+                MtabError::UnplayableNote { index, reason } => Failure {
+                    index: Some(index),
+                    reason,
+                },
+                other => Failure {
+                    index: None,
+                    reason: other.to_string(),
+                },
             });
         }
     }
@@ -171,6 +186,33 @@ fn score_file(refs: &[Reference], counts: &mut Counts) -> Option<String> {
         }
     }
     failure
+}
+
+// Diagnostic of the reference annotations at the first failing onset. These
+// are properties of the annotation, not proof of the algorithm's failure cause.
+fn reference_conflicts(refs: &[Reference], index: usize) -> Option<(bool, bool)> {
+    let now = refs.get(index)?.note.start;
+    let mut occupied = [false; 6];
+    let mut collision = false;
+    let mut frets = Vec::new();
+    let open = [40u8, 45, 50, 55, 59, 64];
+    for reference in refs.iter().take(index + 1).filter(|r| r.note.end > now) {
+        let string = usize::from(reference.string);
+        if occupied[string] {
+            collision = true;
+        }
+        occupied[string] = true;
+        let fret = reference.note.midi - open[string];
+        if fret > 0 {
+            frets.push(fret);
+        }
+    }
+    let span = frets
+        .iter()
+        .max()
+        .zip(frets.iter().min())
+        .map_or(0, |(max, min)| max - min);
+    Some((span > 4, collision))
 }
 
 fn percent(numerator: usize, denominator: usize) -> String {
@@ -225,9 +267,18 @@ pub fn evaluate(path: &Path, report: Option<&Path>) -> Result<()> {
     let mut counts = Counts::default();
     let mut failures = Vec::new();
     for file in &files {
-        if let Some(reason) = score_file(&parse_jams(file)?, &mut counts) {
+        let refs = parse_jams(file)?;
+        if let Some(failure) = score_file(&refs, &mut counts) {
             let name = file.file_name().unwrap_or_default().to_string_lossy();
-            failures.push((name.into_owned(), reason));
+            let conflicts = failure
+                .index
+                .and_then(|index| reference_conflicts(&refs, index));
+            if let Some((wide, collision)) = conflicts {
+                counts.reference_span_over_four += usize::from(wide);
+                counts.reference_string_overlaps += usize::from(collision);
+                counts.reference_other += usize::from(!wide && !collision);
+            }
+            failures.push((name.into_owned(), failure, conflicts));
         }
     }
     let mut result = format!("# GuitarSet oracle-note string assignment\n\n\
@@ -236,23 +287,39 @@ String accuracy is correct assignments divided by **all** reference notes; unass
 Wrong-string rate is incorrect assigned notes divided by assigned notes. Beam-search failures mark the entire excerpt unassigned.\n\
 The greedy baseline chooses the lowest fret per note independently and does not enforce overlaps.\n\
 This is not end-to-end accuracy, a TabCNN/TDR metric, or a tab-labeler-v3 comparison.\n\n\
-- Annotation files: {}\n- Reference notes: {}\n- Beam-search failed excerpts: {}\n- Greedy notes overlapping another note on the same string: {}\n\n\
+- Annotation files: {}\n- Reference notes: {}\n- Beam-search failed excerpts: {}\n- Greedy notes overlapping another note on the same string: {}\n\
+- At failure, reference fretted span exceeds four: {} excerpts\n\
+- At failure, reference has a same-string overlap: {} excerpts\n\
+- At failure, reference has neither condition: {} excerpts\n\
+\nThese reference diagnostics may overlap and are not proof of failure cause.\n\n\
 | Method | Assigned | Unassigned | Correct strings | String accuracy (all notes) | Wrong-string rate (assigned) |\n\
 | --- | ---: | ---: | ---: | ---: | ---: |\n\
 | Bounded beam | {} | {} | {} | {} | {} |\n\
 | Per-note lowest-fret greedy | {} | {} | {} | {} | {} |\n\n\
 Settings: standard EADGBE, capo 0, frets 0–22, maximum concurrent fretted span 4, beam width 512.\n\
 GuitarSet (Xi et al., 2018), Zenodo 3371780, version 1.1.0, CC BY 4.0; annotations are user-provided and known dataset errors may affect results.\n",
-        counts.files, counts.notes, counts.failures, counts.greedy_collisions,
+        counts.files, counts.notes, counts.failures, counts.greedy_collisions, counts.reference_span_over_four, counts.reference_string_overlaps, counts.reference_other,
         counts.assigned, counts.notes - counts.assigned, counts.correct, percent(counts.correct, counts.notes), percent(counts.assigned - counts.correct, counts.assigned),
         counts.greedy_assigned, counts.notes - counts.greedy_assigned, counts.greedy_correct, percent(counts.greedy_correct, counts.notes), percent(counts.greedy_assigned - counts.greedy_correct, counts.greedy_assigned));
     if !failures.is_empty() {
         result.push_str("\n## Unassigned excerpts\n\n");
-        for (file, reason) in failures {
+        for (file, failure, conflicts) in failures {
+            let labels = match conflicts {
+                Some((true, true)) => "reference span >4 and same-string overlap",
+                Some((true, false)) => "reference span >4",
+                Some((false, true)) => "reference same-string overlap",
+                Some((false, false)) => "neither reference conflict observed",
+                None => "reference diagnostic unavailable",
+            };
+            let index = failure
+                .index
+                .map_or_else(|| "unknown note".to_string(), |i| format!("note {i}"));
             result.push_str(&format!(
-                "- `{}`: {}\n",
+                "- `{}`: {}: {} ({})\n",
                 file.replace('`', "'"),
-                reason.replace(['\n', '\r'], " ")
+                index,
+                failure.reason.replace(['\n', '\r'], " "),
+                labels
             ));
         }
     }
@@ -312,5 +379,25 @@ mod tests {
         assert!(score_file(&refs, &mut counts).is_none());
         assert_eq!((counts.notes, counts.assigned, counts.correct), (1, 1, 0));
         assert_eq!((counts.greedy_assigned, counts.greedy_correct), (1, 0));
+    }
+    #[test]
+    fn distinguishes_reference_span_and_collision() {
+        let note = |start, end, midi, string| Reference {
+            note: NoteEvent {
+                start,
+                end,
+                midi,
+                velocity: 100,
+                instrument: 24,
+            },
+            string,
+        };
+        let wide = [note(0.0, 1.0, 52, 1), note(0.5, 1.0, 52, 2)];
+        assert_eq!(reference_conflicts(&wide, 1), Some((true, false)));
+        let same_string = [note(0.0, 1.0, 40, 0), note(0.5, 1.0, 42, 0)];
+        assert_eq!(reference_conflicts(&same_string, 1), Some((false, true)));
+        assert_eq!(reference_conflicts(&same_string, 2), None);
+        let sequential = [note(0.0, 0.5, 40, 0), note(0.5, 1.0, 42, 0)];
+        assert_eq!(reference_conflicts(&sequential, 1), Some((false, false)));
     }
 }

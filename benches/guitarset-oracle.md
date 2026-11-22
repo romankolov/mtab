@@ -39,6 +39,14 @@ assumes standard tuning, capo 0. The independent greedy baseline chooses the
 lowest fret per note without preventing overlaps. Failed beam-search excerpts
 count every note as unassigned, rather than excluding those tracks.
 
+
+The diagnostic reports the state of the *reference* at the first solver failure:
+38 excerpts have an active fretted span greater than four, and eight have a
+same-string overlap. These conditions can overlap and are not proof of the
+search failure's cause. Several overlaps are at floating-point boundary scale;
+the evaluator currently retains the source times rather than silently altering
+them. The four-fret constraint itself can exclude the reference fingering.
+
 ---
 
 # GuitarSet oracle-note string assignment
@@ -53,6 +61,11 @@ This is not end-to-end accuracy, a TabCNN/TDR metric, or a tab-labeler-v3 compar
 - Reference notes: 62476
 - Beam-search failed excerpts: 46
 - Greedy notes overlapping another note on the same string: 7623
+- At failure, reference fretted span exceeds four: 38 excerpts
+- At failure, reference has a same-string overlap: 8 excerpts
+- At failure, reference has neither condition: 0 excerpts
+
+These reference diagnostics may overlap and are not proof of failure cause.
 
 | Method | Assigned | Unassigned | Correct strings | String accuracy (all notes) | Wrong-string rate (assigned) |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -64,49 +77,49 @@ GuitarSet (Xi et al., 2018), Zenodo 3371780, version 1.1.0, CC BY 4.0; annotatio
 
 ## Unassigned excerpts
 
-- `00_BN1-129-Eb_solo.jams`: note 6: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_BN1-147-Gb_comp.jams`: note 26: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_BN2-166-Ab_solo.jams`: note 77: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_BN3-154-E_comp.jams`: note 101: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_Funk1-114-Ab_solo.jams`: note 50: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_Funk2-108-Eb_comp.jams`: note 409: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_Funk2-108-Eb_solo.jams`: note 39: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_Funk3-98-A_comp.jams`: note 170: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_Funk3-98-A_solo.jams`: note 30: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_Jazz1-130-D_comp.jams`: note 147: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_Jazz2-110-Bb_solo.jams`: note 63: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_Jazz2-187-F#_solo.jams`: note 48: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_Jazz3-137-Eb_solo.jams`: note 19: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_Jazz3-150-C_solo.jams`: note 31: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_Rock1-130-A_solo.jams`: note 55: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_Rock1-90-C#_comp.jams`: note 522: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_Rock3-117-Bb_comp.jams`: note 295: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_SS1-68-E_comp.jams`: note 136: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_SS2-88-F_comp.jams`: note 50: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_SS2-88-F_solo.jams`: note 15: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `00_SS3-84-Bb_comp.jams`: note 84: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `01_Funk3-112-C#_solo.jams`: note 50: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `01_Rock1-130-A_solo.jams`: note 80: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `01_SS1-100-C#_comp.jams`: note 280: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `01_SS1-68-E_comp.jams`: note 118: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `02_BN2-131-B_comp.jams`: note 36: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `02_BN2-166-Ab_comp.jams`: note 60: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `02_Rock1-130-A_solo.jams`: note 39: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `02_Rock1-90-C#_comp.jams`: note 173: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `02_Rock2-142-D_solo.jams`: note 28: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `02_SS1-100-C#_solo.jams`: note 40: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `02_SS1-68-E_solo.jams`: note 39: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `02_SS2-107-Ab_comp.jams`: note 186: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `02_SS3-84-Bb_comp.jams`: note 182: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `03_Funk1-97-C_solo.jams`: note 87: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `03_Funk2-119-G_solo.jams`: note 35: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `03_Rock3-117-Bb_solo.jams`: note 37: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `03_Rock3-148-C_comp.jams`: note 131: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `04_Rock1-130-A_comp.jams`: note 156: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `04_SS1-68-E_comp.jams`: note 219: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `04_SS2-107-Ab_comp.jams`: note 200: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `05_BN3-119-G_comp.jams`: note 123: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `05_Funk2-108-Eb_comp.jams`: note 150: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `05_Rock2-85-F_solo.jams`: note 10: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `05_SS1-100-C#_solo.jams`: note 35: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
-- `05_SS1-68-E_solo.jams`: note 69: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)
+- `00_BN1-129-Eb_solo.jams`: note 6: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_BN1-147-Gb_comp.jams`: note 26: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference same-string overlap)
+- `00_BN2-166-Ab_solo.jams`: note 77: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_BN3-154-E_comp.jams`: note 101: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_Funk1-114-Ab_solo.jams`: note 50: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_Funk2-108-Eb_comp.jams`: note 409: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_Funk2-108-Eb_solo.jams`: note 39: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_Funk3-98-A_comp.jams`: note 170: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference same-string overlap)
+- `00_Funk3-98-A_solo.jams`: note 30: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_Jazz1-130-D_comp.jams`: note 147: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference same-string overlap)
+- `00_Jazz2-110-Bb_solo.jams`: note 63: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference same-string overlap)
+- `00_Jazz2-187-F#_solo.jams`: note 48: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_Jazz3-137-Eb_solo.jams`: note 19: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_Jazz3-150-C_solo.jams`: note 31: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_Rock1-130-A_solo.jams`: note 55: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_Rock1-90-C#_comp.jams`: note 522: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_Rock3-117-Bb_comp.jams`: note 295: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_SS1-68-E_comp.jams`: note 136: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_SS2-88-F_comp.jams`: note 50: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_SS2-88-F_solo.jams`: note 15: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `00_SS3-84-Bb_comp.jams`: note 84: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `01_Funk3-112-C#_solo.jams`: note 50: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `01_Rock1-130-A_solo.jams`: note 80: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `01_SS1-100-C#_comp.jams`: note 280: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `01_SS1-68-E_comp.jams`: note 118: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference same-string overlap)
+- `02_BN2-131-B_comp.jams`: note 36: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference same-string overlap)
+- `02_BN2-166-Ab_comp.jams`: note 60: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `02_Rock1-130-A_solo.jams`: note 39: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `02_Rock1-90-C#_comp.jams`: note 173: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `02_Rock2-142-D_solo.jams`: note 28: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `02_SS1-100-C#_solo.jams`: note 40: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `02_SS1-68-E_solo.jams`: note 39: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `02_SS2-107-Ab_comp.jams`: note 186: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `02_SS3-84-Bb_comp.jams`: note 182: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `03_Funk1-97-C_solo.jams`: note 87: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `03_Funk2-119-G_solo.jams`: note 35: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `03_Rock3-117-Bb_solo.jams`: note 37: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `03_Rock3-148-C_comp.jams`: note 131: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference same-string overlap)
+- `04_Rock1-130-A_comp.jams`: note 156: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `04_SS1-68-E_comp.jams`: note 219: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `04_SS2-107-Ab_comp.jams`: note 200: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `05_BN3-119-G_comp.jams`: note 123: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `05_Funk2-108-Eb_comp.jams`: note 150: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference same-string overlap)
+- `05_Rock2-85-F_solo.jams`: note 10: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `05_SS1-100-C#_solo.jams`: note 35: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
+- `05_SS1-68-E_solo.jams`: note 69: no feasible string remains under overlap/span constraints (or the beam pruned the feasible path) (reference span >4)
