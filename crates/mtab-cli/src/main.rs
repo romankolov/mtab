@@ -3,6 +3,8 @@
 //! Local-weight transcription supports raw JSONL and preliminary MIDI.
 //! Guitar Pro and the remaining export formats are under development.
 
+mod guitarset;
+
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -68,7 +70,13 @@ enum Cmd {
         /// Corpus to evaluate against
         #[arg(long, default_value = "guitarset")]
         corpus: String,
-        /// Write a markdown report to this path
+        /// Path to a local GuitarSet .jams file or directory of .jams files
+        #[arg(long)]
+        annotations: Option<PathBuf>,
+        /// Evaluate string assignment on ground-truth notes (not audio transcription)
+        #[arg(long)]
+        oracle_notes: bool,
+        /// Write a markdown report to this path (default: stdout)
         #[arg(long)]
         report: Option<PathBuf>,
     },
@@ -178,7 +186,17 @@ fn run(cli: Cli) -> Result<()> {
         Some(Cmd::InspectWeights { path }) => inspect_weights(&path),
         Some(Cmd::DetectTuning { list, input }) => detect_tuning(list, input.as_deref()),
         Some(Cmd::Download { size, token_env }) => download(size, &token_env),
-        Some(Cmd::Eval { corpus, report }) => eval(&corpus, report.as_deref()),
+        Some(Cmd::Eval {
+            corpus,
+            annotations,
+            oracle_notes,
+            report,
+        }) => eval(
+            &corpus,
+            annotations.as_deref(),
+            oracle_notes,
+            report.as_deref(),
+        ),
         Some(Cmd::Transcribe(args)) => transcribe(args),
     }
 }
@@ -285,11 +303,26 @@ fn download(size: ModelSize, token_env: &str) -> Result<()> {
     ))
 }
 
-fn eval(corpus: &str, report: Option<&std::path::Path>) -> Result<()> {
-    let _ = (corpus, report);
-    Err(MtabError::NotImplemented(
-        "evaluation harness (milestone M5)",
-    ))
+fn eval(
+    corpus: &str,
+    annotations: Option<&std::path::Path>,
+    oracle_notes: bool,
+    report: Option<&std::path::Path>,
+) -> Result<()> {
+    if corpus != "guitarset" {
+        return Err(MtabError::NotImplemented(
+            "only GuitarSet evaluation is supported",
+        ));
+    }
+    if !oracle_notes {
+        return Err(MtabError::NotImplemented("end-to-end audio evaluation; use --oracle-notes with --annotations for the preliminary fingering-only metric"));
+    }
+    let path = annotations.ok_or_else(|| {
+        MtabError::InvalidModelSource(
+            "provide --annotations <local GuitarSet .jams file or directory>".into(),
+        )
+    })?;
+    guitarset::evaluate(path, report)
 }
 
 fn transcribe(args: TranscribeArgs) -> Result<()> {

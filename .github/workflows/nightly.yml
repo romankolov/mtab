@@ -13,7 +13,11 @@ on:
   workflow_dispatch:
     inputs:
       run_eval:
-        description: "Run the GuitarSet eval job (requires HF_TOKEN secret)"
+        description: "Run pending end-to-end GuitarSet eval (not implemented)"
+        type: boolean
+        default: false
+      run_oracle:
+        description: "Run oracle-note fingering eval on GuitarSet annotations"
         type: boolean
         default: false
 
@@ -79,3 +83,28 @@ jobs:
           name: eval-report
           path: eval.md
           if-no-files-found: warn
+
+  oracle-eval:
+    name: GuitarSet oracle-note fingering (optional)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.run_oracle
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: nightly-oracle
+      - name: Download public GuitarSet 1.1.0 annotations (CC BY 4.0)
+        run: |
+          curl -fL --retry 3 -o annotations.zip 'https://zenodo.org/records/3371780/files/annotation.zip?download=1'
+          echo 'b39b78e63d3446f2e54ddb7a54df9b10  annotations.zip' | md5sum -c -
+          mkdir annotations
+          unzip -q -j annotations.zip '*.jams' -d annotations
+      - name: Run oracle-note string assignment evaluation
+        run: cargo run --release --locked -p mtab-cli -- eval --corpus guitarset --oracle-notes --annotations annotations --report eval-oracle.md
+      - name: Upload oracle-note report
+        uses: actions/upload-artifact@v4
+        with:
+          name: guitarset-oracle-report
+          path: eval-oracle.md
+          if-no-files-found: error

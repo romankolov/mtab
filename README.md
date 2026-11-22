@@ -113,6 +113,24 @@ It defaults to 80 generated tokens; override with `MTAB_SMOKE_MAX_GEN_LEN`.
 This is a **smoke test**, not an accuracy test. It never downloads or commits
 weights.
 
+### GuitarSet oracle-note fingering evaluation
+
+The preliminary evaluator scores string assignment using GuitarSet's **reference
+notes**, not transcribed audio. Download the CC BY 4.0 annotation archive and
+unzip its `.jams` files, then run:
+
+```sh
+mtab eval --corpus guitarset --oracle-notes --annotations /path/to/annotations \
+  --report oracle-report.md
+```
+
+[Our 360-excerpt report](benches/guitarset-oracle.md) documents a 57.53%
+all-note string accuracy for the bounded beam solver, with 46 excerpts left
+unassigned, versus 45.40% for a collision-ignoring per-note greedy baseline.
+This is **not** end-to-end audio accuracy or a tab-labeler-v3 comparison; the
+full acceptance evaluation remains outstanding. The optional `Nightly`
+workflow can run this annotation-only check with `run_oracle=true`.
+
 ### Optional independent MIDI reader check
 
 Produce JSONL and MIDI from the same input and generation settings, then use

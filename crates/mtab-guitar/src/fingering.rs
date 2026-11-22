@@ -6,7 +6,7 @@
 //! string jumps, high frets and open-string preference. Beam pruning makes this
 //! an approximation: it cannot guarantee the global optimum or even preserve a
 //! feasible solution when the configured beam is too small. Chord dictionaries,
-//! advanced playability and GuitarSet evaluation are future work.
+//! advanced playability and full end-to-end GuitarSet evaluation are future work.
 
 use std::collections::HashSet;
 
