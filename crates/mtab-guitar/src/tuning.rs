@@ -173,8 +173,17 @@ impl FromStr for Tuning {
 }
 
 /// Capo position 0–12 (0 = none).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct Capo(u8);
+
+impl<'de> Deserialize<'de> for Capo {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let position = u8::deserialize(deserializer)?;
+        Self::new(position).map_err(serde::de::Error::custom)
+    }
+}
 
 impl Capo {
     pub const NONE: Capo = Capo(0);
