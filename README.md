@@ -72,8 +72,9 @@ compatibility or playback guarantee, and real-checkpoint CLI-to-GP5 output has
 not yet been validated. MIDI remains
 unquantized. Pitch bends are not yet inferred. The MIDI writer isolates bent
 overlapping notes onto separate channels and reports an error if its available
-15 melodic channels are exhausted. Bend contours use stepped control points
-and support up to ±200 cents. MIDI files do not encode tablature fingering; the
+15 melodic channels are exhausted. Supplied bend contours are interpolated to
+pitch-wheel steps at up to 50 Hz (capped at 2,048 steps per segment) and
+support up to ±200 cents. MIDI files do not encode tablature fingering; the
 optional IR does. No DAW round-trip validation has yet been performed.
 
 Omit `-o` to write JSONL to stdout. Each line is a raw note with `start`, `end`
@@ -231,8 +232,8 @@ multiple of 1/12 of its original duration, rise by exactly 100 or 200 cents,
 and fit one notated beat without a tie or an intervening note boundary. Bent
 dead notes are rejected. The peak's relative position is preserved on the
 quantized beat, so its absolute time shifts with the note boundaries. GP5
-stores interpolated bend points; the MIDI exporter currently emits stepped
-pitch-wheel events at those points, so their playback can differ. Velocity is
+stores interpolated bend points; the MIDI exporter samples linear pitch-wheel
+ramps, so timing and playback can still differ between applications. Velocity is
 rounded to GP5 dynamic levels. Two small fixtures have been visually checked and re-exported in TuxGuitar
 1.6.6; see `benches/m6-tuxguitar.md` for scope and limitations. Guitar Pro
 itself has not yet been checked.

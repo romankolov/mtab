@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- MIDI now renders supplied bend contours as bounded-rate linear pitch-wheel
+  ramps rather than three abrupt steps. An independent mido parser verifies
+  ramps, RPN range, note timing, and velocity; no audio playback validation.
 - Added a licensed five-second GuitarSet pitch-contour fixture and a real-audio
   F0 regression on one isolated reference note. It is a small sanity check,
   not corpus-level accuracy or a labeled-bend benchmark.
@@ -45,8 +48,8 @@ versioning: [SemVer](https://semver.org/).
 - GP5 can encode explicitly supplied bend, prebend-release, and bend-release
   contours on a single unsplit beat, with positive 100/200-cent heights and an
   interior peak on the 1/12-note bend grid. Unsupported contours are errors.
-  Peak timing follows the quantized note; GP5 bend-point interpolation differs
-  from the current MIDI writer's stepped wheel events. No bend inference yet.
+  Peak timing follows the quantized note; GP5 bend playback may differ from
+  MIDI pitch-wheel interpolation. No production bend inference yet.
 - GP5 writes explicit dead-note and palm-mute marks from the library IR,
   including palm-mute marks on generated ties. These are not inferred from
   audio; unsupported techniques and bends remain errors. Independent

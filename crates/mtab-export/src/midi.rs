@@ -11,8 +11,8 @@
 //! separate tracks are not reused, even when their notes do not overlap. An
 //! error is returned instead of silently corrupting bends if 15 channels are
 //! insufficient. Pitch-bend range is explicitly set to ±2 semitones via RPN;
-//! unsupported larger bends are rejected. Bend shapes currently consist of
-//! stepped control points, not interpolated continuous curves.
+//! unsupported larger bends are rejected. Bend control points are linearly
+//! interpolated into bounded-rate pitch-wheel steps; MIDI is not truly continuous.
 
 use std::path::Path;
 
@@ -122,15 +122,43 @@ fn bend_events(note: &TabNote, ppq: u16, tempo: &mtab_guitar::TempoMap) -> Vec<(
         v.round().clamp(0.0, 16_383.0) as i16
     };
     let depth = wheel(bend.depth_cents);
-    let mut pts = match bend.kind {
-        BendKind::Bend => vec![(bend.start, 8192), (bend.peak, depth), (note.end, depth)],
-        BendKind::Release => vec![(bend.start, depth), (bend.peak, depth), (note.end, 8192)],
-        BendKind::BendRelease => vec![(bend.start, 8192), (bend.peak, depth), (note.end, 8192)],
+    let pts = match bend.kind {
+        BendKind::Bend => [(bend.start, 8192), (bend.peak, depth), (note.end, depth)],
+        BendKind::Release => [(bend.start, depth), (bend.peak, depth), (note.end, 8192)],
+        BendKind::BendRelease => [(bend.start, 8192), (bend.peak, depth), (note.end, 8192)],
     };
-    pts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    pts.into_iter()
-        .map(|(t, v)| (time_to_tick(tempo, ppq, t), v))
-        .collect()
+    let mut result: Vec<(u64, i16)> = Vec::new();
+    let mut append = |time: f64, value: i16| {
+        let tick = time_to_tick(tempo, ppq, time);
+        if let Some(last) = result.last_mut() {
+            if last.0 == tick {
+                last.1 = value;
+                return;
+            }
+            if last.1 == value {
+                return;
+            }
+        }
+        result.push((tick, value));
+    };
+    append(pts[0].0, pts[0].1);
+    for pair in pts.windows(2) {
+        let (start, from) = pair[0];
+        let (end, to) = pair[1];
+        if from == to {
+            continue;
+        }
+        // Up to 50 Hz, with an explicit cap for very long notes. When capped,
+        // the step interval grows rather than allocating unbounded MIDI data.
+        let steps = (((end - start) / 0.020).ceil() as usize).clamp(1, 2048);
+        for step in 1..=steps {
+            let fraction = step as f64 / steps as f64;
+            let time = start + (end - start) * fraction;
+            let value = (f64::from(from) + f64::from(to - from) * fraction).round() as i16;
+            append(time, value);
+        }
+    }
+    result
 }
 
 fn midi_event(channel: u4, message: MidiMessage) -> TrackEventKind<'static> {
@@ -354,7 +382,13 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
                 .ok_or_else(|| invalid("note tick overflow"))?;
             let off_tick = time_to_tick(tempo, ppq, note.end).max(min_off_tick);
             let vel = note.velocity;
-            for (tick, wheel) in bend_events(note, ppq, tempo) {
+            let bends = bend_events(note, ppq, tempo);
+            if events.len().saturating_add(bends.len()).saturating_add(3) > 1_000_000 {
+                return Err(invalid(
+                    "MIDI track exceeds one million events; split the score",
+                ));
+            }
+            for (tick, wheel) in bends {
                 events.push(AbsEvent {
                     tick,
                     prio: if tick == on_tick { 4 } else { 1 },
@@ -597,7 +631,7 @@ mod tests {
         assert_eq!(program, Some(30));
         assert_eq!(ons, vec![(64, 90), (62, 110)]); // real dynamics, not flat 100
         assert_eq!(offs, vec![64, 62]);
-        assert_eq!(bends, 3); // start/peak/end of BendRelease
+        assert!(bends > 3); // interpolated BendRelease, not just control points
     }
 
     #[test]
@@ -621,7 +655,63 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(wheels, vec![0, 8191, 0]); // 200 cents = full tone = max wheel (+8191)
+        assert_eq!(*wheels.first().unwrap(), 0);
+        assert_eq!(*wheels.last().unwrap(), 0);
+        assert!(wheels.contains(&8191)); // 200 cents = full tone = max wheel (+8191)
+        assert!(wheels.iter().any(|&w| w > 0 && w < 8191));
+    }
+    #[test]
+    fn interpolated_contours_include_endpoints_and_are_bounded() {
+        let tempo = TempoMap::constant(120.0);
+        let mut note = test_note(60, 0.0, 1.0, true);
+        for (kind, first, last) in [
+            (BendKind::Bend, 8192, 12288),
+            (BendKind::Release, 12288, 8192),
+            (BendKind::BendRelease, 8192, 8192),
+        ] {
+            note.bend.as_mut().unwrap().kind = kind;
+            let events = bend_events(&note, PPQ, &tempo);
+            assert_eq!(events[0], (0, first));
+            assert_eq!(events.last().unwrap().1, last);
+            assert!(events
+                .iter()
+                .any(|&(_, value)| value > 8192 && value < 12288));
+            assert!(events.windows(2).all(|p| p[0].0 < p[1].0));
+            if kind == BendKind::BendRelease {
+                let peak = events.iter().position(|&(_, v)| v == 12288).unwrap();
+                assert!(events[..=peak].windows(2).all(|p| p[0].1 <= p[1].1));
+                assert!(events[peak..].windows(2).all(|p| p[0].1 >= p[1].1));
+            }
+        }
+        note.end = 1000.0;
+        note.bend.as_mut().unwrap().peak = 500.0;
+        note.bend.as_mut().unwrap().kind = BendKind::BendRelease;
+        assert!(bend_events(&note, PPQ, &tempo).len() <= 4097);
+    }
+    #[test]
+    fn collapsed_tick_points_keep_last_value_before_next_note() {
+        let mut doc = doc_with_tempo_change();
+        doc.meta.tempo_map = TempoMap::constant(120.0);
+        let mut bent = test_note(60, 0.0, 0.0001, true);
+        bent.bend.as_mut().unwrap().kind = BendKind::BendRelease;
+        doc.tracks[0].notes = vec![bent, test_note(62, 0.0001, 0.1, false)];
+        let bytes = midi_bytes(&doc).unwrap();
+        let smf = Smf::parse(&bytes).unwrap();
+        let mut wheel = 0;
+        let mut active = false;
+        for event in &smf.tracks[1] {
+            if let TrackEventKind::Midi { message, .. } = event.kind {
+                match message {
+                    MidiMessage::PitchBend { bend } => wheel = bend.as_int(),
+                    MidiMessage::NoteOn { key, .. } if key.as_int() == 62 => {
+                        assert_eq!(wheel, 0);
+                        active = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        assert!(active);
     }
     #[test]
     fn time_signatures_use_log2_and_bar_ticks_ignore_tempo_changes() {
