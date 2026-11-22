@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- An experimental ASCII tab library exporter with bar-aligned strings, beat
+  durations, ties, dead notes, palm muting and supported bend markings. It uses
+  the restricted GP5 plan; velocities are omitted and output is quantized.
 - Manually opened and GP5-re-exported two generated fixtures in TuxGuitar
   1.6.6; independent comparisons cover musical fields and bend points. The
   app check exposed and fixed a half-height bend mapping that the parser

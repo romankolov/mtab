@@ -13,8 +13,8 @@ of these are not yet implemented or reliably inferred.
 > **Status: in development.** The audio frontend, transformer inference,
 > chunk decoder, and MIDI writer have preliminary implementations. The CLI
 > supports raw-note JSONL and preliminary MIDI export with string/fret assignment.
-> Experimental, restricted GP5 export is now available; MusicXML and ASCII
-> tab are not implemented. The preliminary
+> Experimental, restricted GP5 and library ASCII tab export are available;
+> MusicXML is not implemented. The preliminary
 > fingering search has not been compared with tab-labeler-v3 on held-out audio.
 > The official small checkpoint has
 > been checked against upstream on a synthetic plucked-string fixture and
@@ -174,6 +174,16 @@ This is note-event matching, not full transcription or tablature evaluation.
 The Nightly `run_real_small` option performs the fixture check using an
 accepted Hugging Face account's `HF_TOKEN` repository secret; no model
 weights are uploaded as artifacts.
+
+### Experimental ASCII library exporter
+
+`mtab_export::ascii::ascii_tab` returns text and its notation plan; the
+`ExportFormat::AsciiTab` dispatcher writes `.txt`/`.tab` files. It shares
+the GP5 planner's constant integer tempo, 4/4, six/seven-string and 1/32-grid
+constraints. Each bar shows beat durations above aligned strings. The legend
+explains ties, dead notes, palm mutes and the supported bend notation; velocities
+are omitted. It is a readable quantized view, not a lossless performance format.
+CLI integration is not yet available.
 
 ### Experimental GP5 library encoder
 

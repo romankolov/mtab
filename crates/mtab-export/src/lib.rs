@@ -2,10 +2,12 @@
 //!
 //! - MIDI (`.mid`, SMF type 1 with tempo map + bends) — DONE (M4)
 //! - Guitar Pro 5 (`.gp5`) — experimental restricted subset (M6)
-//! - MusicXML 3.1 + ASCII tab — M6
+//! - ASCII tab — experimental beat-aligned subset (M6)
+//! - MusicXML 3.1 — M6
 //!
 //! Deterministic output: identical input ⇒ byte-identical export (§10.7).
 
+pub mod ascii;
 pub mod gp5;
 pub mod gp5_plan;
 pub mod midi;
@@ -46,13 +48,13 @@ impl ExportFormat {
 /// Export a document to `path` in `format`.
 ///
 /// GP5 supports only the restricted subset documented by [`gp5::gp5_bytes`].
-/// MusicXML and ASCII writers return [`MtabError::NotImplemented`].
+/// ASCII uses the same restricted rhythmic plan. MusicXML is not yet implemented.
 pub fn export(doc: &TabDocument, path: &Path, format: ExportFormat) -> Result<()> {
     match format {
         ExportFormat::Midi => midi::write_midi(doc, path),
         ExportFormat::GuitarPro5 => gp5::write_gp5(doc, path).map(|_| ()),
         ExportFormat::MusicXml => Err(MtabError::NotImplemented("MusicXML export (milestone M6)")),
-        ExportFormat::AsciiTab => Err(MtabError::NotImplemented("ASCII tab export (milestone M6)")),
+        ExportFormat::AsciiTab => ascii::write_ascii(doc, path),
     }
 }
 
