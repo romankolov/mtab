@@ -17,3 +17,5 @@ clap = { version = "4", features = ["derive"] }
 mtab-core = { path = "../mtab-core" }
 mtab-export = { path = "../mtab-export" }
 mtab-guitar = { path = "../mtab-guitar" }
+mtab-audio = { path = "../mtab-audio" }
+serde_json = "1"

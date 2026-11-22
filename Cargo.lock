@@ -251,9 +251,11 @@ name = "mtab-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "mtab-audio",
  "mtab-core",
  "mtab-export",
  "mtab-guitar",
+ "serde_json",
 ]
 
 [[package]]

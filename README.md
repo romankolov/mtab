@@ -9,25 +9,34 @@
 (`small` / `medium` / `large`) and get **MIDI + Guitar Pro 5** tablature out:
 tuning, capo, string/fret assignment, rhythm, bends, dead notes.
 
-> **Status: scaffold.** The repo is bootstrapped with a minimal green workspace,
-> CI/CD workflows, and the master build prompt that drives development
-> ([PROMPT.md](PROMPT.md)). Milestones M1–M8 are landing incrementally.
+> **Status: in development.** The audio frontend, transformer inference,
+> chunk decoder, and MIDI writer have preliminary implementations. The CLI
+> currently supports raw-note JSONL only; tuning/fretting, GP5 and the other
+> end-to-end exports are not implemented yet. The transcription path has been
+> tested with a tiny synthetic checkpoint, not yet with licensed release weights.
 
-## User contract
+## Current usage
 
-The only things you provide:
-
-1. **Model size** — `small` (103M, CPU), `medium` (307M, default), `large` (1.4B, max accuracy)
-2. **Weights** — a local `model.safetensors` (or `hf://` / URL reference)
-
-Everything else is built in: decoding, features, inference, tuning/capo
-detection, fretting, quantization, techniques, export.
+Supply a local MuScriptor safetensors checkpoint matching `--size` (there is no
+bundled or automatic download):
 
 ```console
-$ mtab transcribe song.wav --size medium \
-    --weights ./weights/muscriptor-medium.safetensors \
-    -o song.mid,song.gp5
+mtab transcribe song.wav --size small --weights ./muscriptor-small.safetensors \
+    --instruments guitar --format jsonl -o notes.jsonl
 ```
+
+Omit `-o` to write JSONL to stdout. Each line is a raw note with `start`, `end`
+(seconds), `midi`, `velocity`, and `instrument` (program) fields; progress and
+warnings go to stderr. Velocities are currently the upstream fixed value 100,
+not measured dynamics. `--strict-eos` makes an incomplete generated chunk an
+error, `--beam-size` selects beam search, and `--temperature` enables seeded
+sampling (`--seed`). The current reference CPU implementation uses f64 and is
+not yet performance-optimized; device acceleration and streaming audio are
+not implemented. Local checkpoints only; URL/Hugging Face fetching is pending.
+
+The intended finished product accepts just a model size and weights and emits
+MIDI and Guitar Pro tablature; the remaining features are tracked in
+[PROMPT.md](PROMPT.md).
 
 ## Weights & licensing
 

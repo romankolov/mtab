@@ -1,18 +1,17 @@
 //! `mtab` CLI (PROMPT.md §6.12) — thin shell over the library crates.
 //!
-//! Scaffold status: `--models`, `detect-tuning --list`, and
-//! `inspect-weights` work today; transcription and export land per the
-//! milestone plan (M2–M6). Every failure prints an actionable next step
-//! (§6.4).
+//! JSONL transcription is available with local safetensors weights. Guitar
+//! fingering and other export formats remain under development.
 
+use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 
+use mtab_core::lm::{GenOptions, LmConfig, LmModel};
 use mtab_core::{ModelSize, ModelSource, MtabError, Result, WeightsInfo};
-use mtab_export::ExportFormat;
-use mtab_guitar::{Capo, Grid, Tuning};
+use mtab_guitar::{Grid, Tuning};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -129,7 +128,19 @@ struct TranscribeArgs {
     #[arg(long)]
     seed: Option<u64>,
 
-    /// Output files, comma-separated (extensions: .mid .gp5 .musicxml .txt)
+    /// Output format (currently only jsonl: one raw note per line)
+    #[arg(long)]
+    format: Option<String>,
+
+    /// Fail if a chunk reaches the generation limit without EOS
+    #[arg(long)]
+    strict_eos: bool,
+
+    /// Maximum generated tokens per chunk
+    #[arg(long, default_value_t = 2000)]
+    max_gen_len: usize,
+
+    /// Output files, comma-separated (JSONL currently accepts one path)
     #[arg(short, long, value_delimiter = ',')]
     outputs: Vec<PathBuf>,
 
@@ -244,54 +255,132 @@ fn eval(corpus: &str, report: Option<&std::path::Path>) -> Result<()> {
 }
 
 fn transcribe(args: TranscribeArgs) -> Result<()> {
-    // Validate everything we can today (§6.4: errors carry actionable hints).
-    if !args.input.exists() {
-        return Err(MtabError::UnsupportedAudio(
-            args.input.display().to_string(),
-        ));
+    validate_transcribe(&args)?;
+    let source = args
+        .weights
+        .as_deref()
+        .ok_or_else(|| MtabError::WeightsNotFound {
+            path: PathBuf::from("<--weights not provided>"),
+        })?
+        .parse::<ModelSource>()?;
+    let path = match source {
+        ModelSource::Local(path) => path,
+        _ => return Err(MtabError::NotImplemented("remote weight fetching; download the licensed safetensors file separately and pass its local path")),
+    };
+    if !path.is_file() {
+        return Err(MtabError::WeightsNotFound { path });
     }
-    if args.frets == 0 || args.frets > 36 {
-        return Err(MtabError::InvalidTuning(format!(
-            "--frets {} out of range (1-36)",
-            args.frets
+    let model = LmModel::load(LmConfig::from_size(args.size), &path)?;
+    transcribe_with_model(&args, &model)
+}
+
+fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
+    if !args.input.is_file() {
+        return Err(MtabError::UnsupportedAudio(format!(
+            "file not found: {}",
+            args.input.display()
         )));
     }
-    if args.tuning != "auto" {
-        Tuning::from_name(&args.tuning)?;
+    if args.format.as_deref() != Some("jsonl") {
+        return Err(MtabError::NotImplemented(
+            "tablature exports; use --format jsonl for raw note events",
+        ));
     }
-    if args.capo != "auto" {
-        let pos: u8 = args
-            .capo
-            .parse()
-            .map_err(|_| MtabError::InvalidCapo(u8::MAX))?;
-        Capo::new(pos)?;
+    if args.outputs.len() > 1 {
+        return Err(MtabError::InvalidModelSource(
+            "JSONL accepts at most one output file; omit -o for stdout".into(),
+        ));
     }
-    let source = match &args.weights {
-        Some(w) => w.parse::<ModelSource>()?,
-        None => {
-            return Err(MtabError::WeightsNotFound {
-                path: PathBuf::from("<--weights not provided>"),
-            })
+    if let Some(out) = args.outputs.first() {
+        if let Ok(out_path) = std::fs::canonicalize(out) {
+            let same_file =
+                |path: &std::path::Path| std::fs::canonicalize(path).is_ok_and(|p| p == out_path);
+            if same_file(&args.input)
+                || args
+                    .weights
+                    .as_deref()
+                    .is_some_and(|w| same_file(std::path::Path::new(w)))
+            {
+                return Err(MtabError::InvalidModelSource(
+                    "output must not overwrite the input audio or weights".into(),
+                ));
+            }
         }
+    }
+    if args
+        .instruments
+        .as_deref()
+        .is_some_and(|v| v.split(',').all(|s| s.trim().is_empty()))
+    {
+        return Err(MtabError::DecodeFailure {
+            chunk_index: 0,
+            reason: "--instruments was empty; provide a name such as guitar or omit the option"
+                .into(),
+        });
+    }
+    if args.separate || args.techniques || args.chords || args.emit_ir.is_some() {
+        return Err(MtabError::NotImplemented(
+            "separation, techniques, chords and TabDocument IR (future milestones)",
+        ));
+    }
+    if args.tuning != "auto"
+        || args.capo != "auto"
+        || args.frets != 22
+        || args.grid != "1/16".parse::<Grid>()?
+    {
+        return Err(MtabError::NotImplemented(
+            "tuning, capo, fretting and rhythm options are not applied to raw JSONL notes",
+        ));
+    }
+    Ok(())
+}
+
+fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel) -> Result<()> {
+    let audio = mtab_audio::load_model_input(&args.input)?;
+    let names: Vec<String> = args.instruments.as_deref().map_or_else(Vec::new, |value| {
+        value
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect()
+    });
+    let options = GenOptions {
+        max_gen_len: args.max_gen_len,
+        beam_size: args.beam_size.unwrap_or(1) as usize,
+        use_sampling: args.temperature.is_some(),
+        temp: args.temperature.unwrap_or(1.0),
+        seed: args.seed.unwrap_or(0),
+        ..GenOptions::default()
     };
-    for out in &args.outputs {
-        if ExportFormat::from_path(out).is_none() {
-            return Err(MtabError::InvalidModelSource(format!(
-                "unknown output format for '{}' (use .mid/.gp5/.musicxml/.txt)",
-                out.display()
-            )));
-        }
+    let result = mtab_audio::transcribe::transcribe(
+        model,
+        &audio,
+        &names,
+        &options,
+        args.strict_eos,
+        |p| {
+            eprintln!("transcribing chunks: {}/{}", p.completed, p.total);
+        },
+    )?;
+    for index in result.missing_eos {
+        eprintln!("warning: chunk {index} reached the token limit without EOS; use --strict-eos to treat this as an error");
     }
-    let _ = (
-        source,
-        args.instruments,
-        args.beam_size,
-        args.temperature,
-        args.seed,
-    );
-    Err(MtabError::NotImplemented(
-        "transcription pipeline (milestones M2-M4)",
-    ))
+    let writer: Box<dyn Write> = match args.outputs.first() {
+        Some(path) => Box::new(std::fs::File::create(path)?),
+        None => Box::new(std::io::stdout()),
+    };
+    write_notes(writer, &result.notes)
+}
+
+fn write_notes(writer: impl Write, notes: &[mtab_core::NoteEvent]) -> Result<()> {
+    let mut writer = BufWriter::new(writer);
+    for note in notes {
+        serde_json::to_writer(&mut writer, note)?;
+        writeln!(writer)?;
+    }
+    writer.flush()?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -335,5 +424,115 @@ mod tests {
     #[test]
     fn rejects_unknown_grid() {
         assert!(Cli::try_parse_from(["mtab", "transcribe", "s.wav", "--grid", "banana"]).is_err());
+    }
+    #[test]
+    fn jsonl_writer_writes_one_record_per_note() {
+        let notes = [
+            mtab_core::NoteEvent {
+                start: 0.5,
+                end: 1.0,
+                midi: 64,
+                velocity: 100,
+                instrument: 26,
+            },
+            mtab_core::NoteEvent {
+                start: 1.0,
+                end: 1.5,
+                midi: 60,
+                velocity: 90,
+                instrument: 24,
+            },
+        ];
+        let mut out = Vec::new();
+        write_notes(&mut out, &notes).unwrap();
+        let decoded: Vec<mtab_core::NoteEvent> = std::str::from_utf8(&out)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(decoded, notes);
+    }
+
+    fn make_test_wav() -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "mtab-cli-{}-{}.wav",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let n = 1024u32;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + n * 2).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&16000u32.to_le_bytes());
+        bytes.extend_from_slice(&32000u32.to_le_bytes());
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&(n * 2).to_le_bytes());
+        bytes.resize(44 + (n * 2) as usize, 0);
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn jsonl_transcription_runs_with_synthetic_model() {
+        let audio = make_test_wav();
+        let output = audio.with_extension("jsonl");
+        let model_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../mtab-core/tests/fixtures/model/tiny.fixture");
+        let model = LmModel::load(LmConfig::fixture_tiny(), &model_path).unwrap();
+        let cli = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--format",
+            "jsonl",
+            "--max-gen-len",
+            "2",
+            "--instruments",
+            "guitar",
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        validate_transcribe(&args).unwrap();
+        transcribe_with_model(&args, &model).unwrap();
+        let contents = std::fs::read_to_string(&output).unwrap();
+        for line in contents.lines() {
+            let _: mtab_core::NoteEvent = serde_json::from_str(line).unwrap();
+        }
+        std::fs::remove_file(&audio).unwrap();
+        std::fs::remove_file(&output).unwrap();
+    }
+
+    #[test]
+    fn jsonl_refuses_overwriting_input() {
+        let audio = make_test_wav();
+        let cli = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--format",
+            "jsonl",
+            "-o",
+            audio.to_str().unwrap(),
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        assert!(validate_transcribe(&args).is_err());
+        assert!(std::fs::metadata(&audio).unwrap().len() > 0);
+        std::fs::remove_file(audio).unwrap();
     }
 }
