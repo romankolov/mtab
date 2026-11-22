@@ -1,10 +1,12 @@
 //! `mtab-export` — writers (PROMPT.md §6.10).
 //!
-//! - MIDI (`.mid`, SMF type 1 with tempo map + bends) — M4
+//! - MIDI (`.mid`, SMF type 1 with tempo map + bends) — DONE (M4)
 //! - Guitar Pro 5 (`.gp5`) — M6
 //! - MusicXML 3.1 + ASCII tab — M6
 //!
 //! Deterministic output: identical input ⇒ byte-identical export (§10.7).
+
+pub mod midi;
 
 use std::path::Path;
 
@@ -43,9 +45,9 @@ impl ExportFormat {
 ///
 /// Writers land per the milestone plan (M4/M6); until then this returns
 /// [`MtabError::NotImplemented`] so the CLI can say exactly what is missing.
-pub fn export(_doc: &TabDocument, _path: &Path, format: ExportFormat) -> Result<()> {
+pub fn export(doc: &TabDocument, path: &Path, format: ExportFormat) -> Result<()> {
     match format {
-        ExportFormat::Midi => Err(MtabError::NotImplemented("MIDI export (milestone M4)")),
+        ExportFormat::Midi => midi::write_midi(doc, path),
         ExportFormat::GuitarPro5 => Err(MtabError::NotImplemented(
             "Guitar Pro 5 export (milestone M6)",
         )),
@@ -92,7 +94,12 @@ mod tests {
             tracks: vec![],
             chord_symbols: vec![],
         };
-        let err = export(&doc, Path::new("x.mid"), ExportFormat::Midi).unwrap_err();
+        let err = export(&doc, Path::new("x.gp5"), ExportFormat::GuitarPro5).unwrap_err();
         assert!(matches!(err, MtabError::NotImplemented(_)));
+        // MIDI now works end-to-end through the dispatcher.
+        let tmp = std::env::temp_dir().join(format!("mtab-export-test-{}.mid", std::process::id()));
+        export(&doc, &tmp, ExportFormat::Midi).unwrap();
+        assert!(std::fs::metadata(&tmp).unwrap().len() > 0);
+        std::fs::remove_file(&tmp).ok();
     }
 }

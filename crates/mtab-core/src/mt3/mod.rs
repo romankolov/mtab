@@ -1,7 +1,7 @@
 //! MT3 tokenizer vocabulary and the chunk-decode state machine.
 //!
 //! Exact ports of upstream (MIT, Kyutai & Mirelo; adapted there from YourMT3+):
-//! - `tokenizer/notes.py::build_event_vocab` → [`vocab`]
+//! - `tokenizer/notes.py::build_event_vocab` → [`build_event_vocab`]
 //! - `tokenizer/mt3.py::MT3Tokenizer` → [`MT3Tokenizer`] (tie prologue,
 //!   forbidden-token masking)
 //! - `events.py::OpenNoteTracker` + `decode_model_tokens` → [`tracker`]
