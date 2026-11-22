@@ -4,10 +4,15 @@
 //! Conventions follow upstream `notes.py::note_event2midi` (MIT): type-1
 //! multi-track, ppq 480, meta track carrying time signatures + tempo changes
 //! (a tempo change lands BEFORE notes on the same tick), programs claim
-//! channels 0–8 then 10–15 in order of first appearance. Product upgrades
-//! over upstream: per-note velocities (upstream exports a fixed 100) and
-//! pitch bends from the IR. MIDI pitch bend is channel-wide, so overlapping
-//! notes on the same track share bends; per-note isolation is not yet implemented.
+//! channels 0–8 then 10–15, reserved separately for each guitar track.
+//! MIDI pitch bend is channel-wide, so bent notes use isolated channels while
+//! they overlap other notes; unbent distinct pitches can share a channel.
+//! Channel allocation is deterministic and conservative: channels reserved by
+//! separate tracks are not reused, even when their notes do not overlap. An
+//! error is returned instead of silently corrupting bends if 15 channels are
+//! insufficient. Pitch-bend range is explicitly set to ±2 semitones via RPN;
+//! unsupported larger bends are rejected. Bend shapes currently consist of
+//! stepped control points, not interpolated continuous curves.
 
 use std::path::Path;
 
@@ -168,6 +173,7 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
     }
     if doc.tracks.iter().flat_map(|t| &t.notes).any(|n| {
         n.midi > 127
+            || !(1..=127).contains(&n.velocity)
             || !n.start.is_finite()
             || !n.end.is_finite()
             || n.start < 0.0
@@ -176,13 +182,14 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
                 !b.start.is_finite()
                     || !b.peak.is_finite()
                     || !b.depth_cents.is_finite()
+                    || b.depth_cents.abs() > 200.0
                     || b.start < n.start
                     || b.peak < b.start
                     || b.peak > n.end
             })
     }) {
         return Err(invalid(
-            "notes and bends need MIDI pitches 0–127 and finite, ordered times within the note",
+            "notes need MIDI pitch 0–127 and velocity 1–127; bends need ordered finite times within the note and depth within ±200 cents",
         ));
     }
 
@@ -220,11 +227,72 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
         })
         .collect();
     let mut track_events: Vec<Vec<AbsEvent<'_>>> = Vec::new();
-    let mut channel_pool: Vec<u4> = (0..9u8).chain(10..16u8).map(u4::from).collect();
+    let channel_pool: Vec<u8> = (0..9u8).chain(10..16u8).collect();
+    let mut next_channel = 0usize;
     for (ti, track) in doc.tracks.iter().enumerate() {
-        let channel = channel_pool.first().copied().unwrap_or(u4::from(15u8));
-        if channel_pool.len() > 1 {
-            channel_pool.remove(0);
+        // Assign in tick order rather than input order. SMF note-offs are
+        // emitted before note-ons at equal ticks, so adjacent notes may reuse
+        // a channel. A bent note needs the channel to itself; two simultaneous
+        // notes with the same pitch also need distinct channels so one
+        // note-off cannot silence the other.
+        struct AllocChannel {
+            channel: u8,
+            active: Vec<(u64, u8, bool)>, // off tick, key, has bend
+            needs_bend_range: bool,
+        }
+        let mut channels: Vec<AllocChannel> = Vec::new();
+        let mut assignments = vec![0u8; track.notes.len()];
+        let mut note_order: Vec<usize> = (0..track.notes.len()).collect();
+        note_order.sort_by_key(|&i| (time_to_tick(tempo, ppq, track.notes[i].start), i));
+        for i in note_order {
+            let note = &track.notes[i];
+            let on = time_to_tick(tempo, ppq, note.start);
+            let off = time_to_tick(tempo, ppq, note.end).max(
+                on.checked_add(1)
+                    .ok_or_else(|| invalid("note tick overflow"))?,
+            );
+            for ch in &mut channels {
+                ch.active.retain(|&(end, _, _)| end > on);
+            }
+            let index = channels.iter().position(|ch| {
+                ch.active.is_empty()
+                    || (note.bend.is_none()
+                        && ch
+                            .active
+                            .iter()
+                            .all(|&(_, key, bent)| !bent && key != note.midi))
+            });
+            let index = match index {
+                Some(index) => index,
+                None => {
+                    let Some(&channel) = channel_pool.get(next_channel) else {
+                        return Err(invalid("not enough independent melodic channels to isolate bends and overlapping equal pitches; at most 15 are available across tracks"));
+                    };
+                    next_channel += 1;
+                    channels.push(AllocChannel {
+                        channel,
+                        active: Vec::new(),
+                        needs_bend_range: false,
+                    });
+                    channels.len() - 1
+                }
+            };
+            let ch = &mut channels[index];
+            ch.active.push((off, note.midi, note.bend.is_some()));
+            ch.needs_bend_range |= note.bend.is_some();
+            assignments[i] = ch.channel;
+        }
+        // Preserve a program change on an empty guitar track as well.
+        if channels.is_empty() {
+            let Some(&channel) = channel_pool.get(next_channel) else {
+                return Err(invalid("not enough melodic channels for guitar tracks"));
+            };
+            next_channel += 1;
+            channels.push(AllocChannel {
+                channel,
+                active: Vec::new(),
+                needs_bend_range: false,
+            });
         }
         let mut events = Vec::new();
         let mut order = 0u32;
@@ -236,26 +304,56 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
             kind: TrackEventKind::Meta(MetaMessage::TrackName(name.as_bytes())),
         });
         order += 1;
-        events.push(AbsEvent {
-            tick: 0,
-            prio: 0,
-            order,
-            kind: midi_event(
-                channel,
-                MidiMessage::ProgramChange {
-                    program: u7::from(gm_program_for(track.instrument.as_deref())),
-                },
-            ),
-        });
-        order += 1;
+        for ch in &channels {
+            let channel = u4::from(ch.channel);
+            events.push(AbsEvent {
+                tick: 0,
+                prio: 0,
+                order,
+                kind: midi_event(
+                    channel,
+                    MidiMessage::ProgramChange {
+                        program: u7::from(gm_program_for(track.instrument.as_deref())),
+                    },
+                ),
+            });
+            order += 1;
+            if ch.needs_bend_range {
+                // MIDI RPN 0,0 = pitch bend sensitivity. Set 2 semitones and
+                // 0 cents, then null the RPN to avoid accidental later edits.
+                for (controller, value) in [
+                    (101u8, 0u8),
+                    (100, 0),
+                    (6, 2),
+                    (38, 0),
+                    (101, 127),
+                    (100, 127),
+                ] {
+                    events.push(AbsEvent {
+                        tick: 0,
+                        prio: 0,
+                        order,
+                        kind: midi_event(
+                            channel,
+                            MidiMessage::Controller {
+                                controller: u7::from(controller),
+                                value: u7::from(value),
+                            },
+                        ),
+                    });
+                    order += 1;
+                }
+            }
+        }
 
-        for note in &track.notes {
+        for (note, &channel) in track.notes.iter().zip(&assignments) {
+            let channel = u4::from(channel);
             let on_tick = time_to_tick(tempo, ppq, note.start);
             let min_off_tick = on_tick
                 .checked_add(1)
                 .ok_or_else(|| invalid("note tick overflow"))?;
             let off_tick = time_to_tick(tempo, ppq, note.end).max(min_off_tick);
-            let vel = note.velocity.clamp(1, 127);
+            let vel = note.velocity;
             for (tick, wheel) in bend_events(note, ppq, tempo) {
                 events.push(AbsEvent {
                     tick,
@@ -575,5 +673,182 @@ mod tests {
         doc.tracks[0].notes[1].start = 1.0e10;
         doc.tracks[0].notes[1].end = 1.0e10 + 1.0;
         assert!(midi_bytes(&doc).is_err());
+    }
+    fn test_note(midi: u8, start: f64, end: f64, bent: bool) -> TabNote {
+        TabNote {
+            start,
+            end,
+            midi,
+            string: 0,
+            fret: 0,
+            velocity: 92,
+            bend: bent.then_some(TabPitchBend {
+                start,
+                peak: start + (end - start) / 2.0,
+                depth_cents: 100.0,
+                kind: BendKind::Bend,
+            }),
+            technique: vec![],
+            tie_from_prev: false,
+        }
+    }
+
+    #[test]
+    fn overlapping_bends_are_isolated_and_rpn_configured() {
+        let mut doc = doc_with_tempo_change();
+        doc.meta.tempo_map = TempoMap::constant(120.0);
+        doc.tracks[0].notes = vec![
+            test_note(64, 0.0, 2.0, false),
+            test_note(60, 0.0, 2.0, true),
+            test_note(67, 0.0, 2.0, false),
+            test_note(62, 0.5, 1.5, true),
+        ];
+        let bytes = midi_bytes(&doc).unwrap();
+        let smf = Smf::parse(&bytes).unwrap();
+        let mut notes = std::collections::BTreeMap::new();
+        let mut bends = std::collections::BTreeSet::new();
+        let mut rpn = std::collections::BTreeMap::<u8, Vec<(u8, u8)>>::new();
+        for event in &smf.tracks[1] {
+            if let TrackEventKind::Midi { channel, message } = event.kind {
+                let channel = channel.as_int();
+                match message {
+                    MidiMessage::NoteOn { key, .. } => {
+                        notes.insert(key.as_int(), channel);
+                    }
+                    MidiMessage::PitchBend { .. } => {
+                        bends.insert(channel);
+                    }
+                    MidiMessage::Controller { controller, value } => rpn
+                        .entry(channel)
+                        .or_default()
+                        .push((controller.as_int(), value.as_int())),
+                    _ => {}
+                }
+            }
+        }
+        assert_eq!(notes[&64], notes[&67], "nonbent distinct pitches may share");
+        assert_ne!(notes[&60], notes[&64]);
+        assert_ne!(notes[&62], notes[&64]);
+        assert_ne!(notes[&60], notes[&62]);
+        assert_eq!(bends, [notes[&60], notes[&62]].into_iter().collect());
+        for channel in bends {
+            assert_eq!(
+                rpn[&channel],
+                vec![(101, 0), (100, 0), (6, 2), (38, 0), (101, 127), (100, 127)]
+            );
+        }
+        assert!(!rpn.contains_key(&notes[&64]));
+        assert_eq!(bytes, midi_bytes(&doc).unwrap());
+    }
+
+    #[test]
+    fn channel_reuse_at_boundary_and_equal_pitch_isolation() {
+        let mut doc = doc_with_tempo_change();
+        doc.meta.tempo_map = TempoMap::constant(120.0);
+        // Intentionally unsorted input exercises time-order allocation.
+        doc.tracks[0].notes = vec![
+            test_note(65, 2.0, 3.0, false),
+            test_note(60, 0.0, 2.0, true),
+            test_note(64, 0.5, 1.5, false),
+            test_note(64, 0.75, 1.25, false),
+        ];
+        let bytes = midi_bytes(&doc).unwrap();
+        let smf = Smf::parse(&bytes).unwrap();
+        let mut ons = Vec::new();
+        let mut at_boundary = Vec::new();
+        let mut tick = 0;
+        for event in &smf.tracks[1] {
+            tick += event.delta.as_int();
+            if let TrackEventKind::Midi { channel, message } = event.kind {
+                if let MidiMessage::NoteOn { key, .. } = message {
+                    ons.push((key.as_int(), channel.as_int()));
+                }
+                if tick == 1920 && channel.as_int() == 0 {
+                    at_boundary.push(message);
+                }
+            }
+        }
+        assert_eq!(ons.iter().find(|(pitch, _)| *pitch == 60).unwrap().1, 0);
+        assert_eq!(ons.iter().find(|(pitch, _)| *pitch == 65).unwrap().1, 0);
+        let same: Vec<_> = ons.iter().filter(|(pitch, _)| *pitch == 64).collect();
+        assert_ne!(same[0].1, same[1].1);
+        let off = at_boundary
+            .iter()
+            .position(|m| matches!(m, MidiMessage::NoteOff { key, .. } if key.as_int() == 60))
+            .unwrap();
+        let reset = at_boundary
+            .iter()
+            .position(|m| matches!(m, MidiMessage::PitchBend { bend } if bend.as_int() == 0))
+            .unwrap();
+        let next = at_boundary
+            .iter()
+            .position(|m| matches!(m, MidiMessage::NoteOn { key, .. } if key.as_int() == 65))
+            .unwrap();
+        assert!(off < reset && reset < next);
+    }
+
+    #[test]
+    fn channel_exhaustion_errors_instead_of_bend_leak() {
+        let mut doc = doc_with_tempo_change();
+        doc.meta.tempo_map = TempoMap::constant(120.0);
+        doc.tracks[0].notes = (0..15).map(|i| test_note(40 + i, 0.0, 1.0, true)).collect();
+        let bytes = midi_bytes(&doc).unwrap();
+        let smf = Smf::parse(&bytes).unwrap();
+        let channels: std::collections::BTreeSet<u8> = smf.tracks[1]
+            .iter()
+            .filter_map(|event| match event.kind {
+                TrackEventKind::Midi {
+                    channel,
+                    message: MidiMessage::NoteOn { .. },
+                } => Some(channel.as_int()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(channels.len(), 15);
+        assert!(!channels.contains(&9), "channel 10 is reserved for drums");
+        doc.tracks[0].notes.push(test_note(55, 0.0, 1.0, true));
+        assert!(midi_bytes(&doc)
+            .unwrap_err()
+            .to_string()
+            .contains("not enough independent melodic channels"));
+    }
+
+    #[test]
+    fn channels_reserved_across_tracks_and_programs_repeated() {
+        let mut doc = doc_with_tempo_change();
+        doc.tracks[0].notes = vec![test_note(60, 0.0, 1.0, true), test_note(64, 0.0, 1.0, true)];
+        let mut second = doc.tracks[0].clone();
+        second.instrument = Some("acoustic_guitar".into());
+        second.notes = vec![test_note(67, 0.0, 1.0, false)];
+        doc.tracks.push(second);
+        let bytes = midi_bytes(&doc).unwrap();
+        let smf = Smf::parse(&bytes).unwrap();
+        let programs = |track: usize| {
+            smf.tracks[track]
+                .iter()
+                .filter_map(|event| match event.kind {
+                    TrackEventKind::Midi {
+                        channel,
+                        message: MidiMessage::ProgramChange { program },
+                    } => Some((channel.as_int(), program.as_int())),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(programs(1), vec![(0, 30), (1, 30)]);
+        assert_eq!(programs(2), vec![(2, 25)]);
+    }
+    #[test]
+    fn rejects_unrepresentable_velocity_and_bend_range() {
+        let mut doc = doc_with_tempo_change();
+        doc.tracks[0].notes[0].velocity = 0;
+        assert!(midi_bytes(&doc).is_err());
+        doc.tracks[0].notes[0].velocity = 128;
+        assert!(midi_bytes(&doc).is_err());
+        doc.tracks[0].notes[0].velocity = 90;
+        doc.tracks[0].notes[1].bend.as_mut().unwrap().depth_cents = 201.0;
+        assert!(midi_bytes(&doc).unwrap_err().to_string().contains("±200"));
+        doc.tracks[0].notes[1].bend.as_mut().unwrap().depth_cents = -200.0;
+        assert!(midi_bytes(&doc).is_ok());
     }
 }

@@ -39,8 +39,10 @@ Automatic tuning and capo detection are not implemented: `auto` warns and uses
 standard tuning and no capo. Beat tracking and quantization are not implemented:
 MIDI preserves note times with a fixed 120 BPM / 4/4 map. Fret assignment may
 fail on unplayable or beam-pruned polyphony; it is not a quality evaluation.
-Pitch bends and dynamics are not yet inferred, and MIDI bends in overlapping
-notes share a track channel. MIDI files do not encode tablature fingering; the
+Pitch bends and dynamics are not yet inferred. The MIDI writer isolates bent
+overlapping notes onto separate channels and reports an error if its available
+15 melodic channels are exhausted. Bend contours use stepped control points
+and support up to ±200 cents. MIDI files do not encode tablature fingering; the
 optional IR does. No DAW round-trip validation has yet been performed.
 
 Omit `-o` to write JSONL to stdout. Each line is a raw note with `start`, `end`
