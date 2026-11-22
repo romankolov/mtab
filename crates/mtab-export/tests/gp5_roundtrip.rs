@@ -80,6 +80,24 @@ fn encoded_gp5_is_deterministic_and_invalid_input_does_not_write() {
 }
 
 #[test]
+fn unsupported_bend_cannot_overwrite_existing_file() {
+    let path =
+        std::env::temp_dir().join(format!("mtab-gp5-bend-invalid-{}.gp5", std::process::id()));
+    let mut doc = fixture();
+    std::fs::write(&path, b"original").unwrap();
+    doc.tracks[0].notes[0].bend = Some(mtab_guitar::PitchBend {
+        start: 0.0,
+        peak: 1.25,
+        depth_cents: 100.0,
+        kind: mtab_guitar::BendKind::Bend,
+    });
+    let error = gp5::write_gp5(&doc, &path).unwrap_err().to_string();
+    assert!(error.contains("bent note must fit one"), "{error}");
+    assert_eq!(std::fs::read(&path).unwrap(), b"original");
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn gp5_rejects_unrepresentable_title_without_overwriting() {
     let path = std::env::temp_dir().join(format!("mtab-gp5-title-{}.gp5", std::process::id()));
     let mut doc = fixture();
@@ -145,6 +163,47 @@ fn pyguitarpro_reads_tracks_ties_and_dynamics() {
     assert!(
         output.status.success(),
         "techniques parser failure: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let mut bent = fixture();
+    bent.tracks.truncate(1);
+    let mut notes = vec![
+        note(0.0, 0.5, 42, 0, 0, 80),
+        note(0.5, 1.0, 42, 0, 0, 80),
+        note(1.0, 1.5, 42, 0, 0, 80),
+    ];
+    for (index, (kind, peak_position, depth)) in [
+        (mtab_guitar::BendKind::Bend, 4.0, 100.0),
+        (mtab_guitar::BendKind::Release, 6.0, 200.0),
+        (mtab_guitar::BendKind::BendRelease, 8.0, 100.0),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let n = &mut notes[index];
+        n.bend = Some(mtab_guitar::PitchBend {
+            start: n.start,
+            peak: n.start + (n.end - n.start) * peak_position / 12.0,
+            depth_cents: depth,
+            kind,
+        });
+    }
+    notes[0].technique.push(mtab_guitar::Technique::PalmMute);
+    bent.tracks[0].notes = notes;
+    let bent_file = dir.0.join("bends.gp5");
+    let (bent_bytes, _) = gp5::gp5_bytes(&bent).unwrap();
+    assert_eq!(bent_bytes, gp5::gp5_bytes(&bent).unwrap().0);
+    std::fs::write(&bent_file, bent_bytes).unwrap();
+    let bend_check =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_bends.py");
+    let output = Command::new(&python)
+        .arg(bend_check)
+        .arg(bent_file)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "bend parser failure: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let header_check =

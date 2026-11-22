@@ -61,10 +61,10 @@ of `--grid`; the CLI reports the largest quantization shift. It supports up
 to 15 six- or seven-string tracks, titles representable in Windows-1252
 (without control characters, up to 255 encoded bytes), and GP5's discrete
 velocity levels. Other Unicode titles require renaming the audio file. It can
-encode dead-note and palm-mute markings supplied in the library IR, but it
-does not infer them from audio. It rejects same-string quantization
-collisions, bends, eight-string tracks and other unsupported notation rather
-than dropping notes.
+encode dead-note, palm-mute and restricted bend markings supplied in the library
+IR, but does not infer them from audio. It rejects same-string quantization
+collisions, unsupported bends, eight-string tracks and other unsupported
+notation rather than dropping notes.
 The exporter has not yet been manually checked in Guitar Pro or TuxGuitar, and
 real-checkpoint CLI-to-GP5 output has not yet been validated. MIDI remains
 unquantized. Pitch bends are not yet inferred. The MIDI writer isolates bent
@@ -177,9 +177,16 @@ weights are uploaded as artifacts.
 
 `mtab_export::gp5::gp5_bytes` encodes the currently restricted GP5 5.00 subset:
 constant integer tempo, 4/4, six or seven strings, and a 1/32-note grid. It
-preserves explicit dead-note and palm-mute marks, but rejects bends, other
-techniques, explicit source ties, chord symbols, variable tempo/meter and
-quantization collisions rather than silently discarding them. Velocity is
+preserves explicit dead-note and palm-mute marks and a restricted set of bends,
+but rejects unsupported contours, other techniques, explicit source ties, chord
+symbols, variable tempo/meter and quantization collisions rather than silently
+discarding them. A bend must start at the note attack, peak at an interior
+multiple of 1/12 of its original duration, rise by exactly 100 or 200 cents,
+and fit one notated beat without a tie or an intervening note boundary. Bent
+dead notes are rejected. The peak's relative position is preserved on the
+quantized beat, so its absolute time shifts with the note boundaries. GP5
+stores interpolated bend points; the MIDI exporter currently emits stepped
+pitch-wheel events at those points, so their playback can differ. Velocity is
 rounded to GP5 dynamic levels. It has **not** been manually verified in Guitar
 Pro or TuxGuitar.
 

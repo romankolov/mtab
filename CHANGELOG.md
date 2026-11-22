@@ -7,6 +7,11 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- GP5 can encode explicitly supplied bend, prebend-release, and bend-release
+  contours on a single unsplit beat, with positive 100/200-cent heights and an
+  interior peak on the 1/12-note bend grid. Unsupported contours are errors.
+  Peak timing follows the quantized note; GP5 bend-point interpolation differs
+  from the current MIDI writer's stepped wheel events. No bend inference yet.
 - GP5 writes explicit dead-note and palm-mute marks from the library IR,
   including palm-mute marks on generated ties. These are not inferred from
   audio; unsupported techniques and bends remain errors. Independent
@@ -19,7 +24,7 @@ versioning: [SemVer](https://semver.org/).
   fork. An independent PyGuitarPro test checks multi-track notes, durations,
   ties, string/fret, capo, tuning and GP5 dynamic levels. The export dispatcher
   and CLI can write MIDI plus GP5 together; changing tempo/meter, eight strings,
-  bends, most techniques and colliding quantized notes remain unsupported.
+  unsupported bends, most techniques and colliding quantized notes remain unsupported.
   Not yet manually checked in a notation program.
 - **M6 groundwork:** a deterministic 4/4, constant-integer-tempo rhythmic
   planning API on a 1/32 grid. It creates rests and tied note segments across

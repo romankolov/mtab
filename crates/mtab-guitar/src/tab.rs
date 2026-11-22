@@ -118,7 +118,7 @@ pub enum BendKind {
     BendRelease,
 }
 
-/// Guitar articulations (§6.8). GP5 export renders each of these marks.
+/// Guitar articulations (§6.8). Export support varies by technique and format.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Technique {
     Slide { to_fret: u8, kind: SlideKind },

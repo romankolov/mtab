@@ -3,7 +3,7 @@
 //! This module does **not** write Guitar Pro files. It converts a constrained
 //! [`TabDocument`] to bar-contained beats with ties and rests. It intentionally
 //! rejects input it cannot yet preserve, including tempo/meter changes,
-//! eight-string tuning, chord symbols, bends and unsupported techniques; it
+//! eight-string tuning, chord symbols, unsupported bends and techniques; it
 //! never silently drops them. Dead-note and palm-mute flags are retained. Timing is quantized to 1/32 notes at an integer, constant BPM.
 //!
 //! GP5 uses two voices per measure. This initial planner uses a single voice,
@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 
 use mtab_core::{MtabError, Result};
-use mtab_guitar::{GuitarTrack, TabDocument, Technique};
+use mtab_guitar::{BendKind, GuitarTrack, TabDocument, TabNote, Technique};
 
 /// Pulses per quarter note in the proposed notation plan.
 pub const PPQ: u64 = 960;
@@ -70,12 +70,25 @@ pub struct PlannedNote {
     pub fret: u8,
     /// Original velocity; actual GP5 encoding may quantize velocity levels.
     pub velocity: u8,
+    /// A supported bend contour, if supplied.
+    pub bend: Option<PlannedBend>,
     /// Whether this is a continuation rather than a new attack.
     pub tied: bool,
     /// The source marks this as a percussive dead note.
     pub dead_note: bool,
     /// The source marks this as palm-muted.
     pub palm_mute: bool,
+}
+
+/// A bend on a single unsplit beat. Positions are twelfths of its duration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlannedBend {
+    /// Shape of the bend.
+    pub kind: BendKind,
+    /// Time of the maximum deviation, in twelfths of the note duration.
+    pub peak_position: u8,
+    /// Positive bend height in whole semitones.
+    pub semitones: u8,
 }
 
 #[derive(Clone)]
@@ -86,6 +99,7 @@ struct QuantizedNote {
     string: u8,
     fret: u8,
     velocity: u8,
+    bend: Option<PlannedBend>,
     dead_note: bool,
     palm_mute: bool,
 }
@@ -103,8 +117,11 @@ fn invalid(reason: &str) -> MtabError {
 /// onset/offset displacement is reported. Sequential notes that quantize to
 /// overlapping intervals on the same string are rejected rather than lost.
 /// Supported tunings contain six or seven strings; this planner does not
-/// support bends, techniques other than dead notes and palm muting, explicit
-/// source ties, chords, changing tempo/meter, or empty documents. Errors describe the unsupported input. Input order is preserved
+/// support techniques other than dead notes and palm muting, explicit source
+/// ties, chords, changing tempo/meter, or empty documents. Bends must start at
+/// the attack, peak on an interior twelfth of the original note, have a positive
+/// whole-semitone height of at most two semitones, and fit a single planned beat.
+/// The peak is mapped proportionally onto the quantized beat. Errors describe the unsupported input. Input order is preserved
 /// as a source-note index; ties are created only for splitting sounding notes.
 ///
 /// This is an internal-style planning API, not a GP5 exporter and not a beat
@@ -191,15 +208,14 @@ fn quantize_track(
                 "note times must be finite, nonnegative and strictly ordered",
             ));
         }
-        if note.bend.is_some()
-            || note.tie_from_prev
+        if note.tie_from_prev
             || note
                 .technique
                 .iter()
                 .any(|technique| !matches!(technique, Technique::DeadNote | Technique::PalmMute))
         {
             return Err(invalid(
-                "bends, techniques other than dead notes or palm muting, and explicit source ties are not yet supported",
+                "techniques other than dead notes or palm muting and explicit source ties are not yet supported",
             ));
         }
         let Some(&open) = strings.get(note.string as usize) else {
@@ -233,11 +249,41 @@ fn quantize_track(
             string: note.string,
             fret: note.fret,
             velocity: note.velocity,
+            bend: plan_bend(note)?,
             dead_note: note.technique.contains(&Technique::DeadNote),
             palm_mute: note.technique.contains(&Technique::PalmMute),
         });
     }
     Ok(out)
+}
+
+fn plan_bend(note: &TabNote) -> Result<Option<PlannedBend>> {
+    let Some(bend) = note.bend else {
+        return Ok(None);
+    };
+    if !bend.start.is_finite()
+        || !bend.peak.is_finite()
+        || !bend.depth_cents.is_finite()
+        || bend.start != note.start
+        || bend.peak <= note.start
+        || bend.peak >= note.end
+        || !matches!(bend.depth_cents, 100.0 | 200.0)
+        || note.technique.contains(&Technique::DeadNote)
+    {
+        return Err(invalid("bend must start at the note attack, have an interior peak and a positive height of 100 or 200 cents, and not be a dead note"));
+    }
+    let position = (bend.peak - note.start) / (note.end - note.start) * 12.0;
+    let rounded = position.round();
+    if !(1.0..=11.0).contains(&rounded) || (position - rounded).abs() > 1e-9 {
+        return Err(invalid(
+            "bend peak must be exactly on an interior twelfth of the source note",
+        ));
+    }
+    Ok(Some(PlannedBend {
+        kind: bend.kind,
+        peak_position: rounded as u8,
+        semitones: (bend.depth_cents / 100.0) as u8,
+    }))
 }
 
 fn plan_track(notes: &[QuantizedNote], bars: u64, beat_count: &mut usize) -> Result<TrackPlan> {
@@ -270,6 +316,12 @@ fn plan_track(notes: &[QuantizedNote], bars: u64, beat_count: &mut usize) -> Res
                 .next()
                 .map_or(end, |(&t, _)| t.min(end));
             let (duration, denominator, dotted) = choose_duration(tick, next - tick);
+            if active
+                .values()
+                .any(|&i| notes[i].bend.is_some() && notes[i].start < tick)
+            {
+                return Err(invalid("a bent note must fit one notated beat without a tie or an interleaved note boundary"));
+            }
             let sounding = active
                 .values()
                 .map(|&i| {
@@ -279,6 +331,7 @@ fn plan_track(notes: &[QuantizedNote], bars: u64, beat_count: &mut usize) -> Res
                         string: n.string,
                         fret: n.fret,
                         velocity: n.velocity,
+                        bend: n.bend,
                         tied: n.start < tick,
                         dead_note: n.dead_note,
                         palm_mute: n.palm_mute,
@@ -560,5 +613,80 @@ mod tests {
         assert!(dead.iter().all(|n| n.dead_note && n.palm_mute));
         let muted = notes.iter().find(|n| n.source_index == 1).unwrap();
         assert!(muted.palm_mute && !muted.dead_note && !muted.tied);
+    }
+    #[test]
+    fn bends_accept_only_representable_unsplit_notes() {
+        use mtab_guitar::{BendKind, PitchBend};
+        let mut doc = document(vec![note(0.0, 0.5, 0, 0)]);
+        let valid = PitchBend {
+            start: 0.0,
+            peak: 0.25,
+            depth_cents: 100.0,
+            kind: BendKind::BendRelease,
+        };
+        doc.tracks[0].notes[0].bend = Some(valid);
+        let p = plan(&doc).unwrap();
+        assert_eq!(
+            p.tracks[0].bars[0][0].notes[0].bend,
+            Some(PlannedBend {
+                kind: BendKind::BendRelease,
+                peak_position: 6,
+                semitones: 1
+            })
+        );
+        for invalid in [
+            PitchBend {
+                start: 0.01,
+                ..valid
+            },
+            PitchBend {
+                start: f64::NAN,
+                ..valid
+            },
+            PitchBend {
+                peak: f64::NAN,
+                ..valid
+            },
+            PitchBend { peak: 0.0, ..valid },
+            PitchBend { peak: 0.5, ..valid },
+            PitchBend {
+                peak: 0.251,
+                ..valid
+            },
+            PitchBend {
+                depth_cents: 150.0,
+                ..valid
+            },
+            PitchBend {
+                depth_cents: -100.0,
+                ..valid
+            },
+            PitchBend {
+                depth_cents: f32::NAN,
+                ..valid
+            },
+        ] {
+            doc.tracks[0].notes[0].bend = Some(invalid);
+            assert!(plan(&doc).is_err(), "{invalid:?}");
+        }
+        doc.tracks[0].notes[0].bend = Some(valid);
+        doc.tracks[0].notes[0].technique.push(Technique::DeadNote);
+        assert!(plan(&doc).is_err());
+        doc.tracks[0].notes[0].technique.clear();
+        doc.tracks[0].notes.push(note(0.25, 0.5, 1, 0));
+        assert!(plan(&doc)
+            .unwrap_err()
+            .to_string()
+            .contains("bent note must fit one"));
+        doc.tracks[0].notes.pop();
+        doc.tracks[0].notes[0].end = 2.5;
+        doc.tracks[0].notes[0].bend = Some(PitchBend {
+            peak: 1.25,
+            ..valid
+        });
+        assert!(plan(&doc)
+            .unwrap_err()
+            .to_string()
+            .contains("bent note must fit one"));
     }
 }

@@ -1,16 +1,18 @@
 //! Experimental Guitar Pro 5.00 encoding for the constrained notation planner.
 //!
 //! This writer supports the documented subset of [`crate::gp5_plan`]. In
-//! particular, it rejects bends, unsupported techniques, source ties, variable
-//! tempo, non-4/4 meters, eight-string tracks and quantization collisions rather
-//! than losing them. Explicit dead-note and palm-mute marks are supported. GP5 velocities are rounded to its eight 15 + 16*n dynamic levels.
+//! particular, it rejects unsupported bends and techniques, source ties,
+//! variable tempo, non-4/4 meters, eight-string tracks and quantization
+//! collisions rather than losing them. Explicit dead-note and palm-mute marks
+//! are supported. GP5 velocities are rounded to its eight dynamic levels.
 //! This is not a replacement for manual verification in a notation program.
 
 use std::path::Path;
 
 use guitarpro::{
     beat::{Beat, Voice},
-    enums::{BeatStatus, NoteType},
+    effects::{BendEffect, BendPoint},
+    enums::{BeatStatus, BendType, NoteType},
     gp::Song,
     headers::MeasureHeader,
     key_signature::Duration,
@@ -20,7 +22,7 @@ use guitarpro::{
     track::Track,
 };
 use mtab_core::{MtabError, Result};
-use mtab_guitar::TabDocument;
+use mtab_guitar::{BendKind, TabDocument};
 
 use crate::gp5_plan::{self, ScorePlan};
 
@@ -128,6 +130,28 @@ pub fn gp5_bytes(doc: &TabDocument) -> Result<(Vec<u8>, ScorePlan)> {
                         NoteType::Normal
                     };
                     target_note.effect.palm_mute = note.palm_mute;
+                    if let Some(bend) = note.bend {
+                        let height = bend.semitones as i8;
+                        let (kind, values) = match bend.kind {
+                            BendKind::Bend => (BendType::Bend, [0, height, height]),
+                            BendKind::Release => (BendType::PrebendRelease, [height, height, 0]),
+                            BendKind::BendRelease => (BendType::BendRelease, [0, height, 0]),
+                        };
+                        target_note.effect.bend = Some(BendEffect {
+                            kind,
+                            value: i16::from(height) * 25,
+                            points: [0, bend.peak_position, 12]
+                                .into_iter()
+                                .zip(values)
+                                .map(|(position, value)| BendPoint {
+                                    position,
+                                    value,
+                                    vibrato: false,
+                                })
+                                .collect(),
+                            ..BendEffect::default()
+                        });
+                    }
                     target.notes.push(target_note);
                 }
                 voice.beats.push(target);
