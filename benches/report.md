@@ -87,3 +87,17 @@ on the mono mix. This establishes wiring and non-constant output, **not**
 accuracy, calibration to MIDI velocity, separation of overlapping sources, or
 performance on real music. The flag is opt-in; without it, upstream's constant
 velocity is preserved.
+
+## Experimental tuning evidence (2026-11-22)
+
+A bounded monophonic YIN-style pitch histogram and open-string template scorer
+are integrated into `detect-tuning` and the MIDI path's automatic settings.
+Synthetic isolated sine sequences covering eight-string open notes and a
+standard-tuning capo-2 sequence passed pipeline tests; a standard six-string
+sequence correctly abstained because extended tunings share its open pitches.
+The five-second synthetic plucked-string fixture also abstained: its best and
+runner-up hypotheses tied at an open-pitch fraction of 0.511. These checks are
+not a real-recording evaluation. Fretted notes and polyphonic mixtures can
+produce confident but incorrect guesses; thresholds are uncalibrated. The CLI
+warns and falls back to standard / no capo for insufficient evidence (preserving
+explicit overrides), and users should verify or set tuning and capo manually.

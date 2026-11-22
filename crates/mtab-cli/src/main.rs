@@ -240,9 +240,40 @@ fn detect_tuning(list: bool, input: Option<&std::path::Path>) -> Result<()> {
     if !input.exists() {
         return Err(MtabError::UnsupportedAudio(input.display().to_string()));
     }
-    Err(MtabError::NotImplemented(
-        "tuning/capo detection (milestone M5)",
-    ))
+    let audio = mtab_audio::load_model_input(input)?;
+    let histogram = mtab_audio::pitch_histogram::pitch_histogram(&audio)?;
+    let detection =
+        mtab_guitar::detect_tuning(&histogram.weights, &mtab_guitar::standard_candidates())?;
+    println!(
+        "Experimental monophonic tuning estimate; polyphony and fretted notes can mislead it."
+    );
+    println!(
+        "Frames: {} voiced / {} analysed",
+        histogram.voiced_frames, histogram.frames_examined
+    );
+    if let Some(best) = &detection.best {
+        println!(
+            "Best hypothesis: {} capo {} (open-pitch fraction {:.3}, margin {:.3})",
+            best.candidate.tuning.name,
+            best.candidate.capo.position(),
+            best.open_fraction,
+            detection.margin
+        );
+    }
+    if let Some(next) = &detection.runner_up {
+        println!(
+            "Runner-up: {} capo {} (open-pitch fraction {:.3})",
+            next.candidate.tuning.name,
+            next.candidate.capo.position(),
+            next.open_fraction
+        );
+    }
+    if detection.sufficient_evidence {
+        println!("Evidence threshold met (uncalibrated heuristic; verify manually).");
+    } else {
+        println!("Insufficient or ambiguous evidence; default is standard tuning, capo 0.");
+    }
+    Ok(())
 }
 
 fn download(size: ModelSize, token_env: &str) -> Result<()> {
@@ -462,7 +493,7 @@ fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel) -> Result<()> {
             write_notes(writer, &result.notes)
         }
         OutputMode::Midi => {
-            let doc = build_midi_document(args, &result.notes)?;
+            let doc = build_midi_document(args, &audio, &result.notes)?;
             let bytes = mtab_export::midi::midi_bytes(&doc)?;
             let ir = args
                 .emit_ir
@@ -480,26 +511,59 @@ fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel) -> Result<()> {
     }
 }
 
-fn build_midi_document(
+fn resolve_tuning_and_capo(
     args: &TranscribeArgs,
-    notes: &[mtab_core::NoteEvent],
-) -> Result<TabDocument> {
+    audio: &mtab_audio::AudioBuffer,
+) -> Result<(Tuning, Capo)> {
     let tuning = if args.tuning == "auto" {
-        eprintln!("warning: tuning detection is not implemented; using standard tuning");
-        Tuning::standard()
+        None
     } else {
-        Tuning::from_name(&args.tuning)?
+        Some(Tuning::from_name(&args.tuning)?)
     };
     let capo = if args.capo == "auto" {
-        eprintln!("warning: capo detection is not implemented; using capo 0");
-        Capo::NONE
+        None
     } else {
-        Capo::new(
+        Some(Capo::new(
             args.capo
                 .parse::<u8>()
                 .map_err(|_| MtabError::InvalidCapo(u8::MAX))?,
-        )?
+        )?)
     };
+    if let (Some(t), Some(c)) = (&tuning, capo) {
+        return Ok((t.clone(), c));
+    }
+    let histogram = mtab_audio::pitch_histogram::pitch_histogram(audio)?;
+    let candidates: Vec<_> = mtab_guitar::standard_candidates()
+        .into_iter()
+        .filter(|c| tuning.as_ref().map_or(true, |t| &c.tuning == t))
+        .filter(|c| capo.map_or(true, |capo| c.capo == capo))
+        .filter(|c| c.capo.position() <= args.frets)
+        .collect();
+    let detection = mtab_guitar::detect_tuning(&histogram.weights, &candidates)?;
+    if detection.sufficient_evidence {
+        let best = detection
+            .best
+            .expect("sufficient evidence has a best candidate");
+        eprintln!("warning: experimental tuning estimate {} capo {} (uncalibrated margin {:.3}); verify it, especially for polyphonic audio", best.candidate.tuning.name, best.candidate.capo.position(), detection.margin);
+        Ok((best.candidate.tuning, best.candidate.capo))
+    } else {
+        let t = tuning.unwrap_or_else(Tuning::standard);
+        let c = capo.unwrap_or(Capo::NONE);
+        eprintln!(
+            "warning: tuning/capo evidence is insufficient or ambiguous; using {} capo {}",
+            t.name,
+            c.position()
+        );
+        Ok((t, c))
+    }
+}
+
+fn build_midi_document(
+    args: &TranscribeArgs,
+    audio: &mtab_audio::AudioBuffer,
+    notes: &[mtab_core::NoteEvent],
+) -> Result<TabDocument> {
+    let (tuning, capo) = resolve_tuning_and_capo(args, audio)?;
     eprintln!("warning: beat tracking and quantization are not implemented; MIDI uses raw timing and a 120 BPM, 4/4 tempo map");
     let mut grouped: std::collections::BTreeMap<u16, Vec<mtab_core::NoteEvent>> =
         std::collections::BTreeMap::new();
@@ -732,7 +796,12 @@ mod tests {
             velocity: 89,
             instrument: 24,
         };
-        let doc = build_midi_document(&args, &[note]).unwrap();
+        let audio_data = mtab_audio::AudioBuffer {
+            samples: vec![],
+            sample_rate: 16000,
+            channels: 1,
+        };
+        let doc = build_midi_document(&args, &audio_data, &[note]).unwrap();
         assert_eq!(doc.tracks.len(), 1);
         assert_eq!(doc.tracks[0].notes[0].midi, 40);
         assert_eq!(doc.tracks[0].notes[0].velocity, 89);
@@ -783,5 +852,80 @@ mod tests {
             };
             assert_eq!(args.dynamics, expected);
         }
+    }
+    fn isolated_pitch_sequence(pitches: &[u8]) -> mtab_audio::AudioBuffer {
+        let mut samples = Vec::new();
+        for &pitch in pitches {
+            let hz = 440.0 * 2.0f64.powf((f64::from(pitch) - 69.0) / 12.0);
+            for i in 0..8000 {
+                let sample = if i < 7200 {
+                    (0.3 * (2.0 * std::f64::consts::PI * hz * i as f64 / 16000.0).sin()) as f32
+                } else {
+                    0.0
+                };
+                samples.push(sample);
+            }
+        }
+        mtab_audio::AudioBuffer {
+            samples,
+            sample_rate: 16000,
+            channels: 1,
+        }
+    }
+
+    fn args_for_tuning(extra: &[&str]) -> TranscribeArgs {
+        let mut argv = vec!["mtab", "transcribe", "song.wav", "-o", "song.mid"];
+        argv.extend_from_slice(extra);
+        let Some(Cmd::Transcribe(args)) = Cli::try_parse_from(argv).unwrap().command else {
+            panic!("wrong command")
+        };
+        args
+    }
+
+    #[test]
+    fn tuning_pipeline_abstains_on_shared_standard_strings() {
+        let audio = isolated_pitch_sequence(&[40, 45, 50, 55, 59, 64]);
+        let histogram = mtab_audio::pitch_histogram::pitch_histogram(&audio).unwrap();
+        let detection =
+            mtab_guitar::detect_tuning(&histogram.weights, &mtab_guitar::standard_candidates())
+                .unwrap();
+        assert!(!detection.sufficient_evidence, "{detection:?}");
+        let (tuning, capo) = resolve_tuning_and_capo(&args_for_tuning(&[]), &audio).unwrap();
+        assert_eq!(tuning, Tuning::standard());
+        assert_eq!(capo, Capo::NONE);
+    }
+
+    #[test]
+    fn tuning_pipeline_can_detect_capo_with_explicit_tuning() {
+        let audio = isolated_pitch_sequence(&[42, 47, 52, 57, 61, 66]);
+        let args = args_for_tuning(&["--tuning", "standard"]);
+        let (tuning, capo) = resolve_tuning_and_capo(&args, &audio).unwrap();
+        assert_eq!(tuning, Tuning::standard());
+        assert_eq!(capo.position(), 2);
+    }
+
+    #[test]
+    fn tuning_pipeline_can_identify_synthetic_eight_string_open_notes() {
+        let audio = isolated_pitch_sequence(&[30, 35, 40, 45, 50, 55, 59, 64]);
+        let (tuning, capo) = resolve_tuning_and_capo(&args_for_tuning(&[]), &audio).unwrap();
+        assert_eq!(tuning, Tuning::eight_string());
+        assert_eq!(capo, Capo::NONE);
+    }
+
+    #[test]
+    fn tuning_fallback_preserves_explicit_overrides() {
+        let audio = mtab_audio::AudioBuffer {
+            samples: vec![0.0; 4096],
+            sample_rate: 16000,
+            channels: 1,
+        };
+        let (tuning, capo) =
+            resolve_tuning_and_capo(&args_for_tuning(&["--tuning", "drop-d"]), &audio).unwrap();
+        assert_eq!(tuning, Tuning::drop_d());
+        assert_eq!(capo, Capo::NONE);
+        let (tuning, capo) =
+            resolve_tuning_and_capo(&args_for_tuning(&["--capo", "2"]), &audio).unwrap();
+        assert_eq!(tuning, Tuning::standard());
+        assert_eq!(capo.position(), 2);
     }
 }

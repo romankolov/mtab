@@ -35,9 +35,17 @@ mtab transcribe song.wav --size small --weights ./muscriptor-small.safetensors \
     --dynamics --emit-ir song.json -o song.mid
 ```
 
-Automatic tuning and capo detection are not implemented: `auto` warns and uses
-standard tuning and no capo. Beat tracking and quantization are not implemented:
-MIDI preserves note times with a fixed 120 BPM / 4/4 map. Fret assignment may
+Automatic tuning and capo detection are experimental. The detector analyses
+bounded monophonic pitch evidence and scores possible open strings; it warns
+and falls back to standard tuning and capo 0 when evidence is ambiguous. If
+one setting is explicit, the fallback preserves it. Chords, fretted notes,
+bass and other instruments can fool the uncalibrated heuristic, so verify the
+result or set `--tuning` and `--capo` explicitly. Run
+`mtab detect-tuning song.wav` for ranked hypotheses, or
+`mtab detect-tuning --list` for tunings.
+
+Beat tracking and quantization are not implemented: MIDI preserves note times
+with a fixed 120 BPM / 4/4 map. Fret assignment may
 fail on unplayable or beam-pruned polyphony; it is not a quality evaluation.
 Pitch bends are not yet inferred. The MIDI writer isolates bent
 overlapping notes onto separate channels and reports an error if its available
@@ -51,8 +59,8 @@ warnings go to stderr. Velocities default to upstream's fixed value 100. The
 optional `--dynamics` flag estimates relative velocity (30–127) from the
 attack envelope and local RMS, using the mixed audio. This experimental
 heuristic is uncalibrated; overlapping notes and other instruments can bias
-it, and notes without usable attack energy retain their original velocity. `--strict-eos` makes an incomplete generated chunk an
-error, `--beam-size` selects beam search, and `--temperature` enables seeded
+it, and notes without usable attack energy retain their original velocity.
+`--strict-eos` makes an incomplete generated chunk an error, `--beam-size` selects beam search, and `--temperature` enables seeded
 sampling (`--seed`). The current reference CPU implementation uses f64 and is
 not yet performance-optimized; device acceleration and streaming audio are
 not implemented. Local checkpoints only; URL/Hugging Face fetching is pending.
