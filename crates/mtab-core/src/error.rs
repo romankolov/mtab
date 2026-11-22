@@ -39,6 +39,9 @@ pub enum MtabError {
     #[error("invalid model source '{0}'\n  hint: pass a <name>.safetensors path, an hf://<org>/<repo> reference, or an http(s):// URL")]
     InvalidModelSource(String),
 
+    #[error("cannot assign note {index} to the fretboard: {reason}\n  hint: check tuning, capo, fret count, note overlaps, or increase the search width")]
+    UnplayableNote { index: usize, reason: String },
+
     #[error("invalid tuning '{0}'\n  hint: run `mtab detect-tuning --list` for supported names")]
     InvalidTuning(String),
 

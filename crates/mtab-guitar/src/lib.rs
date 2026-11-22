@@ -2,14 +2,17 @@
 //!
 //! - [`tab`]: the `TabDocument` IR every pipeline stage reads/writes
 //! - [`tuning`]: tuning library + detection input types (detection lands M5)
+//! - [`fingering`]: preliminary bounded global string/fret search
 //!
-//! String/fret assignment (the "tab brain", §6.6) and technique detection
-//! (§6.8) land in later milestones and extend these types.
+//! Tuning detection, chord-shape constraints, evaluation and technique
+//! detection remain future work.
 
+pub mod fingering;
 pub mod rhythm;
 pub mod tab;
 pub mod tuning;
 
+pub use fingering::{assign_notes, FingeringOptions};
 pub use rhythm::Grid;
 pub use tab::{
     BendKind, ChordSymbol, GuitarTrack, PitchBend, SlideKind, TabDocument, TabNote, Technique,

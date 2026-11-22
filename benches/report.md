@@ -54,7 +54,9 @@ On the five-second synthetic plucked-string fixture:
 
 All 48 and 77 generated logit rows, respectively, met the 1e-3 scaled-error
 criterion, including matching masked positions. The CLI ran the same waveform
-to EOS and produced 10 JSONL note records, byte-identical across two runs.
+to EOS and produced 10 JSONL note records, byte-identical across two runs. The
+preliminary fingering library found valid standard-tuning assignments for those
+notes; this is a feasibility check, not a tablature-quality evaluation.
 One separate run took 23.5 seconds including checkpoint load, with peak RSS
 789 MiB, `MATMUL_NUM_THREADS=2`, on the sandbox above. This is a single
 synthetic input, not a GuitarSet evaluation, and does not establish accuracy or

@@ -11,8 +11,9 @@ tuning, capo, string/fret assignment, rhythm, bends, dead notes.
 
 > **Status: in development.** The audio frontend, transformer inference,
 > chunk decoder, and MIDI writer have preliminary implementations. The CLI
-> currently supports raw-note JSONL only; tuning/fretting, GP5 and the other
-> end-to-end exports are not implemented yet. The official small checkpoint has
+> currently supports raw-note JSONL only; tuning/fretting in the CLI, GP5 and
+> the other end-to-end exports are not implemented yet. A preliminary bounded
+> global fingering search is available in the library, but is not benchmarked. The official small checkpoint has
 > been smoke-tested and checked against upstream on a synthetic plucked-string
 > fixture; accuracy on real music and end-to-end performance targets are unverified.
 

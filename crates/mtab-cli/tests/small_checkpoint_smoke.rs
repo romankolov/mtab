@@ -107,11 +107,33 @@ fn real_small_cli_smoke_and_determinism() {
                 "expected note records for the synthetic guitar fixture"
             );
         }
+        let mut groups: std::collections::BTreeMap<u16, Vec<mtab_core::NoteEvent>> =
+            std::collections::BTreeMap::new();
         for line in std::str::from_utf8(&bytes).unwrap().lines() {
             let note: mtab_core::NoteEvent =
                 serde_json::from_str(line).expect("invalid JSONL note");
             assert!(note.start.is_finite() && note.end.is_finite() && note.end >= note.start);
             assert!(note.midi <= 127 && (1..=127).contains(&note.velocity));
+            groups.entry(note.instrument).or_default().push(note);
+        }
+        // Exercise the preliminary M5 library solver on the real model's
+        // output, while keeping tracks independent. This is not an accuracy
+        // benchmark and does not mean the CLI has tablature export yet.
+        if max_tokens.parse::<usize>().unwrap() >= 80 {
+            for notes in groups.values() {
+                let tuning = mtab_guitar::Tuning::standard();
+                let tab = mtab_guitar::assign_notes(
+                    notes,
+                    &tuning,
+                    mtab_guitar::Capo::NONE,
+                    mtab_guitar::FingeringOptions::default(),
+                )
+                .expect("synthetic fixture notes should be playable in standard tuning");
+                assert_eq!(tab.len(), notes.len());
+                for note in &tab {
+                    assert_eq!(tuning.strings[note.string as usize] + note.fret, note.midi);
+                }
+            }
         }
         outputs.push(bytes);
     }
