@@ -51,6 +51,8 @@ pub struct WeightsInfo {
     pub tensors: BTreeMap<String, TensorInfo>,
     /// Free-form `__metadata__` entries (often carries license/format hints).
     pub metadata: BTreeMap<String, String>,
+    /// Header JSON length in bytes (set by [`WeightsInfo::from_bytes`]).
+    pub header_size: usize,
 }
 
 impl WeightsInfo {
@@ -80,6 +82,34 @@ impl WeightsInfo {
                 reason: format!("reading safetensors header: {e}"),
             })?;
         Self::parse_header(&header)
+    }
+
+    /// Parse header + offsets from a full in-memory file image (tests,
+    /// [`load_weights_bytes`]).
+    pub fn from_bytes(buf: &[u8]) -> Result<Self> {
+        if buf.len() < 8 {
+            return Err(MtabError::SafetensorsCorrupt {
+                reason: "truncated safetensors file (< 8 bytes)".into(),
+            });
+        }
+        let header_len = u64::from_le_bytes(buf[0..8].try_into().unwrap()) as usize;
+        if header_len > 512 * 1024 * 1024 || 8 + header_len > buf.len() {
+            return Err(MtabError::SafetensorsCorrupt {
+                reason: format!("safetensors header implausibly large ({header_len} bytes)"),
+            });
+        }
+        let mut info = Self::parse_header(&buf[8..8 + header_len])?;
+        info.header_size = header_len;
+        // Validate every offset against the actual buffer.
+        for (name, ti) in &info.tensors {
+            let end = 8 + header_len + ti.data_offsets.1;
+            if ti.data_offsets.0 > ti.data_offsets.1 || end > buf.len() {
+                return Err(MtabError::SafetensorsCorrupt {
+                    reason: format!("tensor '{name}' data out of bounds"),
+                });
+            }
+        }
+        Ok(info)
     }
 
     /// Parse raw header JSON bytes.
@@ -126,7 +156,11 @@ impl WeightsInfo {
                 );
             }
         }
-        Ok(Self { tensors, metadata })
+        Ok(Self {
+            tensors,
+            metadata,
+            header_size: 0,
+        })
     }
 
     /// Total parameter count across all tensors.
@@ -175,6 +209,136 @@ impl WeightsInfo {
         v.truncate(n);
         v
     }
+}
+
+/// Decoded tensor payload (floats converted to `f32`; integer dtypes kept
+/// raw). Created by [`load_weights`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tensor {
+    /// Tensor name as stored in the header.
+    pub name: String,
+    /// Declared shape.
+    pub shape: Vec<usize>,
+    /// Decoded elements in row-major order (f32 for F32/F16/BF16).
+    pub data: Vec<f32>,
+}
+
+impl Tensor {
+    /// Number of elements.
+    pub fn numel(&self) -> usize {
+        self.data.len()
+    }
+}
+
+/// IEEE 754 binary16 → f32 (handles subnormals, inf, nan).
+fn f16_to_f32(bits: u16) -> f32 {
+    let sign = ((bits >> 15) & 1) as u32;
+    let exp = ((bits >> 10) & 0x1F) as u32;
+    let frac = (bits & 0x3FF) as u32;
+    let out = match exp {
+        0 => {
+            if frac == 0 {
+                sign << 31 // ±0
+            } else {
+                // subnormal: normalize
+                let mut e = 127 - 15 + 1;
+                let mut f = frac;
+                while f & 0x400 == 0 {
+                    f <<= 1;
+                    e -= 1;
+                }
+                f &= 0x3FF;
+                (sign << 31) | ((e as u32) << 23) | (f << 13)
+            }
+        }
+        0x1F => (sign << 31) | (0xFF << 23) | (frac << 13), // inf/nan
+        _ => (sign << 31) | ((exp + 127 - 15) << 23) | (frac << 13),
+    };
+    f32::from_bits(out)
+}
+
+/// bfloat16 → f32 (top-half truncation).
+fn bf16_to_f32(bits: u16) -> f32 {
+    f32::from_bits((bits as u32) << 16)
+}
+
+/// Load and decode every tensor of a safetensors file into `f32` (PROMPT.md
+/// §6.5: real loading, no external crates).
+pub fn load_weights(path: &Path) -> Result<BTreeMap<String, Tensor>> {
+    let buf = std::fs::read(path)?;
+    load_weights_bytes(&buf)
+}
+
+/// In-memory variant of [`load_weights`] (tests).
+pub fn load_weights_bytes(buf: &[u8]) -> Result<BTreeMap<String, Tensor>> {
+    let info = WeightsInfo::from_bytes(buf)?;
+    let data_start = 8 + info.header_size;
+    let mut out = BTreeMap::new();
+    for (name_key, ti) in &info.tensors {
+        let s = data_start + ti.data_offsets.0;
+        let e = data_start + ti.data_offsets.1;
+        let raw = buf.get(s..e).ok_or_else(|| MtabError::SafetensorsCorrupt {
+            reason: format!("tensor '{name_key}' data out of bounds"),
+        })?;
+        let data = match ti.dtype.as_str() {
+            "F32" => raw
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect(),
+            "F16" => raw
+                .chunks_exact(2)
+                .map(|c| f16_to_f32(u16::from_le_bytes([c[0], c[1]])))
+                .collect(),
+            "BF16" => raw
+                .chunks_exact(2)
+                .map(|c| bf16_to_f32(u16::from_le_bytes([c[0], c[1]])))
+                .collect(),
+            other => {
+                return Err(MtabError::SafetensorsCorrupt {
+                    reason: format!("tensor '{name_key}': dtype {other} not loadable"),
+                })
+            }
+        };
+        out.insert(
+            name_key.clone(),
+            Tensor {
+                name: name_key.clone(),
+                shape: ti.shape.clone(),
+                data,
+            },
+        );
+    }
+    Ok(out)
+}
+
+/// Apply upstream `_remap_single_codebook_keys` (`transcription_model.py`):
+/// legacy multi-codebook checkpoints map `emb.0.*`→`emb.*` and
+/// `linears.0.*`→`linear.*`; a second codebook (`emb.1.*`/`linears.1.*`) is
+/// rejected.
+pub fn remap_single_codebook_keys(
+    state: BTreeMap<String, Tensor>,
+) -> Result<BTreeMap<String, Tensor>> {
+    if state
+        .keys()
+        .any(|k| k.starts_with("emb.1.") || k.starts_with("linears.1."))
+    {
+        return Err(MtabError::SafetensorsCorrupt {
+            reason: "checkpoint has more than one codebook (n_q > 1); only single-stream models are supported".into(),
+        });
+    }
+    let mut out = BTreeMap::new();
+    for (key, mut tensor) in state {
+        let key = if let Some(rest) = key.strip_prefix("emb.0.") {
+            format!("emb.{rest}")
+        } else if let Some(rest) = key.strip_prefix("linears.0.") {
+            format!("linear.{rest}")
+        } else {
+            key
+        };
+        tensor.name = key.clone();
+        out.insert(key, tensor);
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -228,5 +392,99 @@ mod tests {
     #[test]
     fn rejects_garbage_header() {
         assert!(WeightsInfo::parse_header(b"not json at all").is_err());
+    }
+
+    /// Build a minimal safetensors image: given (name, dtype, shape, data).
+    fn build_st(tensors: &[(&str, &str, Vec<usize>, Vec<u8>)]) -> Vec<u8> {
+        let mut header = String::from("{");
+        let mut offset = 0usize;
+        for (i, (name, dtype, shape, data)) in tensors.iter().enumerate() {
+            if i > 0 {
+                header.push(',');
+            }
+            header.push_str(&format!(
+                "\"{name}\":{{\"dtype\":\"{dtype}\",\"shape\":{shape:?},\"data_offsets\":[{offset},{}]}}",
+                offset + data.len()
+            ));
+            offset += data.len();
+        }
+        header.push('}');
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&(header.len() as u64).to_le_bytes());
+        buf.extend_from_slice(header.as_bytes());
+        for (_, _, _, data) in tensors {
+            buf.extend_from_slice(data);
+        }
+        buf
+    }
+
+    #[test]
+    fn loads_f32_f16_bf16() {
+        let buf = build_st(&[
+            ("a.weight", "F32", vec![2], 1.0f32.to_le_bytes().to_vec()),
+            (
+                "b.weight",
+                "F16",
+                vec![3],
+                [0x3C00u16, 0xC000, 0x3800]
+                    .iter()
+                    .flat_map(|u| u.to_le_bytes())
+                    .collect(),
+            ),
+            (
+                "c.weight",
+                "BF16",
+                vec![2],
+                [0x3F80u16, 0x4000]
+                    .iter()
+                    .flat_map(|u| u.to_le_bytes())
+                    .collect(),
+            ),
+        ]);
+        let w = load_weights_bytes(&buf).unwrap();
+        assert_eq!(w["a.weight"].data, vec![1.0]);
+        assert_eq!(w["b.weight"].data, vec![1.0, -2.0, 0.5]); // 0x3C00, 0xC000, 0x3800
+        assert_eq!(w["c.weight"].data, vec![1.0, 2.0]);
+        assert_eq!(w["b.weight"].shape, vec![3]);
+        assert_eq!(w["b.weight"].numel(), 3);
+    }
+
+    #[test]
+    fn remaps_legacy_codebook_keys() {
+        let buf = build_st(&[
+            (
+                "emb.0.weight",
+                "F32",
+                vec![1],
+                3.0f32.to_le_bytes().to_vec(),
+            ),
+            (
+                "linears.0.weight",
+                "F32",
+                vec![1],
+                4.0f32.to_le_bytes().to_vec(),
+            ),
+            ("emb.weight", "F32", vec![1], 5.0f32.to_le_bytes().to_vec()),
+        ]);
+        let w = remap_single_codebook_keys(load_weights_bytes(&buf).unwrap()).unwrap();
+        assert_eq!(w["emb.weight"].data, vec![5.0]); // direct key kept
+        assert_eq!(w["linear.weight"].data, vec![4.0]);
+        assert!(!w.contains_key("emb.0.weight"));
+
+        let bad = build_st(&[(
+            "emb.1.weight",
+            "F32",
+            vec![1],
+            1.0f32.to_le_bytes().to_vec(),
+        )]);
+        let err = remap_single_codebook_keys(load_weights_bytes(&bad).unwrap()).unwrap_err();
+        assert!(err.to_string().contains("codebook"));
+    }
+
+    #[test]
+    fn rejects_out_of_bounds_offsets() {
+        let mut buf = build_st(&[("a", "F32", vec![2], 1.0f32.to_le_bytes().to_vec())]);
+        buf.truncate(buf.len() - 2); // cut tensor data short
+        assert!(load_weights_bytes(&buf).is_err());
     }
 }

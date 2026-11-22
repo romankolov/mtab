@@ -27,6 +27,9 @@ pub enum MtabError {
     #[error("unsupported audio: {0}\n  hint: mtab decodes wav/mp3/flac/ogg/m4a; convert with ffmpeg if needed")]
     UnsupportedAudio(String),
 
+    #[error("corrupt safetensors file: {reason}\n  hint: re-download the weights; the file may be truncated or not a safetensors archive")]
+    SafetensorsCorrupt { reason: String },
+
     #[error("decode failure at chunk {chunk_index}: {reason}")]
     DecodeFailure { chunk_index: usize, reason: String },
 
