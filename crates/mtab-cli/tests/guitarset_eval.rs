@@ -1,7 +1,10 @@
 //! Synthetic JAMS-shaped integration tests; no dataset or weights required.
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static SCRATCH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 struct Scratch(PathBuf);
 impl Scratch {
@@ -10,9 +13,16 @@ impl Scratch {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("mtab-eval-{}-{id}", std::process::id()));
-        std::fs::create_dir(&path).unwrap();
-        Self(path)
+        loop {
+            let seq = SCRATCH_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let path =
+                std::env::temp_dir().join(format!("mtab-eval-{}-{id}-{seq}", std::process::id()));
+            match std::fs::create_dir(&path) {
+                Ok(()) => return Self(path),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("cannot create temporary directory: {error}"),
+            }
+        }
     }
 }
 impl Drop for Scratch {
