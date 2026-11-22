@@ -11,6 +11,7 @@ Changes made for mtab's limited GP5 5.00 encoder:
 
 - Fix the integer-size string length, used by GP5 lyric blocks.
 - Write multi-track measures in time-major rather than track-major order.
+- Correct the GP5 measure-header reserved-byte condition.
 - Correct inverted default-effect flags for beats and notes.
 - Match PyGuitarPro's integer rounding when packing velocity dynamics.
 - Remove channel-writing debug output and expose a MIDI program setter.

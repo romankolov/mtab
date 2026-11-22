@@ -12,8 +12,8 @@ tuning, capo, string/fret assignment, rhythm, bends, dead notes.
 > **Status: in development.** The audio frontend, transformer inference,
 > chunk decoder, and MIDI writer have preliminary implementations. The CLI
 > supports raw-note JSONL and preliminary MIDI export with string/fret assignment.
-> An experimental, restricted GP5 library encoder exists but is not yet
-> available through the CLI; other tablature exports are not implemented. The preliminary
+> Experimental, restricted GP5 export is now available; MusicXML and ASCII
+> tab are not implemented. The preliminary
 > fingering search has not been compared with tab-labeler-v3 on held-out audio.
 > The official small checkpoint has
 > been checked against upstream on a synthetic plucked-string fixture and
@@ -30,12 +30,12 @@ mtab transcribe song.wav --size small --weights ./muscriptor-small.safetensors \
     --instruments guitar --format jsonl -o notes.jsonl
 ```
 
-For preliminary unquantized MIDI and an optional JSON tablature IR:
+For preliminary unquantized MIDI, experimental GP5 and an optional JSON tablature IR:
 
 ```console
 mtab transcribe song.wav --size small --weights ./muscriptor-small.safetensors \
     --instruments guitar --tuning standard --capo 0 --grid off \
-    --dynamics --emit-ir song.json -o song.mid
+    --dynamics --emit-ir song.json -o song.mid,song.gp5
 ```
 
 Automatic tuning and capo detection are experimental. The detector analyses
@@ -55,7 +55,14 @@ The optional `--allow-wide-stretch` retries a failed assignment with a maximum
 seven-fret span instead of four, without dropping notes or allowing same-string
 overlaps. It emits a warning when used: the resulting grips may be physically
 uncomfortable or impractical and require review.
-Pitch bends are not yet inferred. The MIDI writer isolates bent
+GP5 output always uses a fixed 120 BPM, 4/4 and a 1/32-note grid, regardless
+of `--grid`; the CLI reports the largest quantization shift. It supports up
+to 15 six- or seven-string tracks, printable ASCII titles, and GP5's discrete
+velocity levels. It rejects same-string quantization collisions, techniques,
+eight-string tracks and other unsupported notation rather than dropping notes.
+The exporter has not yet been manually checked in Guitar Pro or TuxGuitar, and
+real-checkpoint CLI-to-GP5 output has not yet been validated. MIDI remains
+unquantized. Pitch bends are not yet inferred. The MIDI writer isolates bent
 overlapping notes onto separate channels and reports an error if its available
 15 melodic channels are exhausted. Bend contours use stepped control points
 and support up to ±200 cents. MIDI files do not encode tablature fingering; the
@@ -74,7 +81,7 @@ not yet performance-optimized; device acceleration and streaming audio are
 not implemented. Local checkpoints only; URL/Hugging Face fetching is pending.
 
 The intended finished product accepts just a model size and weights and emits
-MIDI and Guitar Pro tablature; the remaining features are tracked in
+fully featured MIDI and Guitar Pro tablature; the remaining features are tracked in
 [PROMPT.md](PROMPT.md).
 
 ## Weights & licensing
@@ -168,7 +175,7 @@ constant integer tempo, 4/4, six or seven strings, and a 1/32-note grid. It
 rejects techniques, explicit source ties, chord symbols, variable tempo/meter,
 and quantization collisions rather than silently discarding them. Velocity is
 rounded to GP5 dynamic levels. It has **not** been manually verified in Guitar
-Pro or TuxGuitar, and is not yet wired into the export dispatcher or CLI.
+Pro or TuxGuitar.
 
 An independent PyGuitarPro round-trip fixture check is required in CI. To run
 it locally, install `PyGuitarPro==0.10.1` in a Python environment and use:

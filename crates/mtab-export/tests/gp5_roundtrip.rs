@@ -65,6 +65,10 @@ fn encoded_gp5_is_deterministic_and_invalid_input_does_not_write() {
     assert_eq!(first, second);
     assert_eq!(plan.max_boundary_shift_seconds, 0.0);
     assert!(first.starts_with(b"\x18FICHIER GUITAR PRO v5.00"));
+    let path = std::env::temp_dir().join(format!("mtab-gp5-dispatch-{}.gp5", std::process::id()));
+    mtab_export::export(&doc, &path, mtab_export::ExportFormat::GuitarPro5).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), first);
+    std::fs::remove_file(path).unwrap();
     let mut invalid = doc;
     invalid.tracks[0].notes[0]
         .technique
@@ -91,11 +95,36 @@ fn pyguitarpro_reads_tracks_ties_and_dynamics() {
     gp5::write_gp5(&fixture(), &file).unwrap();
     let script =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_pyguitarpro.py");
-    let output = Command::new(python).arg(script).arg(file).output().unwrap();
+    let output = Command::new(&python)
+        .arg(script)
+        .arg(file)
+        .output()
+        .unwrap();
     assert!(
         output.status.success(),
         "stdout: {}\nstderr: {}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    let header_check =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_bar_headers.py");
+    for bars in 1..=4 {
+        let mut doc = fixture();
+        doc.tracks.truncate(1);
+        doc.tracks[0].notes.truncate(1);
+        doc.tracks[0].notes[0].end = bars as f64 * 2.0;
+        let file = dir.0.join(format!("bars-{bars}.gp5"));
+        gp5::write_gp5(&doc, &file).unwrap();
+        let output = Command::new(&python)
+            .arg(&header_check)
+            .arg(file)
+            .arg(bars.to_string())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{bars} bar parser failure: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }

@@ -1,7 +1,7 @@
 //! `mtab` CLI (PROMPT.md §6.12) — thin shell over the library crates.
 //!
-//! Local-weight transcription supports raw JSONL and preliminary MIDI.
-//! Guitar Pro and the remaining export formats are under development.
+//! Local-weight transcription supports raw JSONL, preliminary MIDI and a
+//! restricted experimental GP5 subset. Other exports are under development.
 
 mod guitarset;
 mod guitarset_notes;
@@ -154,7 +154,7 @@ struct TranscribeArgs {
     #[arg(long)]
     seed: Option<u64>,
 
-    /// Output format: jsonl for raw notes, or midi (inferred from .mid output)
+    /// Output format: jsonl, midi, or gp5 (inferred from output extensions)
     #[arg(long)]
     format: Option<String>,
 
@@ -166,7 +166,7 @@ struct TranscribeArgs {
     #[arg(long, default_value_t = 2000)]
     max_gen_len: usize,
 
-    /// Output files, comma-separated (.mid/.midi; JSONL accepts one path)
+    /// Output files, comma-separated (.mid/.midi/.gp5; JSONL accepts one path)
     #[arg(short, long, value_delimiter = ',')]
     outputs: Vec<PathBuf>,
 
@@ -369,16 +369,17 @@ fn transcribe(args: TranscribeArgs) -> Result<()> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OutputMode {
     Jsonl,
-    Midi,
+    Document,
 }
 
 fn output_mode(args: &TranscribeArgs) -> Result<OutputMode> {
     match args.format.as_deref() {
         Some("jsonl") => Ok(OutputMode::Jsonl),
-        Some("midi" | "mid") => Ok(OutputMode::Midi),
-        None if !args.outputs.is_empty() => Ok(OutputMode::Midi),
+        Some("midi" | "mid" | "gp5") => Ok(OutputMode::Document),
+        None if !args.outputs.is_empty() => Ok(OutputMode::Document),
+        None => Ok(OutputMode::Jsonl),
         _ => Err(MtabError::NotImplemented(
-            "choose --format jsonl or write a .mid output; other formats are not yet available",
+            "choose --format jsonl or write .mid and/or .gp5 output files",
         )),
     }
 }
@@ -397,20 +398,27 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
                 "JSONL accepts at most one output file; omit -o for stdout".into(),
             ))
         }
-        OutputMode::Midi if args.outputs.is_empty() => {
+        OutputMode::Document if args.outputs.is_empty() => {
             return Err(MtabError::InvalidModelSource(
-                "MIDI requires at least one -o file.mid".into(),
+                "MIDI/GP5 output requires at least one -o path".into(),
             ))
         }
-        OutputMode::Midi
-            if args
-                .outputs
-                .iter()
-                .any(|p| ExportFormat::from_path(p) != Some(ExportFormat::Midi)) =>
-        {
-            return Err(MtabError::NotImplemented(
-                "only MIDI output is available; GP5, MusicXML and ASCII are future milestones",
-            ))
+        OutputMode::Document => {
+            for path in &args.outputs {
+                let format = ExportFormat::from_path(path);
+                if !matches!(format, Some(ExportFormat::Midi | ExportFormat::GuitarPro5)) {
+                    return Err(MtabError::NotImplemented(
+                        "only MIDI and experimental GP5 output are available",
+                    ));
+                }
+                if matches!(args.format.as_deref(), Some("midi" | "mid"))
+                    && format != Some(ExportFormat::Midi)
+                    || args.format.as_deref() == Some("gp5")
+                        && format != Some(ExportFormat::GuitarPro5)
+                {
+                    return Err(MtabError::InvalidModelSource("--format must agree with each output file extension; omit it for mixed MIDI and GP5".into()));
+                }
+            }
         }
         _ => {}
     }
@@ -547,23 +555,55 @@ fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel) -> Result<()> {
             };
             write_notes(writer, &result.notes)
         }
-        OutputMode::Midi => {
+        OutputMode::Document => {
             let doc = build_midi_document(args, &audio, &result.notes)?;
-            let bytes = mtab_export::midi::midi_bytes(&doc)?;
-            let ir = args
-                .emit_ir
-                .as_ref()
-                .map(|_| serde_json::to_vec_pretty(&doc))
-                .transpose()?;
-            for path in &args.outputs {
-                std::fs::write(path, &bytes)?;
-            }
-            if let (Some(path), Some(data)) = (&args.emit_ir, ir) {
-                std::fs::write(path, data)?;
-            }
-            Ok(())
+            write_document_outputs(args, &doc)
         }
     }
+}
+
+/// Render all requested formats before writing any, so an unsupported GP5
+/// document cannot leave a misleading partial MIDI output behind. I/O errors
+/// during the subsequent writes can still leave earlier outputs on disk.
+fn write_document_outputs(args: &TranscribeArgs, doc: &TabDocument) -> Result<()> {
+    let wants_midi = args
+        .outputs
+        .iter()
+        .any(|p| ExportFormat::from_path(p) == Some(ExportFormat::Midi));
+    let wants_gp5 = args
+        .outputs
+        .iter()
+        .any(|p| ExportFormat::from_path(p) == Some(ExportFormat::GuitarPro5));
+    let midi = wants_midi
+        .then(|| mtab_export::midi::midi_bytes(doc))
+        .transpose()?;
+    let gp5 = if wants_gp5 {
+        let (bytes, plan) = mtab_export::gp5::gp5_bytes(doc)?;
+        eprintln!("warning: experimental GP5 uses fixed 120 BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift {:.1} ms; review the score", plan.max_boundary_shift_seconds * 1000.0);
+        Some(bytes)
+    } else {
+        None
+    };
+    let ir = args
+        .emit_ir
+        .as_ref()
+        .map(|_| serde_json::to_vec_pretty(doc))
+        .transpose()?;
+    for path in &args.outputs {
+        let bytes = match ExportFormat::from_path(path) {
+            Some(ExportFormat::Midi) => midi.as_ref(),
+            Some(ExportFormat::GuitarPro5) => gp5.as_ref(),
+            _ => None,
+        }
+        .ok_or_else(|| {
+            MtabError::InvalidModelSource("unsupported document output extension".into())
+        })?;
+        std::fs::write(path, bytes)?;
+    }
+    if let (Some(path), Some(data)) = (&args.emit_ir, ir) {
+        std::fs::write(path, data)?;
+    }
+    Ok(())
 }
 
 fn resolve_tuning_and_capo(
@@ -746,8 +786,10 @@ mod tests {
     }
 
     fn make_test_wav() -> PathBuf {
+        static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "mtab-cli-{}-{}.wav",
+            "mtab-cli-{}-{}-{sequence}.wav",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1015,5 +1057,141 @@ mod tests {
         assert_eq!(doc.tracks[0].notes.len(), 2);
         assert_ne!(doc.tracks[0].notes[0].string, doc.tracks[0].notes[1].string);
         assert!(mtab_export::midi::midi_bytes(&doc).is_ok());
+    }
+    #[test]
+    fn mixed_midi_gp5_outputs_and_format_conflicts() {
+        let audio = make_test_wav();
+        let midi = audio.with_extension("mid");
+        let gp5 = audio.with_extension("gp5");
+        let ir = audio.with_extension("json");
+        let outputs = format!("{},{}", midi.display(), gp5.display());
+        let cli = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "--grid",
+            "off",
+            "--emit-ir",
+            ir.to_str().unwrap(),
+            "-o",
+            &outputs,
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        validate_transcribe(&args).unwrap();
+        let event = mtab_core::NoteEvent {
+            start: 0.5,
+            end: 1.0,
+            midi: 40,
+            velocity: 80,
+            instrument: 24,
+        };
+        let audio_data = mtab_audio::AudioBuffer {
+            samples: vec![],
+            sample_rate: 16000,
+            channels: 1,
+        };
+        let doc = build_midi_document(&args, &audio_data, &[event]).unwrap();
+        write_document_outputs(&args, &doc).unwrap();
+        assert!(std::fs::read(&midi).unwrap().starts_with(b"MThd"));
+        assert!(std::fs::read(&gp5)
+            .unwrap()
+            .starts_with(b"\x18FICHIER GUITAR PRO v5.00"));
+        if let Some(python) = std::env::var_os("MTAB_PYGUITARPRO_PYTHON") {
+            let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tools/check_gp5_cli_fixture.py");
+            let check = std::process::Command::new(python)
+                .arg(script)
+                .arg(&gp5)
+                .output()
+                .unwrap();
+            assert!(
+                check.status.success(),
+                "independent GP5 parser failed: {}",
+                String::from_utf8_lossy(&check.stderr)
+            );
+        }
+        let ir_doc: TabDocument = serde_json::from_slice(&std::fs::read(&ir).unwrap()).unwrap();
+        assert_eq!(ir_doc, doc);
+        let mut mismatched = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--format",
+            "midi",
+            "-o",
+            &outputs,
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = mismatched.command.take() else {
+            panic!("wrong command")
+        };
+        assert!(validate_transcribe(&args).is_err());
+        for file in [audio, midi, gp5, ir] {
+            std::fs::remove_file(file).unwrap();
+        }
+    }
+
+    #[test]
+    fn gp5_validation_failure_does_not_write_other_outputs() {
+        let audio = make_test_wav();
+        let midi = audio.with_extension("mid");
+        let gp5 = audio.with_extension("gp5");
+        let outputs = format!("{},{}", midi.display(), gp5.display());
+        let cli = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "-o",
+            &outputs,
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        validate_transcribe(&args).unwrap();
+        let event = mtab_core::NoteEvent {
+            start: 0.0,
+            end: 0.5,
+            midi: 40,
+            velocity: 80,
+            instrument: 24,
+        };
+        let audio_data = mtab_audio::AudioBuffer {
+            samples: vec![],
+            sample_rate: 16000,
+            channels: 1,
+        };
+        let mut doc = build_midi_document(&args, &audio_data, &[event]).unwrap();
+        doc.tracks[0].notes[0]
+            .technique
+            .push(mtab_guitar::Technique::PalmMute);
+        std::fs::write(&midi, b"do not overwrite").unwrap();
+        assert!(write_document_outputs(&args, &doc).is_err());
+        assert_eq!(std::fs::read(&midi).unwrap(), b"do not overwrite");
+        assert!(!gp5.exists());
+        std::fs::remove_file(audio).unwrap();
+        std::fs::remove_file(midi).unwrap();
+    }
+    #[test]
+    fn unspecified_format_without_outputs_defaults_to_jsonl() {
+        let audio = make_test_wav();
+        let cli = Cli::try_parse_from(["mtab", "transcribe", audio.to_str().unwrap()]).unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        assert_eq!(output_mode(&args).unwrap(), OutputMode::Jsonl);
+        validate_transcribe(&args).unwrap();
+        std::fs::remove_file(audio).unwrap();
     }
 }

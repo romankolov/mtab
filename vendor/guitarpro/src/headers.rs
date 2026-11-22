@@ -532,7 +532,7 @@ impl Song {
                     write_byte(data, self.measure_headers[header].time_signature.beams[i]);
                 }
             }
-            if (flags & 0x10) == 0x10 {
+            if (flags & 0x10) == 0 {
                 write_placeholder_default(data, 1);
             }
             write_byte(
