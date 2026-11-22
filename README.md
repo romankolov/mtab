@@ -11,9 +11,9 @@ tuning, capo, string/fret assignment, rhythm, bends, dead notes.
 
 > **Status: in development.** The audio frontend, transformer inference,
 > chunk decoder, and MIDI writer have preliminary implementations. The CLI
-> currently supports raw-note JSONL only; tuning/fretting in the CLI, GP5 and
-> the other end-to-end exports are not implemented yet. A preliminary bounded
-> global fingering search is available in the library, but is not benchmarked. The official small checkpoint has
+> supports raw-note JSONL and preliminary MIDI export with string/fret assignment.
+> GP5 and other tablature exports are not implemented yet. The preliminary
+> fingering search is not benchmarked. The official small checkpoint has
 > been smoke-tested and checked against upstream on a synthetic plucked-string
 > fixture; accuracy on real music and end-to-end performance targets are unverified.
 
@@ -26,6 +26,22 @@ bundled or automatic download):
 mtab transcribe song.wav --size small --weights ./muscriptor-small.safetensors \
     --instruments guitar --format jsonl -o notes.jsonl
 ```
+
+For preliminary unquantized MIDI and an optional JSON tablature IR:
+
+```console
+mtab transcribe song.wav --size small --weights ./muscriptor-small.safetensors \
+    --instruments guitar --tuning standard --capo 0 --grid off \
+    --emit-ir song.json -o song.mid
+```
+
+Automatic tuning and capo detection are not implemented: `auto` warns and uses
+standard tuning and no capo. Beat tracking and quantization are not implemented:
+MIDI preserves note times with a fixed 120 BPM / 4/4 map. Fret assignment may
+fail on unplayable or beam-pruned polyphony; it is not a quality evaluation.
+Pitch bends and dynamics are not yet inferred, and MIDI bends in overlapping
+notes share a track channel. MIDI files do not encode tablature fingering; the
+optional IR does. No DAW round-trip validation has yet been performed.
 
 Omit `-o` to write JSONL to stdout. Each line is a raw note with `start`, `end`
 (seconds), `midi`, `velocity`, and `instrument` (program) fields; progress and
@@ -77,8 +93,9 @@ MTAB_SMALL_WEIGHTS=/path/to/model.safetensors \
   cargo test -p mtab-cli --release --test small_checkpoint_smoke -- --ignored --nocapture
 ```
 
-The test uses a synthetic plucked-string waveform and runs the CLI twice,
-checking that it terminates with note records and produces byte-identical JSONL.
+The test uses a synthetic plucked-string waveform and runs the CLI twice for
+byte-identical JSONL, then a third time to verify the generated MIDI note events
+and tablature IR against the JSONL.
 It defaults to 80 generated tokens; override with `MTAB_SMOKE_MAX_GEN_LEN`.
 This is a **smoke test**, not an accuracy test. It never downloads or commits
 weights.

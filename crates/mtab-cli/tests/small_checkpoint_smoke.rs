@@ -118,7 +118,7 @@ fn real_small_cli_smoke_and_determinism() {
         }
         // Exercise the preliminary M5 library solver on the real model's
         // output, while keeping tracks independent. This is not an accuracy
-        // benchmark and does not mean the CLI has tablature export yet.
+        // benchmark and is independent of the CLI MIDI export below.
         if max_tokens.parse::<usize>().unwrap() >= 80 {
             for notes in groups.values() {
                 let tuning = mtab_guitar::Tuning::standard();
@@ -144,5 +144,80 @@ fn real_small_cli_smoke_and_determinism() {
     eprintln!(
         "small-model CLI produced {} deterministic note records",
         std::str::from_utf8(&outputs[0]).unwrap().lines().count()
+    );
+    // A third independent inference executes the new CLI MIDI pipeline. Parse
+    // the SMF and compare every pitch, velocity and absolute note tick against
+    // the JSONL produced above (120 BPM, 480 ticks/quarter = 960 ticks/s).
+    let midi_path = dir.0.join("notes.mid");
+    let ir_path = dir.0.join("notes.ir.json");
+    let midi_run = Command::new(env!("CARGO_BIN_EXE_mtab"))
+        .arg("transcribe")
+        .arg(&input)
+        .args(["--size", "small", "--weights"])
+        .arg(&weights)
+        .args([
+            "--instruments",
+            "guitar",
+            "--max-gen-len",
+            &max_tokens,
+            "--seed",
+            "0",
+            "--emit-ir",
+        ])
+        .arg(&ir_path)
+        .arg("-o")
+        .arg(&midi_path)
+        .output()
+        .expect("launch MIDI CLI");
+    assert!(
+        midi_run.status.success(),
+        "MIDI CLI failed: {}",
+        String::from_utf8_lossy(&midi_run.stderr)
+    );
+    let bytes = std::fs::read(&midi_path).unwrap();
+    let smf = midly::Smf::parse(&bytes).expect("valid SMF");
+    assert_eq!(smf.header.format, midly::Format::Parallel);
+    assert_eq!(smf.header.timing, midly::Timing::Metrical(480.into()));
+    let mut actual = Vec::new();
+    for track in &smf.tracks {
+        let mut tick = 0u64;
+        for event in track {
+            tick += u64::from(event.delta.as_int());
+            if let midly::TrackEventKind::Midi { message, .. } = event.kind {
+                match message {
+                    midly::MidiMessage::NoteOn { key, vel } if vel.as_int() > 0 => {
+                        actual.push((tick, key.as_int(), vel.as_int(), true))
+                    }
+                    midly::MidiMessage::NoteOff { key, .. } => {
+                        actual.push((tick, key.as_int(), 0, false))
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    let mut expected = Vec::new();
+    for line in std::str::from_utf8(&outputs[0]).unwrap().lines() {
+        let n: mtab_core::NoteEvent = serde_json::from_str(line).unwrap();
+        let start = (n.start * 960.0).round() as u64;
+        let end = ((n.end * 960.0).round() as u64).max(start + 1);
+        expected.push((start, n.midi, n.velocity, true));
+        expected.push((end, n.midi, 0, false));
+    }
+    actual.sort_unstable();
+    expected.sort_unstable();
+    assert_eq!(
+        actual, expected,
+        "SMF note events must match raw model output"
+    );
+    let doc: mtab_guitar::TabDocument =
+        serde_json::from_slice(&std::fs::read(ir_path).unwrap()).unwrap();
+    assert_eq!(
+        doc.tracks.iter().map(|t| t.notes.len()).sum::<usize>(),
+        expected.len() / 2
+    );
+    eprintln!(
+        "MIDI parsed successfully with {} matching notes",
+        expected.len() / 2
     );
 }

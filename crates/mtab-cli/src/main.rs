@@ -1,7 +1,7 @@
 //! `mtab` CLI (PROMPT.md §6.12) — thin shell over the library crates.
 //!
-//! JSONL transcription is available with local safetensors weights. Guitar
-//! fingering and other export formats remain under development.
+//! Local-weight transcription supports raw JSONL and preliminary MIDI.
+//! Guitar Pro and the remaining export formats are under development.
 
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
@@ -11,7 +11,10 @@ use clap::{Args, Parser, Subcommand};
 
 use mtab_core::lm::{GenOptions, LmConfig, LmModel};
 use mtab_core::{ModelSize, ModelSource, MtabError, Result, WeightsInfo};
-use mtab_guitar::{Grid, Tuning};
+use mtab_export::ExportFormat;
+use mtab_guitar::{
+    Capo, FingeringOptions, Grid, GuitarTrack, TabDocument, TempoMap, TrackMeta, Tuning,
+};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -128,7 +131,7 @@ struct TranscribeArgs {
     #[arg(long)]
     seed: Option<u64>,
 
-    /// Output format (currently only jsonl: one raw note per line)
+    /// Output format: jsonl for raw notes, or midi (inferred from .mid output)
     #[arg(long)]
     format: Option<String>,
 
@@ -140,7 +143,7 @@ struct TranscribeArgs {
     #[arg(long, default_value_t = 2000)]
     max_gen_len: usize,
 
-    /// Output files, comma-separated (JSONL currently accepts one path)
+    /// Output files, comma-separated (.mid/.midi; JSONL accepts one path)
     #[arg(short, long, value_delimiter = ',')]
     outputs: Vec<PathBuf>,
 
@@ -274,6 +277,23 @@ fn transcribe(args: TranscribeArgs) -> Result<()> {
     transcribe_with_model(&args, &model)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutputMode {
+    Jsonl,
+    Midi,
+}
+
+fn output_mode(args: &TranscribeArgs) -> Result<OutputMode> {
+    match args.format.as_deref() {
+        Some("jsonl") => Ok(OutputMode::Jsonl),
+        Some("midi" | "mid") => Ok(OutputMode::Midi),
+        None if !args.outputs.is_empty() => Ok(OutputMode::Midi),
+        _ => Err(MtabError::NotImplemented(
+            "choose --format jsonl or write a .mid output; other formats are not yet available",
+        )),
+    }
+}
+
 fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
     if !args.input.is_file() {
         return Err(MtabError::UnsupportedAudio(format!(
@@ -281,28 +301,44 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
             args.input.display()
         )));
     }
-    if args.format.as_deref() != Some("jsonl") {
-        return Err(MtabError::NotImplemented(
-            "tablature exports; use --format jsonl for raw note events",
-        ));
+    let mode = output_mode(args)?;
+    match mode {
+        OutputMode::Jsonl if args.outputs.len() > 1 => {
+            return Err(MtabError::InvalidModelSource(
+                "JSONL accepts at most one output file; omit -o for stdout".into(),
+            ))
+        }
+        OutputMode::Midi if args.outputs.is_empty() => {
+            return Err(MtabError::InvalidModelSource(
+                "MIDI requires at least one -o file.mid".into(),
+            ))
+        }
+        OutputMode::Midi
+            if args
+                .outputs
+                .iter()
+                .any(|p| ExportFormat::from_path(p) != Some(ExportFormat::Midi)) =>
+        {
+            return Err(MtabError::NotImplemented(
+                "only MIDI output is available; GP5, MusicXML and ASCII are future milestones",
+            ))
+        }
+        _ => {}
     }
-    if args.outputs.len() > 1 {
-        return Err(MtabError::InvalidModelSource(
-            "JSONL accepts at most one output file; omit -o for stdout".into(),
-        ));
-    }
-    if let Some(out) = args.outputs.first() {
-        if let Ok(out_path) = std::fs::canonicalize(out) {
-            let same_file =
-                |path: &std::path::Path| std::fs::canonicalize(path).is_ok_and(|p| p == out_path);
-            if same_file(&args.input)
-                || args
-                    .weights
-                    .as_deref()
-                    .is_some_and(|w| same_file(std::path::Path::new(w)))
-            {
+    let protected = std::iter::once(args.input.as_path())
+        .chain(args.weights.as_deref().map(std::path::Path::new));
+    let protected: Vec<PathBuf> = protected.filter_map(path_identity).collect();
+    let mut outputs = std::collections::HashSet::new();
+    for path in args.outputs.iter().chain(args.emit_ir.iter()) {
+        if let Some(identity) = path_identity(path) {
+            if protected.contains(&identity) {
                 return Err(MtabError::InvalidModelSource(
                     "output must not overwrite the input audio or weights".into(),
+                ));
+            }
+            if !outputs.insert(identity) {
+                return Err(MtabError::InvalidModelSource(
+                    "output paths must be distinct".into(),
                 ));
             }
         }
@@ -318,21 +354,58 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
                 .into(),
         });
     }
-    if args.separate || args.techniques || args.chords || args.emit_ir.is_some() {
+    if args.separate || args.techniques || args.chords {
         return Err(MtabError::NotImplemented(
-            "separation, techniques, chords and TabDocument IR (future milestones)",
+            "separation, techniques and chords (future milestones)",
         ));
     }
-    if args.tuning != "auto"
-        || args.capo != "auto"
-        || args.frets != 22
-        || args.grid != "1/16".parse::<Grid>()?
-    {
-        return Err(MtabError::NotImplemented(
-            "tuning, capo, fretting and rhythm options are not applied to raw JSONL notes",
-        ));
+    if mode == OutputMode::Jsonl {
+        if args.emit_ir.is_some()
+            || args.tuning != "auto"
+            || args.capo != "auto"
+            || args.frets != 22
+            || args.grid != Grid::SIXTEENTH
+        {
+            return Err(MtabError::NotImplemented("tuning, capo, fretting, rhythm and TabDocument IR are not applied to raw JSONL notes"));
+        }
+    } else {
+        if args.frets == 0 || args.frets > 36 {
+            return Err(MtabError::InvalidTuning("--frets must be 1–36".into()));
+        }
+        if args.tuning != "auto" {
+            Tuning::from_name(&args.tuning)?;
+        }
+        if args.capo != "auto" {
+            let position = args
+                .capo
+                .parse::<u8>()
+                .map_err(|_| MtabError::InvalidCapo(u8::MAX))?;
+            Capo::new(position)?;
+            if position > args.frets {
+                return Err(MtabError::InvalidTuning(
+                    "capo cannot exceed fretboard size".into(),
+                ));
+            }
+        }
+        if args.grid != Grid::SIXTEENTH && args.grid != Grid::Off {
+            return Err(MtabError::NotImplemented(
+                "rhythm quantization; use --grid off for unquantized MIDI",
+            ));
+        }
     }
     Ok(())
+}
+
+/// Canonical identity for an existing path or an as-yet-unwritten file whose
+/// parent exists; catches aliases such as ./song.mid vs song.mid.
+fn path_identity(path: &std::path::Path) -> Option<PathBuf> {
+    std::fs::canonicalize(path).ok().or_else(|| {
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| std::path::Path::new("."));
+        Some(std::fs::canonicalize(parent).ok()?.join(path.file_name()?))
+    })
 }
 
 fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel) -> Result<()> {
@@ -366,11 +439,92 @@ fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel) -> Result<()> {
     for index in result.missing_eos {
         eprintln!("warning: chunk {index} reached the token limit without EOS; use --strict-eos to treat this as an error");
     }
-    let writer: Box<dyn Write> = match args.outputs.first() {
-        Some(path) => Box::new(std::fs::File::create(path)?),
-        None => Box::new(std::io::stdout()),
+    match output_mode(args)? {
+        OutputMode::Jsonl => {
+            let writer: Box<dyn Write> = match args.outputs.first() {
+                Some(path) => Box::new(std::fs::File::create(path)?),
+                None => Box::new(std::io::stdout()),
+            };
+            write_notes(writer, &result.notes)
+        }
+        OutputMode::Midi => {
+            let doc = build_midi_document(args, &result.notes)?;
+            let bytes = mtab_export::midi::midi_bytes(&doc)?;
+            let ir = args
+                .emit_ir
+                .as_ref()
+                .map(|_| serde_json::to_vec_pretty(&doc))
+                .transpose()?;
+            for path in &args.outputs {
+                std::fs::write(path, &bytes)?;
+            }
+            if let (Some(path), Some(data)) = (&args.emit_ir, ir) {
+                std::fs::write(path, data)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn build_midi_document(
+    args: &TranscribeArgs,
+    notes: &[mtab_core::NoteEvent],
+) -> Result<TabDocument> {
+    let tuning = if args.tuning == "auto" {
+        eprintln!("warning: tuning detection is not implemented; using standard tuning");
+        Tuning::standard()
+    } else {
+        Tuning::from_name(&args.tuning)?
     };
-    write_notes(writer, &result.notes)
+    let capo = if args.capo == "auto" {
+        eprintln!("warning: capo detection is not implemented; using capo 0");
+        Capo::NONE
+    } else {
+        Capo::new(
+            args.capo
+                .parse::<u8>()
+                .map_err(|_| MtabError::InvalidCapo(u8::MAX))?,
+        )?
+    };
+    eprintln!("warning: beat tracking and quantization are not implemented; MIDI uses raw timing and a 120 BPM, 4/4 tempo map");
+    let mut grouped: std::collections::BTreeMap<u16, Vec<mtab_core::NoteEvent>> =
+        std::collections::BTreeMap::new();
+    for note in notes {
+        grouped.entry(note.instrument).or_default().push(*note);
+    }
+    let mut tracks = Vec::new();
+    for (program, track_notes) in grouped {
+        let assigned = mtab_guitar::assign_notes(
+            &track_notes,
+            &tuning,
+            capo,
+            FingeringOptions {
+                max_fret: args.frets,
+                ..FingeringOptions::default()
+            },
+        )?;
+        tracks.push(GuitarTrack {
+            tuning: tuning.clone(),
+            capo,
+            instrument: Some(mtab_core::mt3::instruments::instrument_for_program(program)),
+            notes: assigned,
+        });
+    }
+    Ok(TabDocument {
+        meta: TrackMeta {
+            title: args
+                .input
+                .file_stem()
+                .and_then(|v| v.to_str())
+                .map(str::to_owned),
+            tempo_map: TempoMap::constant(120.0),
+            time_signatures: vec![(0, 4, 4)],
+            frets: args.frets,
+            source_hash: None,
+        },
+        tracks,
+        chord_symbols: Vec::new(),
+    })
 }
 
 fn write_notes(writer: impl Write, notes: &[mtab_core::NoteEvent]) -> Result<()> {
@@ -533,6 +687,75 @@ mod tests {
         };
         assert!(validate_transcribe(&args).is_err());
         assert!(std::fs::metadata(&audio).unwrap().len() > 0);
+        std::fs::remove_file(audio).unwrap();
+    }
+    #[test]
+    fn midi_document_preserves_notes_and_tuning() {
+        let audio = make_test_wav();
+        let output = audio.with_extension("mid");
+        let cli = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--tuning",
+            "drop-d",
+            "--capo",
+            "2",
+            "--grid",
+            "off",
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        validate_transcribe(&args).unwrap();
+        let note = mtab_core::NoteEvent {
+            start: 0.5,
+            end: 1.0,
+            midi: 40,
+            velocity: 89,
+            instrument: 24,
+        };
+        let doc = build_midi_document(&args, &[note]).unwrap();
+        assert_eq!(doc.tracks.len(), 1);
+        assert_eq!(doc.tracks[0].notes[0].midi, 40);
+        assert_eq!(doc.tracks[0].notes[0].velocity, 89);
+        assert_eq!(doc.tracks[0].tuning.name, "drop-d");
+        assert_eq!(doc.tracks[0].capo.position(), 2);
+        assert_eq!(
+            (doc.tracks[0].notes[0].string, doc.tracks[0].notes[0].fret),
+            (0, 0)
+        );
+        let data = mtab_export::midi::midi_bytes(&doc).unwrap();
+        assert_eq!(&data[..4], b"MThd");
+        std::fs::remove_file(audio).unwrap();
+    }
+
+    #[test]
+    fn rejects_ir_and_midi_output_aliases_before_writing() {
+        let audio = make_test_wav();
+        let output = audio.with_extension("mid");
+        let alias = output
+            .parent()
+            .unwrap()
+            .join(".")
+            .join(output.file_name().unwrap());
+        let cli = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--emit-ir",
+            alias.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        assert!(validate_transcribe(&args).is_err());
         std::fs::remove_file(audio).unwrap();
     }
 }
