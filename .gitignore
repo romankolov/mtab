@@ -28,3 +28,7 @@ renders/
 # OS / editor noise
 .DS_Store
 Thumbs.db
+
+# Python tooling artifacts
+__pycache__/
+*.pyc
