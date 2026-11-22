@@ -135,6 +135,18 @@ jobs:
             -o "$RUNNER_TEMP/mtab-small.safetensors" \
             'https://huggingface.co/MuScriptor/muscriptor-small/resolve/main/model.safetensors'
           echo "bbd482c786b895cf7d8f44185073d951adae2ebb8a66f82ca84cd1f84569549c  $RUNNER_TEMP/mtab-small.safetensors" | sha256sum -c -
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install PyGuitarPro==0.10.1
+      - name: Validate real-model GP5 against IR
+        env:
+          MTAB_SMALL_WEIGHTS: ${{ runner.temp }}/mtab-small.safetensors
+          MTAB_PYGUITARPRO_PYTHON: python
+          MATMUL_NUM_THREADS: '2'
+        run: |
+          cargo test --locked --release -p mtab-cli --test small_checkpoint_smoke \
+            real_small_gp5_ir_independent_roundtrip -- --ignored --nocapture
       - name: Transcribe and score real GuitarSet excerpt
         env:
           MTAB_SMALL_WEIGHTS: ${{ runner.temp }}/mtab-small.safetensors

@@ -64,6 +64,8 @@ encode dead-note, palm-mute and restricted bend markings supplied in the library
 IR, but does not infer them from audio. It rejects same-string quantization
 collisions, unsupported bends, eight-string tracks and other unsupported
 notation rather than dropping notes.
+An opt-in real-small CLI-to-GP5/IR test is available in `small_checkpoint_smoke`
+(the gated checkpoint and PyGuitarPro are required); it has not yet been run.
 Two generated fixtures were opened and GP5-re-exported with TuxGuitar 1.6.6;
 their tested musical fields and bend points survived. This is not a general
 compatibility or playback guarantee, and real-checkpoint CLI-to-GP5 output has

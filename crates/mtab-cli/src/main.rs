@@ -1284,6 +1284,21 @@ mod tests {
             };
             validate_transcribe(&args).unwrap();
         }
+        if let Some(python) = std::env::var_os("MTAB_PYGUITARPRO_PYTHON") {
+            let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tools/check_gp5_cli_ir.py");
+            let output = std::process::Command::new(python)
+                .arg(script)
+                .arg(&gp5)
+                .arg(&ir)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
         let ir_doc: TabDocument = serde_json::from_slice(&std::fs::read(&ir).unwrap()).unwrap();
         assert_eq!(ir_doc, doc);
         let mut mismatched = Cli::try_parse_from([
@@ -1350,6 +1365,87 @@ mod tests {
         std::fs::remove_file(audio).unwrap();
         std::fs::remove_file(midi).unwrap();
     }
+    #[test]
+    fn gp5_ir_reconstruction_handles_ties_and_quantized_notes() {
+        let audio = make_test_wav();
+        let gp5 = audio.with_extension("gp5");
+        let ir = audio.with_extension("json");
+        let cli = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "--emit-ir",
+            ir.to_str().unwrap(),
+            "-o",
+            gp5.to_str().unwrap(),
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        validate_transcribe(&args).unwrap();
+        let events = [
+            mtab_core::NoteEvent {
+                start: 0.0,
+                end: 2.5,
+                midi: 40,
+                velocity: 80,
+                instrument: 24,
+            },
+            mtab_core::NoteEvent {
+                start: 0.51,
+                end: 1.01,
+                midi: 45,
+                velocity: 100,
+                instrument: 24,
+            },
+            mtab_core::NoteEvent {
+                start: 2.01,
+                end: 2.05,
+                midi: 50,
+                velocity: 127,
+                instrument: 24,
+            },
+        ];
+        let audio_data = mtab_audio::AudioBuffer {
+            samples: vec![],
+            sample_rate: 16000,
+            channels: 1,
+        };
+        let doc = build_midi_document(&args, &audio_data, &events).unwrap();
+        let (_, plan) = mtab_export::gp5::gp5_bytes(&doc).unwrap();
+        assert!(plan.tracks[0]
+            .bars
+            .iter()
+            .flatten()
+            .flat_map(|b| &b.notes)
+            .any(|n| n.tied));
+        assert!(plan.max_boundary_shift_seconds > 0.0);
+        write_document_outputs(&args, &doc).unwrap();
+        if let Some(python) = std::env::var_os("MTAB_PYGUITARPRO_PYTHON") {
+            let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tools/check_gp5_cli_ir.py");
+            let output = std::process::Command::new(python)
+                .arg(script)
+                .arg(&gp5)
+                .arg(&ir)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        for path in [audio, gp5, ir] {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
     #[test]
     fn musicxml_rejection_does_not_overwrite_any_mixed_output() {
         let audio = make_test_wav();

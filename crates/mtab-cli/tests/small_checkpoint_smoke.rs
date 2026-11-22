@@ -303,3 +303,72 @@ fn real_small_guitarset_excerpt_note_evaluation() {
     assert!(report.contains("| Pitch + onset + offset |"), "{report}");
     eprintln!("{report}");
 }
+
+#[test]
+#[ignore = "requires authorized official small checkpoint and PyGuitarPro; expensive"]
+fn real_small_gp5_ir_independent_roundtrip() {
+    let weights = std::env::var_os("MTAB_SMALL_WEIGHTS")
+        .expect("set MTAB_SMALL_WEIGHTS to a licensed small checkpoint");
+    assert!(std::path::Path::new(&weights).is_file());
+    let python = std::env::var_os("MTAB_PYGUITARPRO_PYTHON")
+        .expect("set MTAB_PYGUITARPRO_PYTHON to Python with PyGuitarPro 0.10.1");
+    let id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir =
+        Scratch(std::env::temp_dir().join(format!("mtab-small-gp5-{}-{id}", std::process::id())));
+    std::fs::create_dir(&dir.0).unwrap();
+    let input = dir.0.join("guitar.wav");
+    let gp5 = dir.0.join("guitar.gp5");
+    let ir = dir.0.join("guitar.json");
+    synthetic_wav(&input);
+    let result = Command::new(env!("CARGO_BIN_EXE_mtab"))
+        .arg("transcribe")
+        .arg(&input)
+        .args(["--size", "small", "--weights"])
+        .arg(weights)
+        .args([
+            "--instruments",
+            "guitar",
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "--max-gen-len",
+            "80",
+            "--seed",
+            "0",
+            "--strict-eos",
+            "--emit-ir",
+        ])
+        .arg(&ir)
+        .arg("-o")
+        .arg(&gp5)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "real-model GP5 CLI failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let doc: mtab_guitar::TabDocument =
+        serde_json::from_slice(&std::fs::read(&ir).unwrap()).unwrap();
+    assert!(
+        doc.tracks.iter().any(|t| !t.notes.is_empty()),
+        "expected nonempty synthetic-guitar model output"
+    );
+    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_cli_ir.py");
+    let check = Command::new(python)
+        .arg(script)
+        .arg(&gp5)
+        .arg(&ir)
+        .output()
+        .unwrap();
+    assert!(
+        check.status.success(),
+        "GP5/IR comparison failed: {}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    eprintln!("{}", String::from_utf8_lossy(&check.stdout).trim());
+}

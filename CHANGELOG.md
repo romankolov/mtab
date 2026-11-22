@@ -7,6 +7,10 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Added an opt-in official-small CLI-to-GP5 test comparing independently
+  reconstructed quantized notes against the emitted IR. The checker is covered
+  by model-free tied-note fixtures in CI; the gated real-checkpoint test has
+  not been run in the current environment and requires an authorized weight.
 - Tested a synthetic MusicXML fixture with MuseScore 3.2.3. Pitches and ties
   survived re-export, but some string/fret assignments changed and capo and
   palm-mute information was lost; MusicXML compatibility remains experimental.
