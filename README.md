@@ -32,14 +32,14 @@ For preliminary unquantized MIDI and an optional JSON tablature IR:
 ```console
 mtab transcribe song.wav --size small --weights ./muscriptor-small.safetensors \
     --instruments guitar --tuning standard --capo 0 --grid off \
-    --emit-ir song.json -o song.mid
+    --dynamics --emit-ir song.json -o song.mid
 ```
 
 Automatic tuning and capo detection are not implemented: `auto` warns and uses
 standard tuning and no capo. Beat tracking and quantization are not implemented:
 MIDI preserves note times with a fixed 120 BPM / 4/4 map. Fret assignment may
 fail on unplayable or beam-pruned polyphony; it is not a quality evaluation.
-Pitch bends and dynamics are not yet inferred. The MIDI writer isolates bent
+Pitch bends are not yet inferred. The MIDI writer isolates bent
 overlapping notes onto separate channels and reports an error if its available
 15 melodic channels are exhausted. Bend contours use stepped control points
 and support up to ±200 cents. MIDI files do not encode tablature fingering; the
@@ -47,8 +47,11 @@ optional IR does. No DAW round-trip validation has yet been performed.
 
 Omit `-o` to write JSONL to stdout. Each line is a raw note with `start`, `end`
 (seconds), `midi`, `velocity`, and `instrument` (program) fields; progress and
-warnings go to stderr. Velocities are currently the upstream fixed value 100,
-not measured dynamics. `--strict-eos` makes an incomplete generated chunk an
+warnings go to stderr. Velocities default to upstream's fixed value 100. The
+optional `--dynamics` flag estimates relative velocity (30–127) from the
+attack envelope and local RMS, using the mixed audio. This experimental
+heuristic is uncalibrated; overlapping notes and other instruments can bias
+it, and notes without usable attack energy retain their original velocity. `--strict-eos` makes an incomplete generated chunk an
 error, `--beam-size` selects beam search, and `--temperature` enables seeded
 sampling (`--seed`). The current reference CPU implementation uses f64 and is
 not yet performance-optimized; device acceleration and streaming audio are
@@ -96,8 +99,8 @@ MTAB_SMALL_WEIGHTS=/path/to/model.safetensors \
 ```
 
 The test uses a synthetic plucked-string waveform and runs the CLI twice for
-byte-identical JSONL, then a third time to verify the generated MIDI note events
-and tablature IR against the JSONL.
+byte-identical JSONL, then a third time to verify generated MIDI note events and tablature IR
+against the JSONL plus the optional dynamics estimator.
 It defaults to 80 generated tokens; override with `MTAB_SMOKE_MAX_GEN_LEN`.
 This is a **smoke test**, not an accuracy test. It never downloads or commits
 weights.

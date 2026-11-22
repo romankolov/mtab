@@ -74,3 +74,16 @@ settings, then `python tools/check_midi_mido.py notes.jsonl song.mid` (Mido is a
 **test-only** Python dependency). This checks file structure and events only;
 it is not playback, a DAW round-trip, musical-accuracy evaluation, or validation
 of dynamics and bends (which the transcription path does not yet infer).
+
+## Experimental dynamics integration (2026-11-22)
+
+On the same synthetic fixture and official small checkpoint, `--dynamics`
+estimated velocities for all 10 generated notes; a MIDI parser confirmed the
+exported note-on velocities and timings match the estimator's output. An
+independent Mido parse also matched 10 notes against a second `--dynamics`
+JSONL run (estimated velocities 106, 109, 109, 109, 104, 104, 104, 104, 112,
+78). The estimator measures 50 ms attack RMS relative to a two-second local RMS window
+on the mono mix. This establishes wiring and non-constant output, **not**
+accuracy, calibration to MIDI velocity, separation of overlapping sources, or
+performance on real music. The flag is opt-in; without it, upstream's constant
+velocity is preserved.

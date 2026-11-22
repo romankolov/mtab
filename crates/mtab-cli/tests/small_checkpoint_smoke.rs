@@ -146,8 +146,9 @@ fn real_small_cli_smoke_and_determinism() {
         std::str::from_utf8(&outputs[0]).unwrap().lines().count()
     );
     // A third independent inference executes the new CLI MIDI pipeline. Parse
-    // the SMF and compare every pitch, velocity and absolute note tick against
-    // the JSONL produced above (120 BPM, 480 ticks/quarter = 960 ticks/s).
+    // the SMF and compare every pitch, estimated velocity and absolute note
+    // tick against the JSONL plus the same audio-envelope dynamics estimator
+    // (120 BPM, 480 ticks/quarter = 960 ticks/s).
     let midi_path = dir.0.join("notes.mid");
     let ir_path = dir.0.join("notes.ir.json");
     let midi_run = Command::new(env!("CARGO_BIN_EXE_mtab"))
@@ -162,6 +163,7 @@ fn real_small_cli_smoke_and_determinism() {
             &max_tokens,
             "--seed",
             "0",
+            "--dynamics",
             "--emit-ir",
         ])
         .arg(&ir_path)
@@ -197,8 +199,22 @@ fn real_small_cli_smoke_and_determinism() {
         }
     }
     let mut expected = Vec::new();
-    for line in std::str::from_utf8(&outputs[0]).unwrap().lines() {
-        let n: mtab_core::NoteEvent = serde_json::from_str(line).unwrap();
+    let mut raw_notes: Vec<mtab_core::NoteEvent> = std::str::from_utf8(&outputs[0])
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let original = raw_notes.clone();
+    let audio = mtab_audio::load_model_input(&input).unwrap();
+    let report = mtab_audio::dynamics::estimate_velocities(&audio, &mut raw_notes).unwrap();
+    if max_tokens.parse::<usize>().unwrap() >= 80 {
+        assert!(report.estimated > 0);
+        assert!(original
+            .iter()
+            .zip(&raw_notes)
+            .any(|(old, new)| old.velocity != new.velocity));
+    }
+    for n in &raw_notes {
         let start = (n.start * 960.0).round() as u64;
         let end = ((n.end * 960.0).round() as u64).max(start + 1);
         expected.push((start, n.midi, n.velocity, true));
@@ -208,7 +224,7 @@ fn real_small_cli_smoke_and_determinism() {
     expected.sort_unstable();
     assert_eq!(
         actual, expected,
-        "SMF note events must match raw model output"
+        "SMF note events must match dynamics-adjusted model output"
     );
     let doc: mtab_guitar::TabDocument =
         serde_json::from_slice(&std::fs::read(ir_path).unwrap()).unwrap();
@@ -217,7 +233,8 @@ fn real_small_cli_smoke_and_determinism() {
         expected.len() / 2
     );
     eprintln!(
-        "MIDI parsed successfully with {} matching notes",
-        expected.len() / 2
+        "MIDI parsed successfully with {} matching notes ({} velocity estimates)",
+        expected.len() / 2,
+        report.estimated
     );
 }

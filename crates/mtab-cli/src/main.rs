@@ -107,6 +107,10 @@ struct TranscribeArgs {
     #[arg(long)]
     separate: bool,
 
+    /// Estimate relative velocities from audio (experimental; mix energy, not isolated notes)
+    #[arg(long)]
+    dynamics: bool,
+
     /// Detect bends/vibrato/dead notes/slides (§6.8)
     #[arg(long)]
     techniques: bool,
@@ -426,7 +430,7 @@ fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel) -> Result<()> {
         seed: args.seed.unwrap_or(0),
         ..GenOptions::default()
     };
-    let result = mtab_audio::transcribe::transcribe(
+    let mut result = mtab_audio::transcribe::transcribe(
         model,
         &audio,
         &names,
@@ -438,6 +442,16 @@ fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel) -> Result<()> {
     )?;
     for index in result.missing_eos {
         eprintln!("warning: chunk {index} reached the token limit without EOS; use --strict-eos to treat this as an error");
+    }
+    if args.dynamics {
+        eprintln!("warning: experimental dynamics estimate uses mixed audio; overlapping notes and other instruments can bias velocities");
+        let report = mtab_audio::dynamics::estimate_velocities(&audio, &mut result.notes)?;
+        if report.skipped > 0 {
+            eprintln!(
+                "warning: retained model velocity for {} notes without usable attack energy",
+                report.skipped
+            );
+        }
     }
     match output_mode(args)? {
         OutputMode::Jsonl => {
@@ -757,5 +771,17 @@ mod tests {
         };
         assert!(validate_transcribe(&args).is_err());
         std::fs::remove_file(audio).unwrap();
+    }
+    #[test]
+    fn dynamics_flag_is_opt_in() {
+        for (extra, expected) in [(vec![], false), (vec!["--dynamics"], true)] {
+            let mut argv = vec!["mtab", "transcribe", "song.wav", "--format", "jsonl"];
+            argv.extend(extra);
+            let cli = Cli::try_parse_from(argv).unwrap();
+            let Some(Cmd::Transcribe(args)) = cli.command else {
+                panic!("wrong command")
+            };
+            assert_eq!(args.dynamics, expected);
+        }
     }
 }
