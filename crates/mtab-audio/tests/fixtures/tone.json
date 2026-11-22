@@ -1,0 +1,13 @@
+{
+  "case": "tone",
+  "sample_rate": 16000,
+  "n_fft": 2048,
+  "hop_length": 160,
+  "n_mels": 512,
+  "power": 1.0,
+  "log_scale": true,
+  "eps": 1e-06,
+  "input_samples": 32000,
+  "frames": 201,
+  "generated_by": "tools/gen_mel_fixtures.py (upstream MIT reference)"
+}

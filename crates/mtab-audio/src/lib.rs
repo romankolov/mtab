@@ -7,11 +7,14 @@
 //! HTK mel scale, `norm=None`, periodic Hann window, `win_length == n_fft`,
 //! reflect-pad centering, power 2.0, one-sided unnormalized STFT.
 //!
-//! The mel frontend lands in M2b; parity goldens against upstream are gated
-//! on `tests/fixtures/` (generate with `tools/gen_mel_fixtures.py`).
+//! The mel frontend ([`mel`]) is ported EXACTLY from upstream and verified by
+//! golden parity tests against the verbatim MIT reference
+//! (`tools/upstream/mel_spectrogram_mit.py`, torch float64 goldens generated
+//! by `tools/gen_mel_fixtures.py`); measured max relative error ~4e-12.
 
 pub mod decode;
 pub mod dsp;
+pub mod mel;
 pub mod resample;
 
 #[cfg(test)]
@@ -47,13 +50,15 @@ impl AudioBuffer {
 /// Model input sample rate: upstream `_SAMPLE_RATE = 16000`.
 pub const MODEL_SAMPLE_RATE: u32 = 16_000;
 
-/// Full ingest pipeline (§6.1): file → mono 16 kHz f32 ready for features.
+/// Full ingest pipeline, matching upstream `utils/audio.py::load_audio`
+/// semantics EXACTLY (§2: port, don't guess): decode → **mono mean** →
+/// resample to 16 kHz. Upstream does NOT normalize or remove DC — the
+/// released models were trained with `normalize_audio=False`, so the default
+/// path must not normalize either (parity gate, §6.2). [`dsp::peak_normalize`]
+/// and [`dsp::remove_dc`] remain available as optional preprocessing.
 pub fn load_model_input(path: &std::path::Path) -> mtab_core::Result<AudioBuffer> {
     let buf = decode::load(path)?;
     let mono = dsp::to_mono(&buf);
-    let mut mono = mono;
-    dsp::remove_dc(&mut mono);
-    dsp::peak_normalize(&mut mono, -1.0);
     resample::resample(&mono, MODEL_SAMPLE_RATE)
 }
 
