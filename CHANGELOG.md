@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Tested a synthetic MusicXML fixture with MuseScore 3.2.3. Pitches and ties
+  survived re-export, but some string/fret assignments changed and capo and
+  palm-mute information was lost; MusicXML compatibility remains experimental.
 - Silent/empty transcription results now export as one empty guitar track in
   all four formats, with an explicit warning. A synthetic-model CLI test
   verifies the pipeline and independent GP5 and XML checks run in CI.

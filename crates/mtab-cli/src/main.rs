@@ -600,7 +600,7 @@ fn write_document_outputs(args: &TranscribeArgs, doc: &TabDocument) -> Result<()
         .any(|p| ExportFormat::from_path(p) == Some(ExportFormat::AsciiTab));
     let xml = if wants_xml {
         let (text, plan) = mtab_export::musicxml::musicxml(doc)?;
-        eprintln!("warning: experimental MusicXML uses fixed 120 BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift {:.1} ms; velocities omitted and duplicated staves may double playback", plan.max_boundary_shift_seconds * 1000.0);
+        eprintln!("warning: experimental MusicXML uses fixed 120 BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift {:.1} ms; velocities omitted, staves may double playback; MuseScore may change fingerings and lose capo or palm mutes", plan.max_boundary_shift_seconds * 1000.0);
         Some(text.into_bytes())
     } else {
         None

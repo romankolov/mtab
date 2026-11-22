@@ -196,9 +196,11 @@ standard concert-pitch and tablature staves, tuning, capo, bars, durations,
 chords, ties, string/fret, dead-note heads and palm-mute annotations. It uses
 the restricted GP5 planner and rejects timed bends rather than discarding
 them. Velocities are not encoded; the two notation staves duplicate notes and
-may double playback in applications. It has not been checked in a notation
-application. CI validates the W3C 3.1 schema and reads a fixture with
-music21; Python is test-only. The CLI supports `.musicxml` and `.xml`, alone
+may double playback in applications. MuseScore 3.2.3 imported a fixture but changed some string/fret assignments
+and dropped capo and palm-mute information on re-export; **do not rely on
+this MusicXML for those details in MuseScore**. See `benches/m6-musicxml.md`.
+CI validates the W3C 3.1 schema and reads a fixture with music21; Python is
+test-only. The CLI supports `.musicxml` and `.xml`, alone
 or alongside other formats.
 
 ### Experimental GP5 library encoder

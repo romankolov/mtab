@@ -102,6 +102,8 @@ jobs:
           cargo test --locked -p mtab-cli --bin mtab synthetic_silent_transcription_writes_all_four_formats -- --nocapture
           cargo test --locked -p mtab-cli --bin mtab mixed_midi_gp5_outputs_and_format_conflicts -- --nocapture
           python tools/check_musicxml_music21.py "$MTAB_XML_FIXTURE_DIR/fixture.musicxml"
+          python tools/check_musicxml_schema.py crates/mtab-export/tests/fixtures/musescore-3.2.3/fixture.musicxml
+          python tools/check_musicxml_music21.py crates/mtab-export/tests/fixtures/musescore-3.2.3/fixture.musicxml
 
   msrv:
     name: Minimum Rust 1.75

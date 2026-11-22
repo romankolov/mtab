@@ -2,6 +2,8 @@
 //!
 //! Uses the restricted notation plan. Bends are rejected for now because a
 //! MusicXML bend mark alone cannot preserve the supplied timed contour.
+//! MuseScore 3.2.3 changed string/fret assignments and dropped capo and palm
+//! mutes on a tested re-export; do not assume application round-trip fidelity.
 use crate::gp5_plan::{self, BeatPlan, PlannedNote, ScorePlan, PPQ};
 use mtab_core::{MtabError, Result};
 use mtab_guitar::{GuitarTrack, TabDocument};
