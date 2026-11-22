@@ -718,6 +718,17 @@ fn build_midi_document(
             notes: assigned,
         });
     }
+    if tracks.is_empty() {
+        eprintln!(
+            "warning: no notes were detected; notation exports contain an empty guitar track"
+        );
+        tracks.push(GuitarTrack {
+            tuning,
+            capo,
+            instrument: None,
+            notes: Vec::new(),
+        });
+    }
     Ok(TabDocument {
         meta: TrackMeta {
             title: args
@@ -877,6 +888,83 @@ mod tests {
         }
         std::fs::remove_file(&audio).unwrap();
         std::fs::remove_file(&output).unwrap();
+    }
+
+    #[test]
+    fn synthetic_silent_transcription_writes_all_four_formats() {
+        let audio = make_test_wav();
+        let midi = audio.with_extension("mid");
+        let gp5 = audio.with_extension("gp5");
+        let xml = audio.with_extension("musicxml");
+        let ascii = audio.with_extension("txt");
+        let outputs = format!(
+            "{},{},{},{}",
+            midi.display(),
+            gp5.display(),
+            xml.display(),
+            ascii.display()
+        );
+        let model_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../mtab-core/tests/fixtures/model/tiny.fixture");
+        let model = LmModel::load(LmConfig::fixture_tiny(), &model_path).unwrap();
+        let cli = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "--max-gen-len",
+            "2",
+            "--instruments",
+            "guitar",
+            "-o",
+            &outputs,
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        validate_transcribe(&args).unwrap();
+        transcribe_with_model(&args, &model).unwrap();
+        assert!(std::fs::read(&midi).unwrap().starts_with(b"MThd"));
+        assert!(std::fs::read(&gp5)
+            .unwrap()
+            .starts_with(b"\x18FICHIER GUITAR PRO v5.00"));
+        assert!(std::fs::read_to_string(&xml).unwrap().contains("<rest/>"));
+        assert!(std::fs::read_to_string(&ascii).unwrap().contains("Bar 1"));
+        if let Some(python) = std::env::var_os("MTAB_PYGUITARPRO_PYTHON") {
+            let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tools/check_empty_gp5.py");
+            let output = std::process::Command::new(python)
+                .arg(script)
+                .arg(&gp5)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        if let Some(python) = std::env::var_os("MTAB_XML_PYTHON") {
+            let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tools/check_musicxml_schema.py");
+            let output = std::process::Command::new(python)
+                .arg(script)
+                .arg(&xml)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        for path in [audio, midi, gp5, xml, ascii] {
+            std::fs::remove_file(path).unwrap();
+        }
     }
 
     #[test]
@@ -1153,6 +1241,20 @@ mod tests {
                 check.status.success(),
                 "independent GP5 parser failed: {}",
                 String::from_utf8_lossy(&check.stderr)
+            );
+        }
+        if let Some(python) = std::env::var_os("MTAB_XML_PYTHON") {
+            let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tools/check_musicxml_schema.py");
+            let output = std::process::Command::new(python)
+                .arg(script)
+                .arg(&xml)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
             );
         }
         let xml_content = std::fs::read_to_string(&xml).unwrap();

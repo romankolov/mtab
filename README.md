@@ -174,6 +174,10 @@ The Nightly `run_real_small` option performs the fixture check using an
 accepted Hugging Face account's `HF_TOKEN` repository secret; no model
 weights are uploaded as artifacts.
 
+A transcription with no detected notes produces a warning and one empty guitar
+track for notation export; it does not invent notes. This is covered by a
+synthetic-model CLI test, not a real-checkpoint quality assessment.
+
 ### Experimental ASCII library exporter
 
 `mtab_export::ascii::ascii_tab` returns text and its notation plan; the

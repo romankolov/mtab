@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Silent/empty transcription results now export as one empty guitar track in
+  all four formats, with an explicit warning. A synthetic-model CLI test
+  verifies the pipeline and independent GP5 and XML checks run in CI.
 - CLI mixed outputs now include experimental MusicXML and ASCII tab alongside
   MIDI and GP5. All requested formats are rendered before any output write;
   explicit format and filename extensions must agree.
