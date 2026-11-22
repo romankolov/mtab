@@ -1,9 +1,9 @@
 //! Experimental Guitar Pro 5.00 encoding for the constrained notation planner.
 //!
 //! This writer supports the documented subset of [`crate::gp5_plan`]. In
-//! particular, it rejects techniques, source ties, variable tempo, non-4/4
-//! meters, eight-string tracks and quantization collisions rather than losing
-//! them. GP5 velocities are rounded to its eight 15 + 16*n dynamic levels.
+//! particular, it rejects bends, unsupported techniques, source ties, variable
+//! tempo, non-4/4 meters, eight-string tracks and quantization collisions rather
+//! than losing them. Explicit dead-note and palm-mute marks are supported. GP5 velocities are rounded to its eight 15 + 16*n dynamic levels.
 //! This is not a replacement for manual verification in a notation program.
 
 use std::path::Path;
@@ -122,9 +122,12 @@ pub fn gp5_bytes(doc: &TabDocument) -> Result<(Vec<u8>, ScorePlan)> {
                     target_note.velocity = gp5_velocity(note.velocity);
                     target_note.kind = if note.tied {
                         NoteType::Tie
+                    } else if note.dead_note {
+                        NoteType::Dead
                     } else {
                         NoteType::Normal
                     };
+                    target_note.effect.palm_mute = note.palm_mute;
                     target.notes.push(target_note);
                 }
                 voice.beats.push(target);

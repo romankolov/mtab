@@ -14,7 +14,8 @@ Changes made for mtab's limited GP5 5.00 encoder:
   counts. The mtab wrapper rejects unsupported characters before encoding.
 - Write multi-track measures in time-major rather than track-major order.
 - Correct the GP5 measure-header reserved-byte condition.
-- Correct inverted default-effect flags for beats and notes.
+- Correct inverted default-effect flags for beats and notes, and correct the
+  GP5 palm-mute bit (it must not be encoded as staccato).
 - Match PyGuitarPro's integer rounding when packing velocity dynamics.
 - Remove channel-writing debug output and expose a MIDI program setter.
 - Allow upstream's existing unused private helpers under `-D warnings`.

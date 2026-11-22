@@ -72,7 +72,7 @@ fn encoded_gp5_is_deterministic_and_invalid_input_does_not_write() {
     let mut invalid = doc;
     invalid.tracks[0].notes[0]
         .technique
-        .push(mtab_guitar::Technique::PalmMute);
+        .push(mtab_guitar::Technique::HammerOn);
     let tmp = std::env::temp_dir().join(format!("mtab-gp5-invalid-{}", std::process::id()));
     let _ = std::fs::remove_file(&tmp);
     assert!(gp5::write_gp5(&invalid, &tmp).is_err());
@@ -124,6 +124,27 @@ fn pyguitarpro_reads_tracks_ties_and_dynamics() {
         output.status.success(),
         "stdout: {}\nstderr: {}",
         String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let mut marked = fixture();
+    marked.tracks[0].notes[0].technique = vec![
+        mtab_guitar::Technique::PalmMute,
+        mtab_guitar::Technique::DeadNote,
+    ];
+    marked.tracks[0].notes[1].technique = vec![mtab_guitar::Technique::PalmMute];
+    marked.tracks[0].notes[2].technique = vec![mtab_guitar::Technique::DeadNote];
+    let marked_file = dir.0.join("techniques.gp5");
+    gp5::write_gp5(&marked, &marked_file).unwrap();
+    let technique_check =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_techniques.py");
+    let output = Command::new(&python)
+        .arg(technique_check)
+        .arg(marked_file)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "techniques parser failure: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let header_check =

@@ -3,8 +3,8 @@
 //! This module does **not** write Guitar Pro files. It converts a constrained
 //! [`TabDocument`] to bar-contained beats with ties and rests. It intentionally
 //! rejects input it cannot yet preserve, including tempo/meter changes,
-//! eight-string tuning, chord symbols and techniques; it never silently drops
-//! them. Timing is quantized to 1/32 notes at an integer, constant BPM.
+//! eight-string tuning, chord symbols, bends and unsupported techniques; it
+//! never silently drops them. Dead-note and palm-mute flags are retained. Timing is quantized to 1/32 notes at an integer, constant BPM.
 //!
 //! GP5 uses two voices per measure. This initial planner uses a single voice,
 //! tying notes across beat boundaries when another string changes. Notes whose
@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 
 use mtab_core::{MtabError, Result};
-use mtab_guitar::{GuitarTrack, TabDocument};
+use mtab_guitar::{GuitarTrack, TabDocument, Technique};
 
 /// Pulses per quarter note in the proposed notation plan.
 pub const PPQ: u64 = 960;
@@ -72,6 +72,10 @@ pub struct PlannedNote {
     pub velocity: u8,
     /// Whether this is a continuation rather than a new attack.
     pub tied: bool,
+    /// The source marks this as a percussive dead note.
+    pub dead_note: bool,
+    /// The source marks this as palm-muted.
+    pub palm_mute: bool,
 }
 
 #[derive(Clone)]
@@ -82,6 +86,8 @@ struct QuantizedNote {
     string: u8,
     fret: u8,
     velocity: u8,
+    dead_note: bool,
+    palm_mute: bool,
 }
 
 fn invalid(reason: &str) -> MtabError {
@@ -97,8 +103,8 @@ fn invalid(reason: &str) -> MtabError {
 /// onset/offset displacement is reported. Sequential notes that quantize to
 /// overlapping intervals on the same string are rejected rather than lost.
 /// Supported tunings contain six or seven strings; this planner does not
-/// support techniques, explicit ties, chords, changing tempo/meter, or empty
-/// documents. Errors describe the unsupported input. Input order is preserved
+/// support bends, techniques other than dead notes and palm muting, explicit
+/// source ties, chords, changing tempo/meter, or empty documents. Errors describe the unsupported input. Input order is preserved
 /// as a source-note index; ties are created only for splitting sounding notes.
 ///
 /// This is an internal-style planning API, not a GP5 exporter and not a beat
@@ -185,9 +191,15 @@ fn quantize_track(
                 "note times must be finite, nonnegative and strictly ordered",
             ));
         }
-        if note.bend.is_some() || !note.technique.is_empty() || note.tie_from_prev {
+        if note.bend.is_some()
+            || note.tie_from_prev
+            || note
+                .technique
+                .iter()
+                .any(|technique| !matches!(technique, Technique::DeadNote | Technique::PalmMute))
+        {
             return Err(invalid(
-                "bends, techniques and explicit source ties are not yet supported",
+                "bends, techniques other than dead notes or palm muting, and explicit source ties are not yet supported",
             ));
         }
         let Some(&open) = strings.get(note.string as usize) else {
@@ -221,6 +233,8 @@ fn quantize_track(
             string: note.string,
             fret: note.fret,
             velocity: note.velocity,
+            dead_note: note.technique.contains(&Technique::DeadNote),
+            palm_mute: note.technique.contains(&Technique::PalmMute),
         });
     }
     Ok(out)
@@ -266,6 +280,8 @@ fn plan_track(notes: &[QuantizedNote], bars: u64, beat_count: &mut usize) -> Res
                         fret: n.fret,
                         velocity: n.velocity,
                         tied: n.start < tick,
+                        dead_note: n.dead_note,
+                        palm_mute: n.palm_mute,
                     }
                 })
                 .collect();
@@ -427,7 +443,7 @@ mod tests {
         doc.meta.time_signatures = vec![];
         doc.tracks[0].notes[0]
             .technique
-            .push(mtab_guitar::Technique::PalmMute);
+            .push(mtab_guitar::Technique::HammerOn);
         assert!(plan(&doc).is_err());
         doc.tracks[0].notes[0].technique.clear();
         doc.tracks[0].notes[0].midi = 41;
@@ -525,5 +541,24 @@ mod tests {
         doc.tracks[0].notes[0].start = 8192.0;
         doc.tracks[0].notes[0].end = 8192.5;
         assert!(plan(&doc).unwrap_err().to_string().contains("4096-bar"));
+    }
+    #[test]
+    fn carries_dead_and_mute_marks_across_generated_ties() {
+        let mut doc = document(vec![note(0.0, 2.5, 0, 0), note(0.5, 1.0, 1, 0)]);
+        doc.tracks[0].notes[0].technique = vec![Technique::DeadNote, Technique::PalmMute];
+        doc.tracks[0].notes[1].technique = vec![Technique::PalmMute];
+        let score = plan(&doc).unwrap();
+        let notes: Vec<_> = score.tracks[0]
+            .bars
+            .iter()
+            .flatten()
+            .flat_map(|b| &b.notes)
+            .collect();
+        let dead: Vec<_> = notes.iter().filter(|n| n.source_index == 0).collect();
+        assert_eq!(dead.len(), 4);
+        assert!(!dead[0].tied && dead.iter().skip(1).all(|n| n.tied));
+        assert!(dead.iter().all(|n| n.dead_note && n.palm_mute));
+        let muted = notes.iter().find(|n| n.source_index == 1).unwrap();
+        assert!(muted.palm_mute && !muted.dead_note && !muted.tied);
     }
 }

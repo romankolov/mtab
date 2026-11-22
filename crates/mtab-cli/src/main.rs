@@ -1175,7 +1175,7 @@ mod tests {
         let mut doc = build_midi_document(&args, &audio_data, &[event]).unwrap();
         doc.tracks[0].notes[0]
             .technique
-            .push(mtab_guitar::Technique::PalmMute);
+            .push(mtab_guitar::Technique::HammerOn);
         std::fs::write(&midi, b"do not overwrite").unwrap();
         assert!(write_document_outputs(&args, &doc).is_err());
         assert_eq!(std::fs::read(&midi).unwrap(), b"do not overwrite");

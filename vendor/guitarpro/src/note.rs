@@ -638,7 +638,7 @@ impl Song {
             flags2 |= 0x01;
         }
         if note.effect.palm_mute {
-            flags2 |= 0x01;
+            flags2 |= 0x02;
         }
         if note.effect.is_tremollo_picking() {
             flags2 |= 0x01;

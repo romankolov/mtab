@@ -7,6 +7,10 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- GP5 writes explicit dead-note and palm-mute marks from the library IR,
+  including palm-mute marks on generated ties. These are not inferred from
+  audio; unsupported techniques and bends remain errors. Independent
+  PyGuitarPro tests check that palm mutes are not miswritten as staccato.
 - GP5 titles now preserve accented Western European characters using the
   Windows-1252 code page. Unrepresentable or oversized titles are rejected
   without overwriting existing files; independent parser tests cover round-trip.
@@ -14,13 +18,14 @@ versioning: [SemVer](https://semver.org/).
   4/4 constant-tempo notation plan, using a patched MIT `guitarpro` 0.1.0
   fork. An independent PyGuitarPro test checks multi-track notes, durations,
   ties, string/fret, capo, tuning and GP5 dynamic levels. The export dispatcher
-  and CLI can write MIDI plus GP5 together; effects, changing tempo/meter,
-  eight strings and colliding quantized notes remain unsupported. Not yet manually checked in a notation program.
+  and CLI can write MIDI plus GP5 together; changing tempo/meter, eight strings,
+  bends, most techniques and colliding quantized notes remain unsupported.
+  Not yet manually checked in a notation program.
 - **M6 groundwork:** a deterministic 4/4, constant-integer-tempo rhythmic
   planning API on a 1/32 grid. It creates rests and tied note segments across
   attacks and bar lines, reports timing displacement, and rejects unsupported
   techniques, source ties, eight-string tuning and same-string quantization
-  collisions rather than dropping them. This is not yet a GP5 file writer.
+  collisions rather than dropping them. The planner is separate from the GP5 writer.
 - **M2 complete: mel frontend with SACRED PARITY GATE GREEN** — exact port of
   upstream `modules/mel_spectrogram.py` + `MelSpectrogramConditioner`
   (HTK fbanks, periodic Hann, reflect-pad STFT, **power=1.0**, `log(mel+1e-6)`,

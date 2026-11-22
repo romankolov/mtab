@@ -6,8 +6,9 @@
 
 **Audio → guitar tablature in pure Rust**, powered by [MuScriptor](https://github.com/muscriptor/muscriptor)
 (Kyutai + Mirelo). Point it at any audio file plus a MuScriptor weights file
-(`small` / `medium` / `large`) and get **MIDI + Guitar Pro 5** tablature out:
-tuning, capo, string/fret assignment, rhythm, bends, dead notes.
+(`small` / `medium` / `large`) and produce preliminary **MIDI + Guitar Pro 5**
+output. The goal is accurate tuning, fingering, rhythm and techniques; several
+of these are not yet implemented or reliably inferred.
 
 > **Status: in development.** The audio frontend, transformer inference,
 > chunk decoder, and MIDI writer have preliminary implementations. The CLI
@@ -59,8 +60,11 @@ GP5 output always uses a fixed 120 BPM, 4/4 and a 1/32-note grid, regardless
 of `--grid`; the CLI reports the largest quantization shift. It supports up
 to 15 six- or seven-string tracks, titles representable in Windows-1252
 (without control characters, up to 255 encoded bytes), and GP5's discrete
-velocity levels. Other Unicode titles require renaming the audio file. It rejects same-string quantization collisions, techniques,
-eight-string tracks and other unsupported notation rather than dropping notes.
+velocity levels. Other Unicode titles require renaming the audio file. It can
+encode dead-note and palm-mute markings supplied in the library IR, but it
+does not infer them from audio. It rejects same-string quantization
+collisions, bends, eight-string tracks and other unsupported notation rather
+than dropping notes.
 The exporter has not yet been manually checked in Guitar Pro or TuxGuitar, and
 real-checkpoint CLI-to-GP5 output has not yet been validated. MIDI remains
 unquantized. Pitch bends are not yet inferred. The MIDI writer isolates bent
@@ -173,8 +177,9 @@ weights are uploaded as artifacts.
 
 `mtab_export::gp5::gp5_bytes` encodes the currently restricted GP5 5.00 subset:
 constant integer tempo, 4/4, six or seven strings, and a 1/32-note grid. It
-rejects techniques, explicit source ties, chord symbols, variable tempo/meter,
-and quantization collisions rather than silently discarding them. Velocity is
+preserves explicit dead-note and palm-mute marks, but rejects bends, other
+techniques, explicit source ties, chord symbols, variable tempo/meter and
+quantization collisions rather than silently discarding them. Velocity is
 rounded to GP5 dynamic levels. It has **not** been manually verified in Guitar
 Pro or TuxGuitar.
 
