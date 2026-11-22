@@ -57,7 +57,7 @@ fn build_tempo_tick_map(
     let mut last_time = 0.0f64;
     for (i, change) in tempo.changes.iter().enumerate() {
         if i > 0 {
-            tick_acc += (change.time - last_time) * (change.bpm / 60.0) * ppq as f64;
+            tick_acc += (change.time - last_time) * (tempo.changes[i - 1].bpm / 60.0) * ppq as f64;
         }
         last_time = change.time;
         out.push((
@@ -174,7 +174,7 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
 
     // --- One track per guitar ---
     let mut track_events: Vec<Vec<AbsEvent>> = Vec::new();
-    let mut channel_pool: Vec<u4> = (0..8u8).chain(10..16u8).map(u4::from).collect();
+    let mut channel_pool: Vec<u4> = (0..9u8).chain(10..16u8).map(u4::from).collect();
     for (ti, track) in doc.tracks.iter().enumerate() {
         let channel = channel_pool.first().copied().unwrap_or(u4::from(15u8));
         if channel_pool.len() > 1 {
@@ -221,7 +221,7 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
                     kind: midi_event(
                         channel,
                         MidiMessage::PitchBend {
-                            bend: PitchBend::from_int(wheel),
+                            bend: PitchBend::from_int(wheel - 8192),
                         },
                     ),
                 });
@@ -371,6 +371,7 @@ mod tests {
         let doc = doc_with_tempo_change();
         // 0..2s @120: 1920 ticks; 0.25s @140: 0.25*140/60*480 = 280.
         assert_eq!(time_to_tick(&doc.meta.tempo_map, 480, 2.25), 2200);
+        assert_eq!(build_tempo_tick_map(&doc.meta.tempo_map, 480)[1].0, 1920);
     }
 
     #[test]
@@ -451,7 +452,7 @@ mod tests {
                 TrackEventKind::Midi {
                     message: MidiMessage::PitchBend { bend },
                     ..
-                } => Some(bend.as_int() - 8192),
+                } => Some(bend.as_int()),
                 _ => None,
             })
             .collect();
