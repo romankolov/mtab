@@ -16,6 +16,7 @@ pub mod decode;
 pub mod dsp;
 pub mod dynamics;
 pub mod mel;
+pub mod pitch_histogram;
 pub mod resample;
 pub mod transcribe;
 
