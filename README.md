@@ -57,8 +57,9 @@ overlaps. It emits a warning when used: the resulting grips may be physically
 uncomfortable or impractical and require review.
 GP5 output always uses a fixed 120 BPM, 4/4 and a 1/32-note grid, regardless
 of `--grid`; the CLI reports the largest quantization shift. It supports up
-to 15 six- or seven-string tracks, printable ASCII titles, and GP5's discrete
-velocity levels. It rejects same-string quantization collisions, techniques,
+to 15 six- or seven-string tracks, titles representable in Windows-1252
+(without control characters, up to 255 encoded bytes), and GP5's discrete
+velocity levels. Other Unicode titles require renaming the audio file. It rejects same-string quantization collisions, techniques,
 eight-string tracks and other unsupported notation rather than dropping notes.
 The exporter has not yet been manually checked in Guitar Pro or TuxGuitar, and
 real-checkpoint CLI-to-GP5 output has not yet been validated. MIDI remains

@@ -5,7 +5,8 @@ import guitarpro
 
 song = guitarpro.parse(sys.argv[1])
 assert song.versionTuple == (5, 0, 0), song.versionTuple
-assert song.title == "GP5 roundtrip", song.title
+expected_title = sys.argv[2] if len(sys.argv) > 2 else "GP5 roundtrip"
+assert song.title == expected_title, (song.title, expected_title)
 assert song.tempo == 120, song.tempo
 assert len(song.tracks) == 2
 assert len(song.measureHeaders) == 2

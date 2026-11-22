@@ -80,6 +80,26 @@ fn encoded_gp5_is_deterministic_and_invalid_input_does_not_write() {
 }
 
 #[test]
+fn gp5_rejects_unrepresentable_title_without_overwriting() {
+    let path = std::env::temp_dir().join(format!("mtab-gp5-title-{}.gp5", std::process::id()));
+    let mut doc = fixture();
+    std::fs::write(&path, b"original").unwrap();
+    for title in [
+        "日本語".to_owned(),
+        "café\nscore".to_owned(),
+        "é".repeat(256),
+    ] {
+        doc.meta.title = Some(title);
+        let error = gp5::write_gp5(&doc, &path).unwrap_err().to_string();
+        assert!(error.contains("Windows-1252"), "{error}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"original");
+    }
+    doc.meta.title = Some("é".repeat(255));
+    assert!(gp5::gp5_bytes(&doc).is_ok());
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 #[ignore = "requires PyGuitarPro; run in the independent-parser CI job"]
 fn pyguitarpro_reads_tracks_ties_and_dynamics() {
     let python = std::env::var_os("MTAB_PYGUITARPRO_PYTHON")
@@ -96,7 +116,7 @@ fn pyguitarpro_reads_tracks_ties_and_dynamics() {
     let script =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_pyguitarpro.py");
     let output = Command::new(&python)
-        .arg(script)
+        .arg(&script)
         .arg(file)
         .output()
         .unwrap();
@@ -108,6 +128,26 @@ fn pyguitarpro_reads_tracks_ties_and_dynamics() {
     );
     let header_check =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_bar_headers.py");
+    for (index, title) in ["Café — déjà vu".to_owned(), "é".repeat(255)]
+        .iter()
+        .enumerate()
+    {
+        let mut doc = fixture();
+        doc.meta.title = Some(title.clone());
+        let file = dir.0.join(format!("title-{index}.gp5"));
+        gp5::write_gp5(&doc, &file).unwrap();
+        let output = Command::new(&python)
+            .arg(&script)
+            .arg(file)
+            .arg(title)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "title parser failure: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     for bars in 1..=4 {
         let mut doc = fixture();
         doc.tracks.truncate(1);

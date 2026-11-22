@@ -227,21 +227,24 @@ pub(crate) fn write_color(data: &mut Vec<u8>, value: i32) {
     write_byte(data, b);
     write_placeholder_default(data, 1);
 }
+// GP5 uses a legacy single-byte code page, not UTF-8. mtab validates its
+// user-controlled text as lossless Windows-1252 before calling these helpers.
 pub(crate) fn write_byte_size_string(data: &mut Vec<u8>, value: &str) {
-    write_byte(data, value.chars().count().to_u8().unwrap());
-    data.extend(value.as_bytes());
+    let (encoded, _, _) = encoding_rs::WINDOWS_1252.encode(value);
+    write_byte(data, encoded.len().to_u8().unwrap());
+    data.extend_from_slice(&encoded);
 }
 pub(crate) fn write_int_size_string(data: &mut Vec<u8>, value: &str) {
-    let count = value.chars().count();
-    write_i32(data, count.to_i32().unwrap());
-    data.extend(value.as_bytes());
+    let (encoded, _, _) = encoding_rs::WINDOWS_1252.encode(value);
+    write_i32(data, encoded.len().to_i32().unwrap());
+    data.extend_from_slice(&encoded);
 }
 
 pub(crate) fn write_int_byte_size_string(data: &mut Vec<u8>, value: &str) {
-    let count = value.chars().count();
-    write_i32(data, count.to_i32().unwrap() + 1); //write_i32( (value.getBytes(charset).length + 1) );
-    write_byte(data, count.to_u8().unwrap());
-    data.extend(value.as_bytes());
+    let (encoded, _, _) = encoding_rs::WINDOWS_1252.encode(value);
+    write_i32(data, encoded.len().to_i32().unwrap() + 1);
+    write_byte(data, encoded.len().to_u8().unwrap());
+    data.extend_from_slice(&encoded);
 }
 
 pub(crate) fn write_version(data: &mut Vec<u8>, version: (u8, u8, u8)) {

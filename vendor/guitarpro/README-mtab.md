@@ -10,6 +10,8 @@ uses Rust edition 2024, incompatible with mtab's Rust 1.75 minimum.
 Changes made for mtab's limited GP5 5.00 encoder:
 
 - Fix the integer-size string length, used by GP5 lyric blocks.
+- Encode GP5 text as Windows-1252 and write byte rather than UTF-8 character
+  counts. The mtab wrapper rejects unsupported characters before encoding.
 - Write multi-track measures in time-major rather than track-major order.
 - Correct the GP5 measure-header reserved-byte condition.
 - Correct inverted default-effect flags for beats and notes.

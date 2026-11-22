@@ -288,6 +288,7 @@ dependencies = [
 name = "mtab-export"
 version = "0.1.0"
 dependencies = [
+ "encoding_rs",
  "guitarpro",
  "midly",
  "mtab-core",

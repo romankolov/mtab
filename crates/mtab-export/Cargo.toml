@@ -12,6 +12,7 @@ description = "Exporters for muscriptor-tab: MIDI, Guitar Pro 5, MusicXML, ASCII
 name = "mtab_export"
 
 [dependencies]
+encoding_rs = "0.8"
 guitarpro = { path = "../../vendor/guitarpro" }
 midly = { version = "0.5", default-features = false, features = ["std"] }
 mtab-core = { path = "../mtab-core" }

@@ -35,8 +35,8 @@ fn invalid(reason: &str) -> MtabError {
 ///
 /// Timing is quantized to the 1/32 grid; inspect the plan's maximum timing
 /// displacement. To avoid unrepresentable or misleading output, this initial
-/// encoder permits no more than 15 tracks, a printable ASCII title of at most
-/// 255 bytes, and a fretboard size no greater than 99. Other constraints are
+/// encoder permits no more than 15 tracks, a control-free Windows-1252 title of
+/// at most 255 encoded bytes, and a fretboard size no greater than 99. Other constraints are
 /// documented by [`gp5_plan::plan`]. Identical input yields identical bytes.
 pub fn gp5_bytes(doc: &TabDocument) -> Result<(Vec<u8>, ScorePlan)> {
     let plan = gp5_plan::plan(doc)?;
@@ -47,9 +47,10 @@ pub fn gp5_bytes(doc: &TabDocument) -> Result<(Vec<u8>, ScorePlan)> {
         return Err(invalid("fretboard size must be 1–99"));
     }
     let title = doc.meta.title.as_deref().unwrap_or("Untitled");
-    if title.len() > 255 || !title.bytes().all(|c| (0x20..=0x7e).contains(&c)) {
+    let (title_bytes, _, unmappable) = encoding_rs::WINDOWS_1252.encode(title);
+    if unmappable || title.chars().any(char::is_control) || title_bytes.len() > 255 {
         return Err(invalid(
-            "title must be printable ASCII and at most 255 bytes",
+            "title must contain no control characters, be representable in Windows-1252, and fit in 255 encoded bytes; rename the input or edit its title",
         ));
     }
     let mut song = Song {

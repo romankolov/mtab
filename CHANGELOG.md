@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- GP5 titles now preserve accented Western European characters using the
+  Windows-1252 code page. Unrepresentable or oversized titles are rejected
+  without overwriting existing files; independent parser tests cover round-trip.
 - **M6 experimental library encoder:** GP5 5.00 encoding for the restricted
   4/4 constant-tempo notation plan, using a patched MIT `guitarpro` 0.1.0
   fork. An independent PyGuitarPro test checks multi-track notes, durations,
