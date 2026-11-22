@@ -81,7 +81,7 @@ struct TranscribeArgs {
     #[arg(long, default_value = "medium")]
     size: ModelSize,
 
-    /// Weights: <name>.safetensors path, hf://<org>/<repo>, or http(s) URL
+    /// Weights: `<name>.safetensors` path, `hf://<org>/<repo>`, or http(s) URL
     #[arg(long)]
     weights: Option<String>,
 
