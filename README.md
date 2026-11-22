@@ -12,8 +12,9 @@ tuning, capo, string/fret assignment, rhythm, bends, dead notes.
 > **Status: in development.** The audio frontend, transformer inference,
 > chunk decoder, and MIDI writer have preliminary implementations. The CLI
 > currently supports raw-note JSONL only; tuning/fretting, GP5 and the other
-> end-to-end exports are not implemented yet. The transcription path has been
-> tested with a tiny synthetic checkpoint, not yet with licensed release weights.
+> end-to-end exports are not implemented yet. The official small checkpoint has
+> been smoke-tested and checked against upstream on a synthetic plucked-string
+> fixture; accuracy on real music and end-to-end performance targets are unverified.
 
 ## Current usage
 
@@ -75,8 +76,30 @@ MTAB_SMALL_WEIGHTS=/path/to/model.safetensors \
   cargo test -p mtab-cli --release --test small_checkpoint_smoke -- --ignored --nocapture
 ```
 
-The test generates a synthetic tone and runs the CLI twice, checking that
-execution succeeds and JSONL is byte-identical. It defaults to eight generated
-tokens; override with `MTAB_SMOKE_MAX_GEN_LEN`. It is a **smoke test**, not an
-accuracy or token-parity test, and a short generation may produce no notes or
-reach the token limit without EOS. It never downloads or commits weights.
+The test uses a synthetic plucked-string waveform and runs the CLI twice,
+checking that it terminates with note records and produces byte-identical JSONL.
+It defaults to 80 generated tokens; override with `MTAB_SMOKE_MAX_GEN_LEN`.
+This is a **smoke test**, not an accuracy test. It never downloads or commits
+weights.
+
+### Optional small-checkpoint upstream parity test
+
+With a local upstream MuScriptor checkout and its Python dependencies (`torch`,
+`numpy`, `einops`, `safetensors`), generate a temporary PyTorch reference and
+compare it with the Rust implementation. This test uses the same synthetic
+fixture and does not embed or distribute model-derived goldens:
+
+```sh
+python tools/gen_real_small_reference.py \
+  --muscriptor-root /path/to/muscriptor \
+  --weights /path/to/model.safetensors --output /tmp/mtab-small-reference.json
+MTAB_SMALL_WEIGHTS=/path/to/model.safetensors \
+MTAB_SMALL_REFERENCE=/tmp/mtab-small-reference.json \
+  cargo test -p mtab-core --release --test real_small_parity -- --ignored --nocapture
+```
+
+The test compares every generated token and every masked/unmasked logit row
+for greedy and forced-prompt decoding. The official small checkpoint passed on
+the fixture; see [benches/report.md](benches/report.md) for the scope and
+measured errors. The reference is generated with upstream PyTorch float32;
+the Rust inference path uses f64.
