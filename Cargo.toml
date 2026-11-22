@@ -1,4 +1,5 @@
 [workspace]
+exclude = ["vendor/guitarpro"]
 resolver = "2"
 members = [
     "crates/mtab-core",

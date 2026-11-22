@@ -12,7 +12,8 @@ tuning, capo, string/fret assignment, rhythm, bends, dead notes.
 > **Status: in development.** The audio frontend, transformer inference,
 > chunk decoder, and MIDI writer have preliminary implementations. The CLI
 > supports raw-note JSONL and preliminary MIDI export with string/fret assignment.
-> GP5 and other tablature exports are not implemented yet. The preliminary
+> An experimental, restricted GP5 library encoder exists but is not yet
+> available through the CLI; other tablature exports are not implemented. The preliminary
 > fingering search has not been compared with tab-labeler-v3 on held-out audio.
 > The official small checkpoint has
 > been checked against upstream on a synthetic plucked-string fixture and
@@ -159,6 +160,25 @@ This is note-event matching, not full transcription or tablature evaluation.
 The Nightly `run_real_small` option performs the fixture check using an
 accepted Hugging Face account's `HF_TOKEN` repository secret; no model
 weights are uploaded as artifacts.
+
+### Experimental GP5 library encoder
+
+`mtab_export::gp5::gp5_bytes` encodes the currently restricted GP5 5.00 subset:
+constant integer tempo, 4/4, six or seven strings, and a 1/32-note grid. It
+rejects techniques, explicit source ties, chord symbols, variable tempo/meter,
+and quantization collisions rather than silently discarding them. Velocity is
+rounded to GP5 dynamic levels. It has **not** been manually verified in Guitar
+Pro or TuxGuitar, and is not yet wired into the export dispatcher or CLI.
+
+An independent PyGuitarPro round-trip fixture check is required in CI. To run
+it locally, install `PyGuitarPro==0.10.1` in a Python environment and use:
+
+```sh
+MTAB_PYGUITARPRO_PYTHON=/path/to/python cargo test --locked -p mtab-export \
+  --test gp5_roundtrip -- --ignored --nocapture
+```
+
+Python and PyGuitarPro are test-only; the Rust application does not need them.
 
 ### Optional independent MIDI reader check
 

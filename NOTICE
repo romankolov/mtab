@@ -20,9 +20,11 @@ software. Licenses of third-party components:
    NOT distributed with this repository. Users must accept the license and
    provide weights themselves (see docs/weights.md).
 
-3. guitarpro (Rust crate) — GP3/GP4/GP5 read/write
-   License: MIT
-   Used for: Guitar Pro 5 export.
+3. guitarpro 0.1.0 (Rust crate), by slundi
+   License: MIT; see vendor/guitarpro/LICENSE
+   Source: https://crates.io/crates/guitarpro/0.1.0
+   Used for: experimental Guitar Pro 5 encoding. Vendored modifications and
+   limitations are described in vendor/guitarpro/README-mtab.md.
 
 4. PyGuitarPro
    Copyright (c) Sviatoslav Sviridov et al.

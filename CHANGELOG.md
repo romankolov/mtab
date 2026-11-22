@@ -7,6 +7,12 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **M6 experimental library encoder:** GP5 5.00 encoding for the restricted
+  4/4 constant-tempo notation plan, using a patched MIT `guitarpro` 0.1.0
+  fork. An independent PyGuitarPro test checks multi-track notes, durations,
+  ties, string/fret, capo, tuning and GP5 dynamic levels. Not yet wired to
+  the CLI; effects, changing tempo/meter, eight strings and colliding quantized
+  notes remain unsupported. Not yet manually checked in a notation program.
 - **M6 groundwork:** a deterministic 4/4, constant-integer-tempo rhythmic
   planning API on a 1/32 grid. It creates rests and tied note segments across
   attacks and bar lines, reports timing displacement, and rejects unsupported
