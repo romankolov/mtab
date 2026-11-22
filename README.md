@@ -13,8 +13,7 @@ of these are not yet implemented or reliably inferred.
 > **Status: in development.** The audio frontend, transformer inference,
 > chunk decoder, and MIDI writer have preliminary implementations. The CLI
 > supports raw-note JSONL and preliminary MIDI export with string/fret assignment.
-> Experimental, restricted GP5, MusicXML and library ASCII tab export are
-> available. The preliminary
+> Experimental, restricted GP5, MusicXML and ASCII tab export are available. The preliminary
 > fingering search has not been compared with tab-labeler-v3 on held-out audio.
 > The official small checkpoint has
 > been checked against upstream on a synthetic plucked-string fixture and
@@ -31,12 +30,12 @@ mtab transcribe song.wav --size small --weights ./muscriptor-small.safetensors \
     --instruments guitar --format jsonl -o notes.jsonl
 ```
 
-For preliminary unquantized MIDI, experimental GP5 and an optional JSON tablature IR:
+For preliminary unquantized MIDI, experimental notation exports and an optional JSON tablature IR:
 
 ```console
 mtab transcribe song.wav --size small --weights ./muscriptor-small.safetensors \
     --instruments guitar --tuning standard --capo 0 --grid off \
-    --dynamics --emit-ir song.json -o song.mid,song.gp5
+    --dynamics --emit-ir song.json -o song.mid,song.gp5,song.musicxml,song.txt
 ```
 
 Automatic tuning and capo detection are experimental. The detector analyses
@@ -183,7 +182,7 @@ the GP5 planner's constant integer tempo, 4/4, six/seven-string and 1/32-grid
 constraints. Each bar shows beat durations above aligned strings. The legend
 explains ties, dead notes, palm mutes and the supported bend notation; velocities
 are omitted. It is a readable quantized view, not a lossless performance format.
-CLI integration is not yet available.
+The CLI supports `.txt` and `.tab` outputs, alone or alongside other formats.
 
 ### Experimental MusicXML library exporter
 
@@ -195,7 +194,8 @@ the restricted GP5 planner and rejects timed bends rather than discarding
 them. Velocities are not encoded; the two notation staves duplicate notes and
 may double playback in applications. It has not been checked in a notation
 application. CI validates the W3C 3.1 schema and reads a fixture with
-music21; Python is test-only. CLI integration is not yet available.
+music21; Python is test-only. The CLI supports `.musicxml` and `.xml`, alone
+or alongside other formats.
 
 ### Experimental GP5 library encoder
 

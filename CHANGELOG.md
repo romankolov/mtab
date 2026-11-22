@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- CLI mixed outputs now include experimental MusicXML and ASCII tab alongside
+  MIDI and GP5. All requested formats are rendered before any output write;
+  explicit format and filename extensions must agree.
 - An experimental MusicXML 3.1 library exporter with standard and tab staves,
   validated in CI against the official schema and read independently with
   music21. It uses the restricted notation planner, rejects bends, and does

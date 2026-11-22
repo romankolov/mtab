@@ -154,7 +154,7 @@ struct TranscribeArgs {
     #[arg(long)]
     seed: Option<u64>,
 
-    /// Output format: jsonl, midi, or gp5 (inferred from output extensions)
+    /// Output format: jsonl, midi, gp5, musicxml, or ascii (or infer from extension)
     #[arg(long)]
     format: Option<String>,
 
@@ -166,7 +166,7 @@ struct TranscribeArgs {
     #[arg(long, default_value_t = 2000)]
     max_gen_len: usize,
 
-    /// Output files, comma-separated (.mid/.midi/.gp5; JSONL accepts one path)
+    /// Output files, comma-separated (.mid/.gp5/.musicxml/.xml/.txt/.tab)
     #[arg(short, long, value_delimiter = ',')]
     outputs: Vec<PathBuf>,
 
@@ -375,11 +375,13 @@ enum OutputMode {
 fn output_mode(args: &TranscribeArgs) -> Result<OutputMode> {
     match args.format.as_deref() {
         Some("jsonl") => Ok(OutputMode::Jsonl),
-        Some("midi" | "mid" | "gp5") => Ok(OutputMode::Document),
+        Some("midi" | "mid" | "gp5" | "musicxml" | "xml" | "ascii" | "txt" | "tab") => {
+            Ok(OutputMode::Document)
+        }
         None if !args.outputs.is_empty() => Ok(OutputMode::Document),
         None => Ok(OutputMode::Jsonl),
         _ => Err(MtabError::NotImplemented(
-            "choose --format jsonl or write .mid and/or .gp5 output files",
+            "choose --format jsonl, midi, gp5, musicxml, or ascii",
         )),
     }
 }
@@ -400,23 +402,27 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
         }
         OutputMode::Document if args.outputs.is_empty() => {
             return Err(MtabError::InvalidModelSource(
-                "MIDI/GP5 output requires at least one -o path".into(),
+                "document output requires at least one -o path".into(),
             ))
         }
         OutputMode::Document => {
             for path in &args.outputs {
                 let format = ExportFormat::from_path(path);
-                if !matches!(format, Some(ExportFormat::Midi | ExportFormat::GuitarPro5)) {
-                    return Err(MtabError::NotImplemented(
-                        "only MIDI and experimental GP5 output are available",
-                    ));
+                if format.is_none() {
+                    return Err(MtabError::InvalidModelSource("unsupported output extension; use .mid, .gp5, .musicxml, .xml, .txt or .tab".into()));
                 }
-                if matches!(args.format.as_deref(), Some("midi" | "mid"))
-                    && format != Some(ExportFormat::Midi)
-                    || args.format.as_deref() == Some("gp5")
-                        && format != Some(ExportFormat::GuitarPro5)
-                {
-                    return Err(MtabError::InvalidModelSource("--format must agree with each output file extension; omit it for mixed MIDI and GP5".into()));
+                let explicit = match args.format.as_deref() {
+                    Some("midi" | "mid") => Some(ExportFormat::Midi),
+                    Some("gp5") => Some(ExportFormat::GuitarPro5),
+                    Some("musicxml" | "xml") => Some(ExportFormat::MusicXml),
+                    Some("ascii" | "txt" | "tab") => Some(ExportFormat::AsciiTab),
+                    _ => None,
+                };
+                if explicit.is_some() && format != explicit {
+                    return Err(MtabError::InvalidModelSource(
+                        "--format must agree with each output extension; omit it for mixed outputs"
+                            .into(),
+                    ));
                 }
             }
         }
@@ -562,8 +568,8 @@ fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel) -> Result<()> {
     }
 }
 
-/// Render all requested formats before writing any, so an unsupported GP5
-/// document cannot leave a misleading partial MIDI output behind. I/O errors
+/// Render all requested formats before writing any, so an unsupported score
+/// cannot leave a misleading partial MIDI or notation output behind. I/O errors
 /// during the subsequent writes can still leave earlier outputs on disk.
 fn write_document_outputs(args: &TranscribeArgs, doc: &TabDocument) -> Result<()> {
     let wants_midi = args
@@ -584,6 +590,28 @@ fn write_document_outputs(args: &TranscribeArgs, doc: &TabDocument) -> Result<()
     } else {
         None
     };
+    let wants_xml = args
+        .outputs
+        .iter()
+        .any(|p| ExportFormat::from_path(p) == Some(ExportFormat::MusicXml));
+    let wants_ascii = args
+        .outputs
+        .iter()
+        .any(|p| ExportFormat::from_path(p) == Some(ExportFormat::AsciiTab));
+    let xml = if wants_xml {
+        let (text, plan) = mtab_export::musicxml::musicxml(doc)?;
+        eprintln!("warning: experimental MusicXML uses fixed 120 BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift {:.1} ms; velocities omitted and duplicated staves may double playback", plan.max_boundary_shift_seconds * 1000.0);
+        Some(text.into_bytes())
+    } else {
+        None
+    };
+    let ascii = if wants_ascii {
+        let (text, plan) = mtab_export::ascii::ascii_tab(doc)?;
+        eprintln!("warning: experimental ASCII tab uses fixed 120 BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift {:.1} ms; velocities omitted", plan.max_boundary_shift_seconds * 1000.0);
+        Some(text.into_bytes())
+    } else {
+        None
+    };
     let ir = args
         .emit_ir
         .as_ref()
@@ -593,6 +621,8 @@ fn write_document_outputs(args: &TranscribeArgs, doc: &TabDocument) -> Result<()
         let bytes = match ExportFormat::from_path(path) {
             Some(ExportFormat::Midi) => midi.as_ref(),
             Some(ExportFormat::GuitarPro5) => gp5.as_ref(),
+            Some(ExportFormat::MusicXml) => xml.as_ref(),
+            Some(ExportFormat::AsciiTab) => ascii.as_ref(),
             _ => None,
         }
         .ok_or_else(|| {
@@ -1064,7 +1094,15 @@ mod tests {
         let midi = audio.with_extension("mid");
         let gp5 = audio.with_extension("gp5");
         let ir = audio.with_extension("json");
-        let outputs = format!("{},{}", midi.display(), gp5.display());
+        let xml = audio.with_extension("musicxml");
+        let ascii = audio.with_extension("tab");
+        let outputs = format!(
+            "{},{},{},{}",
+            midi.display(),
+            gp5.display(),
+            xml.display(),
+            ascii.display()
+        );
         let cli = Cli::try_parse_from([
             "mtab",
             "transcribe",
@@ -1117,6 +1155,33 @@ mod tests {
                 String::from_utf8_lossy(&check.stderr)
             );
         }
+        let xml_content = std::fs::read_to_string(&xml).unwrap();
+        assert!(xml_content.starts_with("<?xml"));
+        assert!(xml_content.contains("<string>6</string><fret>0</fret>"));
+        let ascii_content = std::fs::read_to_string(&ascii).unwrap();
+        assert!(ascii_content.contains("mtab ASCII tab | 120 BPM"));
+        assert!(ascii_content.contains(" 40 |--0-"));
+        for (format, path) in [
+            ("midi", &midi),
+            ("gp5", &gp5),
+            ("musicxml", &xml),
+            ("ascii", &ascii),
+        ] {
+            let cli = Cli::try_parse_from([
+                "mtab",
+                "transcribe",
+                audio.to_str().unwrap(),
+                "--format",
+                format,
+                "-o",
+                path.to_str().unwrap(),
+            ])
+            .unwrap();
+            let Some(Cmd::Transcribe(args)) = cli.command else {
+                panic!("wrong command")
+            };
+            validate_transcribe(&args).unwrap();
+        }
         let ir_doc: TabDocument = serde_json::from_slice(&std::fs::read(&ir).unwrap()).unwrap();
         assert_eq!(ir_doc, doc);
         let mut mismatched = Cli::try_parse_from([
@@ -1133,7 +1198,7 @@ mod tests {
             panic!("wrong command")
         };
         assert!(validate_transcribe(&args).is_err());
-        for file in [audio, midi, gp5, ir] {
+        for file in [audio, midi, gp5, ir, xml, ascii] {
             std::fs::remove_file(file).unwrap();
         }
     }
@@ -1182,6 +1247,58 @@ mod tests {
         assert!(!gp5.exists());
         std::fs::remove_file(audio).unwrap();
         std::fs::remove_file(midi).unwrap();
+    }
+    #[test]
+    fn musicxml_rejection_does_not_overwrite_any_mixed_output() {
+        let audio = make_test_wav();
+        let midi = audio.with_extension("mid");
+        let xml = audio.with_extension("xml");
+        let ascii = audio.with_extension("txt");
+        let outputs = format!("{},{},{}", midi.display(), xml.display(), ascii.display());
+        let cli = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "-o",
+            &outputs,
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        validate_transcribe(&args).unwrap();
+        let event = mtab_core::NoteEvent {
+            start: 0.0,
+            end: 0.5,
+            midi: 40,
+            velocity: 80,
+            instrument: 24,
+        };
+        let audio_data = mtab_audio::AudioBuffer {
+            samples: vec![],
+            sample_rate: 16000,
+            channels: 1,
+        };
+        let mut doc = build_midi_document(&args, &audio_data, &[event]).unwrap();
+        doc.tracks[0].notes[0].bend = Some(mtab_guitar::PitchBend {
+            start: 0.0,
+            peak: 0.25,
+            depth_cents: 100.0,
+            kind: mtab_guitar::BendKind::Bend,
+        });
+        for path in [&midi, &xml, &ascii] {
+            std::fs::write(path, b"original").unwrap();
+        }
+        assert!(write_document_outputs(&args, &doc).is_err());
+        for path in [&midi, &xml, &ascii] {
+            assert_eq!(std::fs::read(path).unwrap(), b"original");
+            std::fs::remove_file(path).unwrap();
+        }
+        std::fs::remove_file(audio).unwrap();
     }
     #[test]
     fn unspecified_format_without_outputs_defaults_to_jsonl() {
