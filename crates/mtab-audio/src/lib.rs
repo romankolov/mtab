@@ -1,7 +1,7 @@
 //! `mtab-audio` — audio ingest and feature extraction (PROMPT.md §6.1–§6.2).
 //!
-//! Pipeline: decode (symphonia) → mono mixdown → DC removal → peak normalize
-//! (−1 dBFS) → resample to the model sample rate (16 kHz per upstream
+//! Pipeline: decode (symphonia) → mono mixdown → resample to the model
+//! sample rate (16 kHz per upstream
 //! `muscriptor/transcription_model.py`) → mel spectrogram matching the
 //! upstream frontend EXACTLY (`muscriptor/modules/mel_spectrogram.py`, MIT):
 //! HTK mel scale, `norm=None`, periodic Hann window, `win_length == n_fft`,
@@ -16,6 +16,7 @@ pub mod decode;
 pub mod dsp;
 pub mod mel;
 pub mod resample;
+pub mod transcribe;
 
 #[cfg(test)]
 pub mod test_util;
