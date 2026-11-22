@@ -13,7 +13,48 @@
 pub fn linear(x: &[f64], w: &[f32], b: Option<&[f32]>, m: usize, k: usize, n: usize) -> Vec<f64> {
     assert_eq!(x.len(), m * k);
     assert_eq!(w.len(), n * k);
+    if let Some(bias) = b {
+        assert_eq!(bias.len(), n);
+    }
     let mut out = vec![0.0f64; m * n];
+    // Batched prefix processing is matrix-matrix work. Cast weights once per
+    // call and use a SIMD GEMM; for single-token decoding the scalar path
+    // avoids repeatedly allocating and converting a whole weight matrix.
+    if m >= 16 && m.saturating_mul(k).saturating_mul(n) >= 262_144 && k > 0 && n > 0 {
+        let weights: Vec<f64> = w.iter().map(|&v| v as f64).collect();
+        let row_x = isize::try_from(k).expect("matrix row stride exceeds isize");
+        let row_out = isize::try_from(n).expect("matrix row stride exceeds isize");
+        // SAFETY: the asserts above establish x[m,k], weights[n,k], and
+        // out[m,n] allocations. The B strides (1,k) view weights transposed;
+        // the output row-major strides are non-overlapping. No input aliases
+        // the newly allocated output, and every stride fits in isize.
+        unsafe {
+            matrixmultiply::dgemm(
+                m,
+                k,
+                n,
+                1.0,
+                x.as_ptr(),
+                row_x,
+                1,
+                weights.as_ptr(),
+                1,
+                row_x,
+                0.0,
+                out.as_mut_ptr(),
+                row_out,
+                1,
+            );
+        }
+        if let Some(bias) = b {
+            for row in out.chunks_exact_mut(n) {
+                for (value, &offset) in row.iter_mut().zip(bias) {
+                    *value += offset as f64;
+                }
+            }
+        }
+        return out;
+    }
     for i in 0..m {
         let xrow = &x[i * k..(i + 1) * k];
         for j in 0..n {
@@ -219,6 +260,24 @@ mod tests {
         assert_eq!(y, vec![5.0 + 12.0, 15.0 + 24.0]);
         let yb = linear(&x, &w, Some(&[0.5, -0.5]), 1, 2, 2);
         assert_eq!(yb, vec![17.5, 38.5]);
+    }
+
+    #[test]
+    fn batched_linear_matches_scalar_reference() {
+        let (m, k, n) = (33, 67, 123);
+        let x: Vec<f64> = (0..m * k).map(|i| (i as f64 * 0.007).sin()).collect();
+        let w: Vec<f32> = (0..n * k).map(|i| (i as f32 * 0.013).cos()).collect();
+        let bias: Vec<f32> = (0..n).map(|i| i as f32 * 0.001).collect();
+        let actual = linear(&x, &w, Some(&bias), m, k, n);
+        for i in 0..m {
+            for j in 0..n {
+                let reference: f64 = (0..k)
+                    .map(|z| x[i * k + z] * w[j * k + z] as f64)
+                    .sum::<f64>()
+                    + bias[j] as f64;
+                assert!((actual[i * n + j] - reference).abs() < 1e-11);
+            }
+        }
     }
 
     #[test]
