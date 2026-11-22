@@ -63,3 +63,20 @@ weekly [nightly.yml](.github/workflows/nightly.yml) runs extended tests,
 
 The build agent commits and pushes after **every** step — see
 [PROMPT.md §11](PROMPT.md).
+
+### Optional small-checkpoint smoke test
+
+After accepting the conditions on the [small model page](https://huggingface.co/MuScriptor/muscriptor-small)
+and downloading `model.safetensors` yourself, you can run the ignored
+end-to-end check against that local file:
+
+```sh
+MTAB_SMALL_WEIGHTS=/path/to/model.safetensors \
+  cargo test -p mtab-cli --release --test small_checkpoint_smoke -- --ignored --nocapture
+```
+
+The test generates a synthetic tone and runs the CLI twice, checking that
+execution succeeds and JSONL is byte-identical. It defaults to eight generated
+tokens; override with `MTAB_SMOKE_MAX_GEN_LEN`. It is a **smoke test**, not an
+accuracy or token-parity test, and a short generation may produce no notes or
+reach the token limit without EOS. It never downloads or commits weights.

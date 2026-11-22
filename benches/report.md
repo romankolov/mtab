@@ -25,3 +25,15 @@ MATMUL_NUM_THREADS=1 cargo run -p mtab-core --release --example bench_linear
 The GEMM library also supports up to four threads via `MATMUL_NUM_THREADS`;
 single-token decoding still uses the scalar path. GPU acceleration and
 end-to-end release-checkpoint performance remain unmeasured.
+
+## Full small-architecture execution smoke (synthetic parameters)
+
+On the same Linux x86-64 sandbox, a locally generated 103M-parameter **random,
+untrained** checkpoint (393 MiB, 14 layers, 768 dimensions) was run with the
+release CLI on a 0.5-second synthetic tone. With `MATMUL_NUM_THREADS=2` and a
+limit of two generated tokens, one run took 16.1 seconds including checkpoint
+loading and reported peak RSS 789 MiB. It hit the token limit and produced no
+notes. The temporary checkpoint was not committed. This checks that the full
+small-size architecture executes under the environment's memory constraints;
+it does **not** measure real-checkpoint transcription quality, representative
+RTF, throughput at full sequence lengths, or the project acceptance targets.
