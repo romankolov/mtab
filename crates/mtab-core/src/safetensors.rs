@@ -29,7 +29,10 @@ pub struct TensorInfo {
 impl TensorInfo {
     /// Number of elements.
     pub fn elements(&self) -> usize {
-        self.shape.iter().product()
+        self.shape
+            .iter()
+            .copied()
+            .fold(1usize, usize::saturating_mul)
     }
 
     /// Byte width of one element for known dtypes (`None` if unknown).
@@ -67,12 +70,22 @@ impl WeightsInfo {
                 chunk_index: 0,
                 reason: format!("reading safetensors header length: {e}"),
             })?;
-        let header_len = u64::from_le_bytes(len_buf) as usize;
+        let header_len = usize::try_from(u64::from_le_bytes(len_buf)).map_err(|_| {
+            MtabError::SafetensorsCorrupt {
+                reason: "header length exceeds platform size".into(),
+            }
+        })?;
         // Sanity bound: the header is JSON metadata; anything larger is corrupt.
         if header_len > 512 * 1024 * 1024 {
             return Err(MtabError::DecodeFailure {
                 chunk_index: 0,
                 reason: format!("safetensors header implausibly large ({header_len} bytes)"),
+            });
+        }
+        let file_size = file.metadata()?.len();
+        if header_len as u64 > file_size.saturating_sub(8) {
+            return Err(MtabError::SafetensorsCorrupt {
+                reason: "truncated safetensors header".into(),
             });
         }
         let mut header = vec![0u8; header_len];
@@ -92,20 +105,61 @@ impl WeightsInfo {
                 reason: "truncated safetensors file (< 8 bytes)".into(),
             });
         }
-        let header_len = u64::from_le_bytes(buf[0..8].try_into().unwrap()) as usize;
-        if header_len > 512 * 1024 * 1024 || 8 + header_len > buf.len() {
+        let header_len = usize::try_from(u64::from_le_bytes(buf[0..8].try_into().unwrap()))
+            .map_err(|_| MtabError::SafetensorsCorrupt {
+                reason: "header length exceeds platform size".into(),
+            })?;
+        if header_len > 512 * 1024 * 1024 || header_len > buf.len() - 8 {
             return Err(MtabError::SafetensorsCorrupt {
-                reason: format!("safetensors header implausibly large ({header_len} bytes)"),
+                reason: format!(
+                    "safetensors header implausibly large or truncated ({header_len} bytes)"
+                ),
             });
         }
-        let mut info = Self::parse_header(&buf[8..8 + header_len])?;
+        let data_start = 8 + header_len;
+        let mut info = Self::parse_header(&buf[8..data_start])?;
         info.header_size = header_len;
-        // Validate every offset against the actual buffer.
+        let payload_len = buf.len() - data_start;
+        let mut spans = Vec::new();
         for (name, ti) in &info.tensors {
-            let end = 8 + header_len + ti.data_offsets.1;
-            if ti.data_offsets.0 > ti.data_offsets.1 || end > buf.len() {
+            let (start, end) = ti.data_offsets;
+            if start > end || end > payload_len {
                 return Err(MtabError::SafetensorsCorrupt {
                     reason: format!("tensor '{name}' data out of bounds"),
+                });
+            }
+            let count = ti
+                .shape
+                .iter()
+                .try_fold(1usize, |acc, &n| acc.checked_mul(n))
+                .ok_or_else(|| MtabError::SafetensorsCorrupt {
+                    reason: format!("tensor '{name}' shape overflows"),
+                })?;
+            if let Some(width) = ti.element_size() {
+                let expected =
+                    count
+                        .checked_mul(width)
+                        .ok_or_else(|| MtabError::SafetensorsCorrupt {
+                            reason: format!("tensor '{name}' byte length overflows"),
+                        })?;
+                if end - start != expected {
+                    return Err(MtabError::SafetensorsCorrupt {
+                        reason: format!(
+                            "tensor '{name}' shape/dtype require {expected} bytes, found {}",
+                            end - start
+                        ),
+                    });
+                }
+            }
+            if start != end {
+                spans.push((start, end, name));
+            }
+        }
+        spans.sort_unstable_by_key(|span| span.0);
+        for pair in spans.windows(2) {
+            if pair[0].1 > pair[1].0 {
+                return Err(MtabError::SafetensorsCorrupt {
+                    reason: format!("overlapping tensors '{}' and '{}'", pair[0].2, pair[1].2),
                 });
             }
         }
@@ -116,11 +170,8 @@ impl WeightsInfo {
     pub fn parse_header(header: &[u8]) -> Result<Self> {
         #[derive(Deserialize)]
         struct RawEntry {
-            #[serde(default)]
             dtype: String,
-            #[serde(default)]
             shape: Vec<usize>,
-            #[serde(default)]
             data_offsets: (usize, usize),
         }
 
@@ -165,7 +216,10 @@ impl WeightsInfo {
 
     /// Total parameter count across all tensors.
     pub fn total_params(&self) -> usize {
-        self.tensors.values().map(TensorInfo::elements).sum()
+        self.tensors
+            .values()
+            .map(TensorInfo::elements)
+            .fold(0usize, usize::saturating_add)
     }
 
     /// Tensor count.
@@ -185,7 +239,7 @@ impl WeightsInfo {
             })
             .filter(|s| {
                 let nominal = s.shape().0;
-                total.abs_diff(nominal) * 10 <= nominal
+                (total.abs_diff(nominal) as u128) * 10 <= nominal as u128
             })
     }
 
@@ -421,7 +475,7 @@ mod tests {
     #[test]
     fn loads_f32_f16_bf16() {
         let buf = build_st(&[
-            ("a.weight", "F32", vec![2], 1.0f32.to_le_bytes().to_vec()),
+            ("a.weight", "F32", vec![1], 1.0f32.to_le_bytes().to_vec()),
             (
                 "b.weight",
                 "F16",
@@ -486,5 +540,24 @@ mod tests {
         let mut buf = build_st(&[("a", "F32", vec![2], 1.0f32.to_le_bytes().to_vec())]);
         buf.truncate(buf.len() - 2); // cut tensor data short
         assert!(load_weights_bytes(&buf).is_err());
+    }
+    #[test]
+    fn rejects_inconsistent_tensor_layouts_without_panicking() {
+        let short = build_st(&[("x", "F32", vec![2], 1.0f32.to_le_bytes().to_vec())]);
+        assert!(load_weights_bytes(&short).is_err());
+        let huge_shape = build_st(&[("x", "F32", vec![usize::MAX, 2], vec![])]);
+        assert!(load_weights_bytes(&huge_shape).is_err());
+        let overflow = fake_weights_file(&format!(
+            r#"{{"x":{{"dtype":"F32","shape":[1],"data_offsets":[{},{}]}}}}"#,
+            usize::MAX - 1,
+            usize::MAX
+        ));
+        assert!(load_weights_bytes(&overflow).is_err());
+        let overlap = fake_weights_file(
+            r#"{"a":{"dtype":"F32","shape":[2],"data_offsets":[0,8]},"b":{"dtype":"F32","shape":[1],"data_offsets":[4,8]}}"#,
+        );
+        assert!(load_weights_bytes(&overlap).is_err());
+        let missing_field = fake_weights_file(r#"{"x":{"dtype":"F32","shape":[0]}}"#);
+        assert!(load_weights_bytes(&missing_field).is_err());
     }
 }
