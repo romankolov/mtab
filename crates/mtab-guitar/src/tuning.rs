@@ -1,8 +1,8 @@
 //! Tunings and capo (PROMPT.md §6.5).
 //!
 //! Tunings are stored as open-string MIDI pitches, low string first.
-//! Detection from audio lands in M5; the library below is the template set
-//! the detector scores against and the user can select manually.
+//! The library below is the template set the preliminary detector scores
+//! against and the user can select manually.
 
 use std::fmt;
 use std::str::FromStr;

@@ -1,17 +1,22 @@
 //! `mtab-guitar` — guitar domain logic (PROMPT.md §5, §6.5–§6.9).
 //!
 //! - [`tab`]: the `TabDocument` IR every pipeline stage reads/writes
-//! - [`tuning`]: tuning library + detection input types (detection lands M5)
+//! - [`tuning`]: tuning and capo library
+//! - [`detection`]: conservative tuning-template scoring
 //! - [`fingering`]: preliminary bounded global string/fret search
 //!
-//! Tuning detection, chord-shape constraints, evaluation and technique
-//! detection remain future work.
+//! Tuning detection is preliminary; chord-shape constraints, evaluation and
+//! technique detection remain future work.
 
+pub mod detection;
 pub mod fingering;
 pub mod rhythm;
 pub mod tab;
 pub mod tuning;
 
+pub use detection::{
+    detect_tuning, standard_candidates, TuningCandidate, TuningDetection, TuningScore,
+};
 pub use fingering::{assign_notes, FingeringOptions};
 pub use rhythm::Grid;
 pub use tab::{
