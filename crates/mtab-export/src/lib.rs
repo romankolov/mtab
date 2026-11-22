@@ -6,6 +6,7 @@
 //!
 //! Deterministic output: identical input ⇒ byte-identical export (§10.7).
 
+pub mod gp5_plan;
 pub mod midi;
 
 use std::path::Path;

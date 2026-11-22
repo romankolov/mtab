@@ -7,6 +7,11 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **M6 groundwork:** a deterministic 4/4, constant-integer-tempo rhythmic
+  planning API on a 1/32 grid. It creates rests and tied note segments across
+  attacks and bar lines, reports timing displacement, and rejects unsupported
+  techniques, source ties, eight-string tuning and same-string quantization
+  collisions rather than dropping them. This is not yet a GP5 file writer.
 - **M2 complete: mel frontend with SACRED PARITY GATE GREEN** — exact port of
   upstream `modules/mel_spectrogram.py` + `MelSpectrogramConditioner`
   (HTK fbanks, periodic Hann, reflect-pad STFT, **power=1.0**, `log(mel+1e-6)`,
