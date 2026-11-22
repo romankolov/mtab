@@ -14,6 +14,8 @@ use mtab_core::{MtabError, NoteEvent, Result};
 
 use crate::{Capo, TabNote, Tuning};
 
+const NO_FEASIBLE: &str = "no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)";
+
 /// Search constraints and beam width.
 #[derive(Debug, Clone, Copy)]
 pub struct FingeringOptions {
@@ -199,7 +201,10 @@ pub fn assign_notes(
             }
         }
         if next.is_empty() {
-            return Err(MtabError::UnplayableNote { index, reason: "no feasible string remains under overlap/span constraints (or the beam pruned the feasible path)".into() });
+            return Err(MtabError::UnplayableNote {
+                index,
+                reason: NO_FEASIBLE.into(),
+            });
         }
         // Stable sort preserves deterministic generation order for equal costs.
         // Merge equivalent future-relevant states, keeping their cheapest path,
@@ -252,6 +257,66 @@ pub fn assign_notes(
         path = node.previous;
     }
     Ok(out)
+}
+
+/// A complete fingering and the maximum span permitted by the successful run.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FingeringAssignment {
+    /// One assignment per input note, in input order; no notes are dropped.
+    pub notes: Vec<TabNote>,
+    /// The configured max-span limit of the successful search, not the actual
+    /// maximum span observed. A raised limit can imply an uncomfortable grip.
+    pub permitted_span: u8,
+    /// True if the original constrained search failed and was retried.
+    pub used_wider_span: bool,
+}
+
+/// Try the normal fingering search first, then optionally retry at a wider span.
+///
+/// The original search is unchanged; only a no-feasible-path error triggers the
+/// retry. Invalid notes, tuning and pitches outside the fretboard still error.
+/// Neither attempt drops notes or allows same-string collisions. `wider_span`
+/// must be between the configured maximum and 36 frets. A wider result must be
+/// reviewed for physical comfort; it is not a guarantee of playability. Beam
+/// pruning can still cause failures and the fallback is deterministic.
+pub fn assign_notes_with_stretch(
+    notes: &[NoteEvent],
+    tuning: &Tuning,
+    capo: Capo,
+    options: FingeringOptions,
+    wider_span: u8,
+) -> Result<FingeringAssignment> {
+    if wider_span < options.max_span || wider_span > 36 {
+        return Err(MtabError::InvalidTuning(
+            "wider span must be at least the normal span and at most 36 frets".into(),
+        ));
+    }
+    match assign_notes(notes, tuning, capo, options) {
+        Ok(notes) => Ok(FingeringAssignment {
+            notes,
+            permitted_span: options.max_span,
+            used_wider_span: false,
+        }),
+        Err(MtabError::UnplayableNote { reason, .. })
+            if reason == NO_FEASIBLE && wider_span > options.max_span =>
+        {
+            let notes = assign_notes(
+                notes,
+                tuning,
+                capo,
+                FingeringOptions {
+                    max_span: wider_span,
+                    ..options
+                },
+            )?;
+            Ok(FingeringAssignment {
+                notes,
+                permitted_span: wider_span,
+                used_wider_span: true,
+            })
+        }
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(test)]
@@ -452,6 +517,65 @@ mod tests {
             &Tuning::standard(),
             Capo::NONE,
             FingeringOptions::default()
+        )
+        .is_err());
+    }
+    #[test]
+    fn wider_span_retry_is_explicit_and_keeps_every_note() {
+        // Two simultaneous E3 notes require at least a 5-fret span (frets 2
+        // and 7). Strict 4 fails; the optional 7-fret retry can preserve both.
+        let notes = [note(52, 0.0, 1.0), note(52, 0.0, 1.0)];
+        let opts = FingeringOptions::default();
+        assert!(assign_notes(&notes, &Tuning::standard(), Capo::NONE, opts).is_err());
+        let result =
+            assign_notes_with_stretch(&notes, &Tuning::standard(), Capo::NONE, opts, 7).unwrap();
+        assert!(result.used_wider_span);
+        assert_eq!(result.permitted_span, 7);
+        assert_eq!(result.notes.len(), 2);
+        assert_ne!(result.notes[0].string, result.notes[1].string);
+        let frets = [result.notes[0].fret, result.notes[1].fret];
+        assert_eq!(frets[0].abs_diff(frets[1]), 5);
+        assert_eq!(
+            result,
+            assign_notes_with_stretch(&notes, &Tuning::standard(), Capo::NONE, opts, 7).unwrap()
+        );
+    }
+
+    #[test]
+    fn stretch_retry_not_used_for_easy_or_invalid_input() {
+        let opts = FingeringOptions::default();
+        let result = assign_notes_with_stretch(
+            &[note(40, 0.0, 1.0)],
+            &Tuning::standard(),
+            Capo::NONE,
+            opts,
+            7,
+        )
+        .unwrap();
+        assert!(!result.used_wider_span);
+        assert_eq!(result.permitted_span, 4);
+        assert!(assign_notes_with_stretch(
+            &[note(20, 0.0, 1.0)],
+            &Tuning::standard(),
+            Capo::NONE,
+            opts,
+            7
+        )
+        .is_err());
+        assert!(assign_notes_with_stretch(
+            &[note(40, 0.0, 1.0)],
+            &Tuning::standard(),
+            Capo::NONE,
+            opts,
+            3
+        )
+        .is_err());
+        assert!(assign_notes_with_stretch(
+            &[note(40, 0.0, 1.0), note(40, 0.0, 1.0)],
+            &Tuning::standard(),
+            Capo::NONE,
+            opts,
+            7
         )
         .is_err());
     }
