@@ -47,6 +47,10 @@ result or set `--tuning` and `--capo` explicitly. Run
 Beat tracking and quantization are not implemented: MIDI preserves note times
 with a fixed 120 BPM / 4/4 map. Fret assignment may
 fail on unplayable or beam-pruned polyphony; it is not a quality evaluation.
+The optional `--allow-wide-stretch` retries a failed assignment with a maximum
+seven-fret span instead of four, without dropping notes or allowing same-string
+overlaps. It emits a warning when used: the resulting grips may be physically
+uncomfortable or impractical and require review.
 Pitch bends are not yet inferred. The MIDI writer isolates bent
 overlapping notes onto separate channels and reports an error if its available
 15 melodic channels are exhausted. Bend contours use stepped control points
@@ -126,8 +130,9 @@ mtab eval --corpus guitarset --oracle-notes --annotations /path/to/annotations \
 
 [Our 360-excerpt report](benches/guitarset-oracle.md) documents a 57.53%
 all-note string accuracy for the bounded beam solver, with 46 excerpts left
-unassigned, versus 45.40% for a collision-ignoring per-note greedy baseline.
-This is **not** end-to-end audio accuracy or a tab-labeler-v3 comparison; the
+unassigned. An optional wider-stretch retry recovered 41 of those excerpts and
+scored 65.90%; every recovered excerpt contained a span above four frets. The
+collision-ignoring per-note greedy baseline scored 45.40%. This is **not** end-to-end audio accuracy or a tab-labeler-v3 comparison; the
 full acceptance evaluation remains outstanding. The optional `Nightly`
 workflow can run this annotation-only check with `run_oracle=true`.
 

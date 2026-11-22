@@ -111,6 +111,10 @@ struct TranscribeArgs {
     #[arg(long, default_value_t = 22)]
     frets: u8,
 
+    /// Retry impossible fingerings with up to seven frets of span (review for comfort)
+    #[arg(long)]
+    allow_wide_stretch: bool,
+
     /// Isolate the guitar stem before transcription (Demucs)
     #[arg(long)]
     separate: bool,
@@ -432,6 +436,7 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
             || args.tuning != "auto"
             || args.capo != "auto"
             || args.frets != 22
+            || args.allow_wide_stretch
             || args.grid != Grid::SIXTEENTH
         {
             return Err(MtabError::NotImplemented("tuning, capo, fretting, rhythm and TabDocument IR are not applied to raw JSONL notes"));
@@ -605,15 +610,20 @@ fn build_midi_document(
     }
     let mut tracks = Vec::new();
     for (program, track_notes) in grouped {
-        let assigned = mtab_guitar::assign_notes(
-            &track_notes,
-            &tuning,
-            capo,
-            FingeringOptions {
-                max_fret: args.frets,
-                ..FingeringOptions::default()
-            },
-        )?;
+        let options = FingeringOptions {
+            max_fret: args.frets,
+            ..FingeringOptions::default()
+        };
+        let assigned = if args.allow_wide_stretch {
+            let assignment =
+                mtab_guitar::assign_notes_with_stretch(&track_notes, &tuning, capo, options, 7)?;
+            if assignment.used_wider_span {
+                eprintln!("warning: track program {program} required a wider fingering search (up to 7 frets); review physical comfort");
+            }
+            assignment.notes
+        } else {
+            mtab_guitar::assign_notes(&track_notes, &tuning, capo, options)?
+        };
         tracks.push(GuitarTrack {
             tuning: tuning.clone(),
             capo,
@@ -960,5 +970,33 @@ mod tests {
             resolve_tuning_and_capo(&args_for_tuning(&["--capo", "2"]), &audio).unwrap();
         assert_eq!(tuning, Tuning::standard());
         assert_eq!(capo.position(), 2);
+    }
+    #[test]
+    fn wider_stretch_is_opt_in_and_preserves_all_notes() {
+        let audio = mtab_audio::AudioBuffer {
+            samples: vec![],
+            sample_rate: 16000,
+            channels: 1,
+        };
+        let note = mtab_core::NoteEvent {
+            start: 0.0,
+            end: 1.0,
+            midi: 52,
+            velocity: 100,
+            instrument: 24,
+        };
+        let strict = args_for_tuning(&["--tuning", "standard", "--capo", "0"]);
+        assert!(build_midi_document(&strict, &audio, &[note, note]).is_err());
+        let wide = args_for_tuning(&[
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "--allow-wide-stretch",
+        ]);
+        let doc = build_midi_document(&wide, &audio, &[note, note]).unwrap();
+        assert_eq!(doc.tracks[0].notes.len(), 2);
+        assert_ne!(doc.tracks[0].notes[0].string, doc.tracks[0].notes[1].string);
+        assert!(mtab_export::midi::midi_bytes(&doc).is_ok());
     }
 }

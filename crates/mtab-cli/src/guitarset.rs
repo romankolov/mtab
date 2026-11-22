@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use mtab_core::{MtabError, NoteEvent, Result};
-use mtab_guitar::{assign_notes, Capo, FingeringOptions, Tuning};
+use mtab_guitar::{assign_notes, assign_notes_with_stretch, Capo, FingeringOptions, Tuning};
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
@@ -23,6 +23,12 @@ struct Counts {
     assigned: usize,
     correct: usize,
     failures: usize,
+    adaptive_assigned: usize,
+    adaptive_correct: usize,
+    adaptive_recovered: usize,
+    adaptive_wide_recovered: usize,
+    adaptive_max_span: u8,
+    adaptive_failures: usize,
     greedy_assigned: usize,
     greedy_correct: usize,
     greedy_collisions: usize,
@@ -35,6 +41,7 @@ struct Counts {
 struct Failure {
     index: Option<usize>,
     reason: String,
+    adaptive_error: Option<String>,
 }
 
 fn invalid(path: &Path, reason: &str) -> MtabError {
@@ -138,22 +145,57 @@ fn score_file(refs: &[Reference], counts: &mut Counts) -> Option<Failure> {
     match assign_notes(&notes, &tuning, Capo::NONE, FingeringOptions::default()) {
         Ok(assigned) => {
             counts.assigned += assigned.len();
-            counts.correct += refs
+            let correct = refs
                 .iter()
-                .zip(assigned)
+                .zip(&assigned)
                 .filter(|(reference, assigned)| reference.string == assigned.string)
                 .count();
+            counts.correct += correct;
+            counts.adaptive_assigned += assigned.len();
+            counts.adaptive_correct += correct;
         }
         Err(error) => {
             counts.failures += 1;
+            let mut adaptive_error = None;
+            match assign_notes_with_stretch(
+                &notes,
+                &tuning,
+                Capo::NONE,
+                FingeringOptions::default(),
+                7,
+            ) {
+                Ok(result) => {
+                    counts.adaptive_recovered += 1;
+                    let actual_span = max_fretted_span(&result.notes);
+                    counts.adaptive_wide_recovered += usize::from(actual_span > 4);
+                    counts.adaptive_max_span = counts.adaptive_max_span.max(actual_span);
+                    counts.adaptive_assigned += result.notes.len();
+                    counts.adaptive_correct += refs
+                        .iter()
+                        .zip(&result.notes)
+                        .filter(|(reference, assigned)| reference.string == assigned.string)
+                        .count();
+                }
+                Err(error) => {
+                    counts.adaptive_failures += 1;
+                    adaptive_error = Some(match error {
+                        MtabError::UnplayableNote { index, reason } => {
+                            format!("note {index}: {reason}")
+                        }
+                        other => other.to_string(),
+                    });
+                }
+            }
             failure = Some(match error {
                 MtabError::UnplayableNote { index, reason } => Failure {
                     index: Some(index),
                     reason,
+                    adaptive_error,
                 },
                 other => Failure {
                     index: None,
                     reason: other.to_string(),
+                    adaptive_error,
                 },
             });
         }
@@ -186,6 +228,28 @@ fn score_file(refs: &[Reference], counts: &mut Counts) -> Option<Failure> {
         }
     }
     failure
+}
+
+// Actual overlapping fretted-note span of an assigned track, ignoring open
+// strings. This is not a substitute for finger or ergonomic modelling.
+fn max_fretted_span(notes: &[mtab_guitar::TabNote]) -> u8 {
+    let mut order: Vec<_> = notes.iter().collect();
+    order.sort_by(|a, b| a.start.total_cmp(&b.start));
+    let mut active: Vec<(f64, u8)> = Vec::new();
+    let mut maximum = 0;
+    for note in order {
+        active.retain(|&(end, _)| end > note.start);
+        if note.fret > 0 {
+            active.push((note.end, note.fret));
+        }
+        if let (Some(min), Some(max)) = (
+            active.iter().map(|a| a.1).min(),
+            active.iter().map(|a| a.1).max(),
+        ) {
+            maximum = maximum.max(max - min);
+        }
+    }
+    maximum
 }
 
 // Diagnostic of the reference annotations at the first failing onset. These
@@ -282,12 +346,13 @@ pub fn evaluate(path: &Path, report: Option<&Path>) -> Result<()> {
         }
     }
     let mut result = format!("# GuitarSet oracle-note string assignment\n\n\
-Reference pitches and onset/offsets, not model predictions, are provided to both methods.\n\
+Reference pitches and onset/offsets, not model predictions, are provided to all methods.\n\
 String accuracy is correct assignments divided by **all** reference notes; unassigned notes count as incorrect.\n\
 Wrong-string rate is incorrect assigned notes divided by assigned notes. Beam-search failures mark the entire excerpt unassigned.\n\
+Adaptive search retries failed excerpts with a seven-fret span, which may be uncomfortable and needs review.\n\
 The greedy baseline chooses the lowest fret per note independently and does not enforce overlaps.\n\
 This is not end-to-end accuracy, a TabCNN/TDR metric, or a tab-labeler-v3 comparison.\n\n\
-- Annotation files: {}\n- Reference notes: {}\n- Beam-search failed excerpts: {}\n- Greedy notes overlapping another note on the same string: {}\n\
+- Annotation files: {}\n- Reference notes: {}\n- Beam-search failed excerpts: {}\n- Adaptive retry recovered excerpts: {}\n- Recovered excerpts with actual span above four: {}\n- Largest actual span in recovered excerpts: {} frets\n- Adaptive retry still failed excerpts: {}\n- Greedy notes overlapping another note on the same string: {}\n\
 - At failure, reference fretted span exceeds four: {} excerpts\n\
 - At failure, reference has a same-string overlap: {} excerpts\n\
 - At failure, reference has neither condition: {} excerpts\n\
@@ -295,14 +360,16 @@ This is not end-to-end accuracy, a TabCNN/TDR metric, or a tab-labeler-v3 compar
 | Method | Assigned | Unassigned | Correct strings | String accuracy (all notes) | Wrong-string rate (assigned) |\n\
 | --- | ---: | ---: | ---: | ---: | ---: |\n\
 | Bounded beam | {} | {} | {} | {} | {} |\n\
+| Adaptive span 4→7 | {} | {} | {} | {} | {} |\n\
 | Per-note lowest-fret greedy | {} | {} | {} | {} | {} |\n\n\
-Settings: standard EADGBE, capo 0, frets 0–22, maximum concurrent fretted span 4, beam width 512.\n\
+Settings: standard EADGBE, capo 0, frets 0–22, normal span 4, adaptive retry span 7, beam width 512.\n\
 GuitarSet (Xi et al., 2018), Zenodo 3371780, version 1.1.0, CC BY 4.0; annotations are user-provided and known dataset errors may affect results.\n",
-        counts.files, counts.notes, counts.failures, counts.greedy_collisions, counts.reference_span_over_four, counts.reference_string_overlaps, counts.reference_other,
+        counts.files, counts.notes, counts.failures, counts.adaptive_recovered, counts.adaptive_wide_recovered, counts.adaptive_max_span, counts.adaptive_failures, counts.greedy_collisions, counts.reference_span_over_four, counts.reference_string_overlaps, counts.reference_other,
         counts.assigned, counts.notes - counts.assigned, counts.correct, percent(counts.correct, counts.notes), percent(counts.assigned - counts.correct, counts.assigned),
+        counts.adaptive_assigned, counts.notes - counts.adaptive_assigned, counts.adaptive_correct, percent(counts.adaptive_correct, counts.notes), percent(counts.adaptive_assigned - counts.adaptive_correct, counts.adaptive_assigned),
         counts.greedy_assigned, counts.notes - counts.greedy_assigned, counts.greedy_correct, percent(counts.greedy_correct, counts.notes), percent(counts.greedy_assigned - counts.greedy_correct, counts.greedy_assigned));
     if !failures.is_empty() {
-        result.push_str("\n## Unassigned excerpts\n\n");
+        result.push_str("\n## Strict-search failures and adaptive retry\n\n");
         for (file, failure, conflicts) in failures {
             let labels = match conflicts {
                 Some((true, true)) => "reference span >4 and same-string overlap",
@@ -314,12 +381,17 @@ GuitarSet (Xi et al., 2018), Zenodo 3371780, version 1.1.0, CC BY 4.0; annotatio
             let index = failure
                 .index
                 .map_or_else(|| "unknown note".to_string(), |i| format!("note {i}"));
+            let retry = failure.adaptive_error.map_or_else(
+                || "recovered with wider span".to_string(),
+                |error| format!("retry failed: {}", error.replace(['\n', '\r'], " ")),
+            );
             result.push_str(&format!(
-                "- `{}`: {}: {} ({})\n",
+                "- `{}`: {}: {} ({}); {}\n",
                 file.replace('`', "'"),
                 index,
                 failure.reason.replace(['\n', '\r'], " "),
-                labels
+                labels,
+                retry
             ));
         }
     }
@@ -362,6 +434,7 @@ mod tests {
         );
         assert_eq!((counts.greedy_assigned, counts.greedy_correct), (2, 2));
         assert_eq!(counts.greedy_collisions, 1);
+        assert_eq!(counts.adaptive_failures, 1);
     }
     #[test]
     fn correct_and_wrong_string_are_counted() {
@@ -399,5 +472,34 @@ mod tests {
         assert_eq!(reference_conflicts(&same_string, 2), None);
         let sequential = [note(0.0, 0.5, 40, 0), note(0.5, 1.0, 42, 0)];
         assert_eq!(reference_conflicts(&sequential, 1), Some((false, false)));
+    }
+    #[test]
+    fn adaptive_evaluation_recovers_wider_span_without_hiding_strict_failure() {
+        let make = |string| Reference {
+            note: NoteEvent {
+                start: 0.0,
+                end: 1.0,
+                midi: 52,
+                velocity: 100,
+                instrument: 24,
+            },
+            string,
+        };
+        let refs = [make(1), make(2)];
+        let mut counts = Counts::default();
+        assert!(score_file(&refs, &mut counts).is_some());
+        assert_eq!((counts.failures, counts.assigned), (1, 0));
+        assert_eq!(
+            (
+                counts.adaptive_recovered,
+                counts.adaptive_failures,
+                counts.adaptive_assigned
+            ),
+            (1, 0, 2)
+        );
+        assert_eq!(
+            (counts.adaptive_wide_recovered, counts.adaptive_max_span),
+            (1, 5)
+        );
     }
 }
