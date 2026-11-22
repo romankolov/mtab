@@ -39,6 +39,9 @@ pub enum MtabError {
     #[error("invalid tuning '{0}'\n  hint: run `mtab detect-tuning --list` for supported names")]
     InvalidTuning(String),
 
+    #[error("invalid grid '{0}'\n  hint: use auto, off, 1/4, 1/8, 1/16, 1/32 (add T for triplets, e.g. 1/8T)")]
+    InvalidGrid(String),
+
     #[error("invalid capo position {0} (must be 0-12)")]
     InvalidCapo(u8),
 

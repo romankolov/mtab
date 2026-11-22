@@ -6,9 +6,11 @@
 //! String/fret assignment (the "tab brain", §6.6) and technique detection
 //! (§6.8) land in later milestones and extend these types.
 
+pub mod rhythm;
 pub mod tab;
 pub mod tuning;
 
+pub use rhythm::Grid;
 pub use tab::{
     BendKind, ChordSymbol, GuitarTrack, PitchBend, SlideKind, TabDocument, TabNote, Technique,
     TempoChange, TempoMap, TrackMeta,

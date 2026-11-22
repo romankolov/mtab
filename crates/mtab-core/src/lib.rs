@@ -14,7 +14,9 @@
 pub mod error;
 pub mod event;
 pub mod model;
+pub mod safetensors;
 
 pub use error::{MtabError, Result};
 pub use event::{NoteEvent, ProgressEvent};
 pub use model::{ModelConfig, ModelSize, ModelSource};
+pub use safetensors::{TensorInfo, WeightsInfo};
