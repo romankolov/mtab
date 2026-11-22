@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/mtab-core", "crates/mtab-cli"]
+members = [
+    "crates/mtab-core",
+    "crates/mtab-audio",
+    "crates/mtab-guitar",
+    "crates/mtab-export",
+    "crates/mtab-cli",
+]
 
 [workspace.package]
 version = "0.1.0"

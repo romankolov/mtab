@@ -1,0 +1,16 @@
+[package]
+name = "mtab-export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+description = "Exporters for muscriptor-tab: MIDI, Guitar Pro 5, MusicXML, ASCII tab"
+
+[lib]
+name = "mtab_export"
+
+[dependencies]
+mtab-core = { path = "../mtab-core" }
+mtab-guitar = { path = "../mtab-guitar" }

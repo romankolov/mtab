@@ -1,0 +1,15 @@
+[package]
+name = "mtab-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+description = "Audio ingest and feature extraction for muscriptor-tab (decode, resample, mel frontend)"
+
+[lib]
+name = "mtab_audio"
+
+[dependencies]
+mtab-core = { path = "../mtab-core" }

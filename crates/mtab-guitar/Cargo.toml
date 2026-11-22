@@ -1,0 +1,17 @@
+[package]
+name = "mtab-guitar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+description = "Guitar domain logic for muscriptor-tab: tunings, capo, TabDocument IR, string/fret assignment, techniques"
+
+[lib]
+name = "mtab_guitar"
+
+[dependencies]
+mtab-core = { path = "../mtab-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
