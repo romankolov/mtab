@@ -1,0 +1,169 @@
+# Sample gallery — run the CLI end to end with the real weights, in CI.
+#
+# The MuScriptor weights are CC BY-NC 4.0 and gated, so this job never stores
+# them: it downloads them with the repository secret HF_TOKEN into the runner's
+# scratch space, transcribes, and uploads only the transcripts. (PROMPT.md §10.1:
+# weights are never committed, and mtab itself never downloads them.)
+#
+# Required repository secret:
+#   HF_TOKEN   a Hugging Face token whose account has accepted the license at
+#              https://huggingface.co/MuScriptor/muscriptor-large
+#
+# Without the secret the job fails fast with a clear message rather than
+# pretending the sample ran.
+
+name: Sample gallery
+
+on:
+  workflow_dispatch:
+    inputs:
+      size:
+        description: Model variant to run
+        type: choice
+        options: [large, small]
+        default: large
+      max_seconds:
+        description: Transcribe only the first N seconds (0 = whole file)
+        default: "0"
+  push:
+    paths:
+      - "samples/showcase/**"
+      - ".github/workflows/sample.yml"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gallery:
+    name: Transcribe the sample (${{ inputs.size || 'large' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the required secret is present
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::error::HF_TOKEN secret is not set."
+            echo "The weights are gated: accept the CC BY-NC 4.0 license at"
+            echo "https://huggingface.co/MuScriptor/muscriptor-${{ inputs.size || 'large' }}"
+            echo "then add a read token as the repository secret HF_TOKEN."
+            exit 1
+          fi
+
+      - name: Free disk space
+        run: |
+          # The checkpoint is ~5.5 GB and the cargo build is a few more.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # The weights must never be cached or restored as build inputs.
+          cache-on-failure: true
+
+      - name: Build the CLI
+        run: cargo build --release --locked -p mtab-cli
+
+      - name: Fetch and convert the weights
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python3 samples/showcase/fetch_weights.py \
+            --size "${{ inputs.size || 'large' }}" \
+            --out "$RUNNER_TEMP/weights"
+
+      - name: Inspect the checkpoint
+        run: |
+          ./target/release/mtab inspect-weights \
+            "$RUNNER_TEMP/weights/muscriptor-${{ inputs.size || 'large' }}.safetensors"
+
+      - name: Prepare the audio
+        run: |
+          # The source clip is WebM/Opus; download it and convert to WAV, since
+          # the decoder handles wav/mp3/flac/ogg/m4a and says so when it cannot.
+          python3 -m pip install --quiet imageio-ffmpeg
+          python3 - <<'PY'
+          import imageio_ffmpeg, os, subprocess, urllib.request
+
+          URL = os.environ["SAMPLE_AUDIO_URL"]
+          TMP = os.environ["RUNNER_TEMP"]
+          webm = os.path.join(TMP, "source.webm")
+          wav = "samples/showcase/audio/sample.wav"
+          os.makedirs(os.path.dirname(wav), exist_ok=True)
+
+          print("downloading", URL)
+          urllib.request.urlretrieve(URL, webm)
+          print(f"  {os.path.getsize(webm) / 1e6:.2f} MB")
+          exe = imageio_ffmpeg.get_ffmpeg_exe()
+          limit = os.environ.get("MAX_SECONDS", "0")
+          args = [exe, "-y", "-i", webm, "-ac", "1", "-ar", "44100", "-c:a", "pcm_s16le"]
+          if limit and limit != "0":
+              args += ["-t", limit]
+          subprocess.run(args + [wav], check=True, capture_output=True)
+          print(f"  -> {wav}, {os.path.getsize(wav) / 1e6:.2f} MB")
+          PY
+        env:
+          SAMPLE_AUDIO_URL: https://filebin.net/53n6zd9iv1ki89g4/%d9%85%d9%84%d9%88%d8%af%db%8c-%d8%a2%d9%87%d9%86%da%af-%d8%a8%d8%a7%d8%aa%d9%88-SnapYT.App.webm
+          MAX_SECONDS: ${{ inputs.max_seconds || '0' }}
+
+      - name: Generate the gallery
+        run: |
+          python3 samples/showcase/generate_gallery.py \
+            --binary target/release/mtab \
+            --audio samples/showcase/audio/sample.wav \
+            --weights "$RUNNER_TEMP/weights/muscriptor-${{ inputs.size || 'large' }}.safetensors" \
+            --size "${{ inputs.size || 'large' }}" \
+            --out samples/showcase/output \
+            --max-gen-len 2000
+
+      - name: Summarise into the job page
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          path = "samples/showcase/output/summary.json"
+          print("## mtab sample gallery\n")
+          if not os.path.exists(path):
+              print("The gallery did not run far enough to produce a summary.")
+              raise SystemExit(0)
+          data = json.load(open(path))
+          print(f"Model **{data['size']}** on `{data['audio']}`.\n")
+          print("| demo | result | time | files |")
+          print("| --- | --- | --- | --- |")
+          for demo in data["demos"]:
+              status = "ok" if demo["status"] == 0 else f"exit {demo['status']}"
+              seconds = f"{demo['seconds']:.1f}s" if demo["seconds"] else "—"
+              files = ", ".join(demo["outputs"]) or "—"
+              print(f"| {demo['title']} | {status} | {seconds} | {files} |")
+          print()
+          print("Full command log and artifacts are in the uploaded bundle.")
+          PY
+
+      - name: Upload the gallery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mtab-sample-${{ inputs.size || 'large' }}
+          path: |
+            samples/showcase/output
+            !samples/showcase/output/**/*.safetensors
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Confirm no weights leaked into the artifact
+        if: always()
+        run: |
+          if find samples/showcase/output -name '*.safetensors' | grep -q .; then
+            echo "::error::weights were written into the upload directory"
+            exit 1
+          fi
+          echo "no weights in the upload directory"

@@ -7,6 +7,13 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `samples/showcase/`: a worked example that runs the whole CLI surface on a
+  real recording — every output format, beam search, seeded sampling, fixed
+  tuning/capo, unquantized timing, beat tracking, JSONL, a determinism check and
+  an error path — and renders them into a browsable gallery. The
+  `.github/workflows/sample.yml` workflow runs it on a hosted runner, fetching
+  the gated weights into the runner's scratch space with a repository secret
+  and failing the job if any `*.safetensors` reaches the upload directory.
 - End-to-end goldens for the five §6.14.4 fixtures (`benches/goldens/`, IR JSON
   + GP5 + MIDI) driven by `crates/mtab-cli/tests/end_to_end_goldens.rs`. They
   run the real chunker, forced tie prelude, tracker, string/fret assignment and
@@ -55,6 +62,10 @@ versioning: [SemVer](https://semver.org/).
   the MusicXML XSD order. Nothing infers these techniques from audio.
 
 ### Fixed
+- The KV cache was stored as f64, doubling the largest allocation in a long
+  decode. It is now fp32 and widened only at the point of use, which halves the
+  cache: a beam-4 decode that was OOM-killed on a 2 GB machine now peaks at
+  757 MB, and a `large` beam-4 run saves roughly 4 GB.
 - A pitch closed and re-struck within the same frame decoded to a zero-length
   note, which every downstream consumer rejects; it now gets the same
   `MINIMUM_NOTE_DURATION_SEC` floor as drum hits and unclosed notes. Found by

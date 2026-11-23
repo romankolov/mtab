@@ -387,8 +387,12 @@ impl LmModel {
                 for i in 0..tin {
                     let row = &qkv[(b * tin + i) * 3 * d..(b * tin + i + 1) * 3 * d];
                     let slot = (b * cap + state.offset + i) * d;
-                    lst.k[slot..slot + d].copy_from_slice(&row[d..2 * d]);
-                    lst.v[slot..slot + d].copy_from_slice(&row[2 * d..3 * d]);
+                    for (dst, src) in lst.k[slot..slot + d].iter_mut().zip(&row[d..2 * d]) {
+                        *dst = *src as f32;
+                    }
+                    for (dst, src) in lst.v[slot..slot + d].iter_mut().zip(&row[2 * d..3 * d]) {
+                        *dst = *src as f32;
+                    }
                 }
                 for i in 0..tin {
                     let q = &qkv[(b * tin + i) * 3 * d..(b * tin + i) * 3 * d + d];
@@ -402,7 +406,7 @@ impl LmModel {
                             let qs = &q[hh * dh..(hh + 1) * dh];
                             let mut dot = 0.0f64;
                             for u in 0..dh {
-                                dot += qs[u] * k[u];
+                                dot += qs[u] * k[u] as f64;
                             }
                             *sc = dot / (dh as f64).sqrt();
                         }
@@ -413,7 +417,7 @@ impl LmModel {
                             let dst = &mut attn
                                 [(b * tin + i) * d + hh * dh..(b * tin + i) * d + (hh + 1) * dh];
                             for u in 0..dh {
-                                dst[u] += p * v[u];
+                                dst[u] += p * v[u] as f64;
                             }
                         }
                     }
@@ -905,9 +909,15 @@ fn fill_class_rows(dst: &mut [f64], table: &[f32], ids: Option<&[u16]>, t: usize
 }
 
 /// Per-layer KV cache + global position offset.
+///
+/// The cache is fp32, not fp64: it is the largest allocation in a long decode
+/// (a `large` row at a 2200-token capacity is 1.3 GB per beam in fp32), and it
+/// is written once and read once, so the extra precision of fp64 buys nothing
+/// measurable while doubling the footprint. Keys and values are widened to f64
+/// at the point of use, which is where the accumulator lives.
 pub struct LayerState {
-    k: Vec<f64>,
-    v: Vec<f64>,
+    k: Vec<f32>,
+    v: Vec<f32>,
 }
 
 pub struct RunState {
