@@ -279,3 +279,80 @@ fn pyguitarpro_reads_tracks_ties_and_dynamics() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires PyGuitarPro; run in the independent-parser CI job"]
+fn vendor_note_effect_flags_are_independently_readable() {
+    use guitarpro::{
+        effects::{HarmonicEffect, TremoloPickingEffect, TrillEffect},
+        enums::SlideType,
+        gp::Song,
+        key_signature::Duration,
+    };
+    let mut doc = fixture();
+    doc.tracks.truncate(1);
+    doc.tracks[0].notes = (0..8)
+        .map(|i| note(f64::from(i) * 0.5, f64::from(i + 1) * 0.5, 42, 0, 0, 80))
+        .collect();
+    let mut song = Song::default();
+    song.read_gp5(&gp5::gp5_bytes(&doc).unwrap().0);
+    let notes: Vec<_> = song.tracks[0]
+        .measures
+        .iter_mut()
+        .flat_map(|m| m.voices[0].beats.iter_mut())
+        .flat_map(|b| b.notes.iter_mut())
+        .collect();
+    assert_eq!(notes.len(), 8);
+    let mut notes = notes;
+    notes[0].effect.staccato = true;
+    notes[1].effect.palm_mute = true;
+    notes[2].effect.tremolo_picking = Some(TremoloPickingEffect {
+        duration: Duration {
+            value: 16,
+            ..Duration::default()
+        },
+    });
+    notes[3].effect.slides.push(SlideType::ShiftSlideTo);
+    notes[4].effect.harmonic = Some(HarmonicEffect::default());
+    notes[5].effect.trill = Some(TrillEffect {
+        fret: 4,
+        duration: Duration {
+            value: 32,
+            ..Duration::default()
+        },
+    });
+    notes[6].effect.vibrato = true;
+    notes[7].effect.palm_mute = true;
+    notes[7].effect.vibrato = true;
+    notes[7].effect.slides.push(SlideType::LegatoSlideTo);
+    notes[7].effect.harmonic = Some(HarmonicEffect::default());
+    notes[7].effect.tremolo_picking = Some(TremoloPickingEffect {
+        duration: Duration {
+            value: 8,
+            ..Duration::default()
+        },
+    });
+    notes[7].effect.trill = Some(TrillEffect {
+        fret: 6,
+        duration: Duration {
+            value: 16,
+            ..Duration::default()
+        },
+    });
+    let path = std::env::temp_dir().join(format!("mtab-vendor-effects-{}.gp5", std::process::id()));
+    std::fs::write(&path, song.write((5, 0, 0), None)).unwrap();
+    let python = std::env::var_os("MTAB_PYGUITARPRO_PYTHON").expect("set MTAB_PYGUITARPRO_PYTHON");
+    let output = Command::new(python)
+        .arg(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_effect_flags.py"),
+        )
+        .arg(&path)
+        .output()
+        .unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
