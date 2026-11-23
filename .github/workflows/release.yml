@@ -84,6 +84,7 @@ jobs:
           mkdir -p "dist/$STAGE"
           cp "target/${{ matrix.target }}/release/mtab" "dist/$STAGE/"
           cp README.md LICENSE NOTICE PROMPT.md "dist/$STAGE/"
+          cp -r docs "dist/$STAGE/docs"
           tar -C dist -czf "dist/$STAGE.tar.gz" "$STAGE"
           rm -rf "dist/$STAGE"
 

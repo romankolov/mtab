@@ -33,9 +33,13 @@ def verify(archive):
             sizes = {entry.filename: entry.file_size for entry in entries if not entry.is_dir()}
     else:
         raise ValueError(f'{archive}: unsupported archive type')
+    docs = ['architecture.md', 'tuning-detection.md', 'techniques.md', 'weights.md']
     expected = {f'{stem}/{file}' for file in [exe, 'README.md', 'LICENSE', 'NOTICE', 'PROMPT.md']}
-    if len(files) != len(expected) or set(files) != expected or any(d != stem for d in dirs):
-        raise ValueError(f'{archive}: unexpected archive layout or duplicate files: {files}, directories={dirs}')
+    expected |= {f'{stem}/docs/{doc}' for doc in docs}
+    if len(files) != len(expected) or set(files) != expected:
+        raise ValueError(f'{archive}: unexpected archive layout or duplicate files: {files}')
+    if set(dirs) != {stem, f'{stem}/docs'}:
+        raise ValueError(f'{archive}: unexpected directories: {dirs}')
     if any(sizes[path] == 0 for path in expected):
         raise ValueError(f'{archive}: empty required file')
     print(f'{archive}: verified {len(files)} expected files and no model assets')
