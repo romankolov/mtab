@@ -40,3 +40,5 @@ python tools/evaluate_beat_this_guitarset.py \
   --mel-model /path/mel_spectrogram.onnx --take-index 0 > development.md
 # Repeat with --take-index 1 > validation.md
 ```
+
+Results and training-data caveats: [m4-beat-this-results.md](m4-beat-this-results.md).
