@@ -55,6 +55,24 @@ The optional `--allow-wide-stretch` retries a failed assignment with a maximum
 seven-fret span instead of four, without dropping notes or allowing same-string
 overlaps. It emits a warning when used: the resulting grips may be physically
 uncomfortable or impractical and require review.
+
+Alternatively, `--partial-report omitted.json` opts into a strict search followed,
+on unplayable tracks, by a four-fret-span partial search. This may omit notes
+from **every output, including MIDI**. The JSON report records each omitted
+raw note and its zero-based input index, even when different instruments form
+separate tracks; it is written with zero omissions when no retry is needed.
+The CLI warns when notes are omitted. Review the report and do not treat the
+result as a complete transcription. The partial beam is approximate and may
+omit more notes than necessary; it is not compatible with `--allow-wide-stretch`
+or raw JSONL mode. Like other output files, report writes are not transactional
+if a filesystem error occurs.
+
+```console
+mtab transcribe song.wav --size small --weights ./muscriptor-small.safetensors \
+    --tuning standard --capo 0 --partial-report omitted.json \
+    -o partial.mid,partial.gp5
+```
+
 GP5 output always uses a fixed 120 BPM, 4/4 and a 1/32-note grid, regardless
 of `--grid`; the CLI reports the largest quantization shift. It supports up
 to 15 six- or seven-string tracks, titles representable in Windows-1252

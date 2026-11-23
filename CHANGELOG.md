@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Add opt-in `--partial-report` recovery: omitted notes are listed in a JSON
+  report and warned about; all outputs, including MIDI, are incomplete when
+  any notes are omitted. Strict failure remains the default.
 - The GuitarSet oracle report now scores an explicit span-four partial retry
   on strict-search failures, counting skipped notes as incorrect.
 - Added an experimental partial fingering library API that explicitly reports

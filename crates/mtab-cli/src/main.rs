@@ -144,6 +144,10 @@ struct TranscribeArgs {
     #[arg(long)]
     allow_wide_stretch: bool,
 
+    /// Retry unplayable tracks with partial fingering and write omitted notes to JSON
+    #[arg(long, conflicts_with = "allow_wide_stretch")]
+    partial_report: Option<PathBuf>,
+
     /// Isolate the guitar stem before transcription (Demucs)
     #[arg(long)]
     separate: bool,
@@ -462,7 +466,12 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
         .chain(args.weights.as_deref().map(std::path::Path::new));
     let protected: Vec<PathBuf> = protected.filter_map(path_identity).collect();
     let mut outputs = std::collections::HashSet::new();
-    for path in args.outputs.iter().chain(args.emit_ir.iter()) {
+    for path in args
+        .outputs
+        .iter()
+        .chain(args.emit_ir.iter())
+        .chain(args.partial_report.iter())
+    {
         if let Some(identity) = path_identity(path) {
             if protected.contains(&identity) {
                 return Err(MtabError::InvalidModelSource(
@@ -498,6 +507,7 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
             || args.capo != "auto"
             || args.frets != 22
             || args.allow_wide_stretch
+            || args.partial_report.is_some()
             || args.grid != Grid::SIXTEENTH
         {
             return Err(MtabError::NotImplemented("tuning, capo, fretting, rhythm and TabDocument IR are not applied to raw JSONL notes"));
@@ -592,16 +602,35 @@ fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel) -> Result<()> {
             write_notes(writer, &result.notes)
         }
         OutputMode::Document => {
-            let doc = build_midi_document(args, &audio, &result.notes)?;
-            write_document_outputs(args, &doc)
+            let (doc, omissions) = build_midi_document(args, &audio, &result.notes)?;
+            let partial_report = args
+                .partial_report
+                .as_ref()
+                .map(|_| partial_report_bytes(result.notes.len(), &omissions))
+                .transpose()?;
+            write_document_outputs(args, &doc, partial_report.as_deref())
         }
     }
+}
+
+fn partial_report_bytes(note_count: usize, omissions: &[serde_json::Value]) -> Result<Vec<u8>> {
+    Ok(serde_json::to_vec_pretty(&serde_json::json!({
+        "version": 1,
+        "method": "strict search with span-four partial retry",
+        "input_note_count": note_count,
+        "assigned_note_count": note_count - omissions.len(),
+        "unassigned": omissions,
+    }))?)
 }
 
 /// Render all requested formats before writing any, so an unsupported score
 /// cannot leave a misleading partial MIDI or notation output behind. I/O errors
 /// during the subsequent writes can still leave earlier outputs on disk.
-fn write_document_outputs(args: &TranscribeArgs, doc: &TabDocument) -> Result<()> {
+fn write_document_outputs(
+    args: &TranscribeArgs,
+    doc: &TabDocument,
+    partial_report: Option<&[u8]>,
+) -> Result<()> {
     let wants_midi = args
         .outputs
         .iter()
@@ -647,6 +676,11 @@ fn write_document_outputs(args: &TranscribeArgs, doc: &TabDocument) -> Result<()
         .as_ref()
         .map(|_| serde_json::to_vec_pretty(doc))
         .transpose()?;
+    if args.partial_report.is_some() != partial_report.is_some() {
+        return Err(MtabError::InvalidModelSource(
+            "partial report data must match the requested report path".into(),
+        ));
+    }
     for path in &args.outputs {
         let bytes = match ExportFormat::from_path(path) {
             Some(ExportFormat::Midi) => midi.as_ref(),
@@ -661,6 +695,9 @@ fn write_document_outputs(args: &TranscribeArgs, doc: &TabDocument) -> Result<()
         std::fs::write(path, bytes)?;
     }
     if let (Some(path), Some(data)) = (&args.emit_ir, ir) {
+        std::fs::write(path, data)?;
+    }
+    if let (Some(path), Some(data)) = (&args.partial_report, partial_report) {
         std::fs::write(path, data)?;
     }
     Ok(())
@@ -717,16 +754,21 @@ fn build_midi_document(
     args: &TranscribeArgs,
     audio: &mtab_audio::AudioBuffer,
     notes: &[mtab_core::NoteEvent],
-) -> Result<TabDocument> {
+) -> Result<(TabDocument, Vec<serde_json::Value>)> {
     let (tuning, capo) = resolve_tuning_and_capo(args, audio)?;
     eprintln!("warning: beat tracking and quantization are not implemented; MIDI uses raw timing and a 120 BPM, 4/4 tempo map");
-    let mut grouped: std::collections::BTreeMap<u16, Vec<mtab_core::NoteEvent>> =
+    let mut grouped: std::collections::BTreeMap<u16, Vec<(usize, mtab_core::NoteEvent)>> =
         std::collections::BTreeMap::new();
-    for note in notes {
-        grouped.entry(note.instrument).or_default().push(*note);
+    for (index, note) in notes.iter().enumerate() {
+        grouped
+            .entry(note.instrument)
+            .or_default()
+            .push((index, *note));
     }
+    let mut omissions: Vec<(usize, serde_json::Value)> = Vec::new();
     let mut tracks = Vec::new();
-    for (program, track_notes) in grouped {
+    for (program, indexed_notes) in grouped {
+        let track_notes: Vec<_> = indexed_notes.iter().map(|(_, note)| *note).collect();
         let options = FingeringOptions {
             max_fret: args.frets,
             ..FingeringOptions::default()
@@ -738,6 +780,26 @@ fn build_midi_document(
                 eprintln!("warning: track program {program} required a wider fingering search (up to 7 frets); review physical comfort");
             }
             assignment.notes
+        } else if args.partial_report.is_some() {
+            match mtab_guitar::assign_notes(&track_notes, &tuning, capo, options) {
+                Ok(assigned) => assigned,
+                Err(MtabError::UnplayableNote { .. }) => {
+                    let partial =
+                        mtab_guitar::assign_notes_partial(&track_notes, &tuning, capo, options)?;
+                    for &index in &partial.unassigned_indices {
+                        let (input_index, note) = indexed_notes[index];
+                        omissions.push((
+                            input_index,
+                            serde_json::json!({"input_index": input_index, "note": note}),
+                        ));
+                    }
+                    if !partial.unassigned_indices.is_empty() {
+                        eprintln!("warning: partial fingering omitted {} notes from track program {program} in ALL exports including MIDI; see {}", partial.unassigned_indices.len(), args.partial_report.as_ref().unwrap().display());
+                    }
+                    partial.notes.into_iter().flatten().collect()
+                }
+                Err(error) => return Err(error),
+            }
         } else {
             mtab_guitar::assign_notes(&track_notes, &tuning, capo, options)?
         };
@@ -759,21 +821,25 @@ fn build_midi_document(
             notes: Vec::new(),
         });
     }
-    Ok(TabDocument {
-        meta: TrackMeta {
-            title: args
-                .input
-                .file_stem()
-                .and_then(|v| v.to_str())
-                .map(str::to_owned),
-            tempo_map: TempoMap::constant(120.0),
-            time_signatures: vec![(0, 4, 4)],
-            frets: args.frets,
-            source_hash: None,
+    omissions.sort_by_key(|(index, _)| *index);
+    Ok((
+        TabDocument {
+            meta: TrackMeta {
+                title: args
+                    .input
+                    .file_stem()
+                    .and_then(|v| v.to_str())
+                    .map(str::to_owned),
+                tempo_map: TempoMap::constant(120.0),
+                time_signatures: vec![(0, 4, 4)],
+                frets: args.frets,
+                source_hash: None,
+            },
+            tracks,
+            chord_symbols: Vec::new(),
         },
-        tracks,
-        chord_symbols: Vec::new(),
-    })
+        omissions.into_iter().map(|(_, value)| value).collect(),
+    ))
 }
 
 fn write_notes(writer: impl Write, notes: &[mtab_core::NoteEvent]) -> Result<()> {
@@ -1051,7 +1117,7 @@ mod tests {
             sample_rate: 16000,
             channels: 1,
         };
-        let doc = build_midi_document(&args, &audio_data, &[note]).unwrap();
+        let doc = build_midi_document(&args, &audio_data, &[note]).unwrap().0;
         assert_eq!(doc.tracks.len(), 1);
         assert_eq!(doc.tracks[0].notes[0].midi, 40);
         assert_eq!(doc.tracks[0].notes[0].velocity, 89);
@@ -1091,6 +1157,107 @@ mod tests {
         assert!(validate_transcribe(&args).is_err());
         std::fs::remove_file(audio).unwrap();
     }
+    #[test]
+    fn partial_report_is_explicit_and_records_original_indices() {
+        let audio = make_test_wav();
+        let midi = audio.with_extension("mid");
+        let report = audio.with_extension("omissions.json");
+        let cli = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "--partial-report",
+            report.to_str().unwrap(),
+            "-o",
+            midi.to_str().unwrap(),
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        validate_transcribe(&args).unwrap();
+        let data = mtab_audio::AudioBuffer {
+            samples: vec![],
+            sample_rate: 16_000,
+            channels: 1,
+        };
+        let event = |midi, instrument| mtab_core::NoteEvent {
+            start: 0.0,
+            end: 1.0,
+            midi,
+            velocity: 90,
+            instrument,
+        };
+        let notes = [event(20, 27), event(40, 24), event(64, 27), event(40, 24)];
+        let (doc, omissions) = build_midi_document(&args, &data, &notes).unwrap();
+        let first = partial_report_bytes(notes.len(), &omissions).unwrap();
+        assert_eq!(
+            first,
+            partial_report_bytes(notes.len(), &omissions).unwrap()
+        );
+        let parsed: serde_json::Value = serde_json::from_slice(&first).unwrap();
+        assert_eq!(parsed["input_note_count"], 4);
+        assert_eq!(parsed["assigned_note_count"], 2);
+        assert_eq!(parsed["unassigned"].as_array().unwrap().len(), 2);
+        assert_eq!(parsed["unassigned"][0]["input_index"], 0);
+        assert_eq!(parsed["unassigned"][0]["note"]["midi"], 20);
+        let duplicate_index = parsed["unassigned"][1]["input_index"].as_u64().unwrap() as usize;
+        assert!(duplicate_index == 1 || duplicate_index == 3);
+        assert_eq!(parsed["unassigned"][1]["note"]["instrument"], 24);
+        assert_eq!(doc.tracks.iter().map(|t| t.notes.len()).sum::<usize>(), 2);
+        write_document_outputs(&args, &doc, Some(&first)).unwrap();
+        assert_eq!(std::fs::read(&report).unwrap(), first);
+        assert_eq!(&std::fs::read(&midi).unwrap()[..4], b"MThd");
+        std::fs::remove_file(audio).unwrap();
+        std::fs::remove_file(midi).unwrap();
+        std::fs::remove_file(report).unwrap();
+    }
+
+    #[test]
+    fn partial_report_refuses_aliases_jsonl_and_wide_stretch() {
+        let audio = make_test_wav();
+        let midi = audio.with_extension("mid");
+        let make = |report: &std::path::Path, format: &str| {
+            let cli = Cli::try_parse_from([
+                "mtab",
+                "transcribe",
+                audio.to_str().unwrap(),
+                "--format",
+                format,
+                "--partial-report",
+                report.to_str().unwrap(),
+                "-o",
+                midi.to_str().unwrap(),
+            ])
+            .unwrap();
+            let Some(Cmd::Transcribe(args)) = cli.command else {
+                panic!("wrong command")
+            };
+            args
+        };
+        assert!(validate_transcribe(&make(&audio, "midi")).is_err());
+        assert!(validate_transcribe(&make(&midi, "midi")).is_err());
+        assert!(
+            validate_transcribe(&make(&audio.with_extension("omissions.json"), "jsonl")).is_err()
+        );
+        assert!(Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--allow-wide-stretch",
+            "--partial-report",
+            "report.json",
+            "-o",
+            "song.mid"
+        ])
+        .is_err());
+        std::fs::remove_file(audio).unwrap();
+    }
+
     #[test]
     fn dynamics_flag_is_opt_in() {
         for (extra, expected) in [(vec![], false), (vec!["--dynamics"], true)] {
@@ -1201,7 +1368,7 @@ mod tests {
             "0",
             "--allow-wide-stretch",
         ]);
-        let doc = build_midi_document(&wide, &audio, &[note, note]).unwrap();
+        let doc = build_midi_document(&wide, &audio, &[note, note]).unwrap().0;
         assert_eq!(doc.tracks[0].notes.len(), 2);
         assert_ne!(doc.tracks[0].notes[0].string, doc.tracks[0].notes[1].string);
         assert!(mtab_export::midi::midi_bytes(&doc).is_ok());
@@ -1253,8 +1420,8 @@ mod tests {
             sample_rate: 16000,
             channels: 1,
         };
-        let doc = build_midi_document(&args, &audio_data, &[event]).unwrap();
-        write_document_outputs(&args, &doc).unwrap();
+        let doc = build_midi_document(&args, &audio_data, &[event]).unwrap().0;
+        write_document_outputs(&args, &doc, None).unwrap();
         assert!(std::fs::read(&midi).unwrap().starts_with(b"MThd"));
         assert!(std::fs::read(&gp5)
             .unwrap()
@@ -1384,12 +1551,12 @@ mod tests {
             sample_rate: 16000,
             channels: 1,
         };
-        let mut doc = build_midi_document(&args, &audio_data, &[event]).unwrap();
+        let mut doc = build_midi_document(&args, &audio_data, &[event]).unwrap().0;
         doc.tracks[0].notes[0]
             .technique
             .push(mtab_guitar::Technique::HammerOn);
         std::fs::write(&midi, b"do not overwrite").unwrap();
-        assert!(write_document_outputs(&args, &doc).is_err());
+        assert!(write_document_outputs(&args, &doc, None).is_err());
         assert_eq!(std::fs::read(&midi).unwrap(), b"do not overwrite");
         assert!(!gp5.exists());
         std::fs::remove_file(audio).unwrap();
@@ -1446,7 +1613,7 @@ mod tests {
             sample_rate: 16000,
             channels: 1,
         };
-        let doc = build_midi_document(&args, &audio_data, &events).unwrap();
+        let doc = build_midi_document(&args, &audio_data, &events).unwrap().0;
         let (_, plan) = mtab_export::gp5::gp5_bytes(&doc).unwrap();
         assert!(plan.tracks[0]
             .bars
@@ -1455,7 +1622,7 @@ mod tests {
             .flat_map(|b| &b.notes)
             .any(|n| n.tied));
         assert!(plan.max_boundary_shift_seconds > 0.0);
-        write_document_outputs(&args, &doc).unwrap();
+        write_document_outputs(&args, &doc, None).unwrap();
         if let Some(python) = std::env::var_os("MTAB_PYGUITARPRO_PYTHON") {
             let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../tools/check_gp5_cli_ir.py");
@@ -1511,7 +1678,7 @@ mod tests {
             sample_rate: 16000,
             channels: 1,
         };
-        let mut doc = build_midi_document(&args, &audio_data, &[event]).unwrap();
+        let mut doc = build_midi_document(&args, &audio_data, &[event]).unwrap().0;
         doc.tracks[0].notes[0].bend = Some(mtab_guitar::PitchBend {
             start: 0.0,
             peak: 0.25,
@@ -1521,7 +1688,7 @@ mod tests {
         for path in [&midi, &xml, &ascii] {
             std::fs::write(path, b"original").unwrap();
         }
-        assert!(write_document_outputs(&args, &doc).is_err());
+        assert!(write_document_outputs(&args, &doc, None).is_err());
         for path in [&midi, &xml, &ascii] {
             assert_eq!(std::fs::read(path).unwrap(), b"original");
             std::fs::remove_file(path).unwrap();
