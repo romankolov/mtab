@@ -41,6 +41,31 @@ def brute(ref, pred):
     return result
 
 
+def note_matches(ref, pred, offsets):
+    # Independent straightforward augmenting-path matching; note events are
+    # clipped to the requested window just as they are in the CLI report.
+    ref = [(a, min(b, 1.0), p) for a, b, _, p in ref if a < 1.0]
+    pred = [(a, min(b, 1.0), p) for a, b, _, p in pred if a < 1.0]
+    edges = []
+    for a, b, pitch in ref:
+        limit = max(.05, .2 * (b-a))
+        edges.append([j for j, (x, y, p) in enumerate(pred)
+                      if pitch == p and abs(a-x) <= .05 + 1e-12
+                      and (not offsets or abs(b-y) <= limit + 1e-12)])
+    right = [None] * len(pred)
+    def augment(i, visited):
+        for j in edges[i]:
+            if j in visited:
+                continue
+            visited.add(j)
+            if right[j] is None or augment(right[j], visited):
+                right[j] = i
+                return True
+        return False
+    tp = sum(augment(i, set()) for i in range(len(ref)))
+    return tp, len(pred)-tp, len(ref)-tp
+
+
 with tempfile.TemporaryDirectory(prefix='mtab-frame-oracle-') as temp:
     root = Path(temp)
     for case in range(20):
@@ -76,6 +101,8 @@ with tempfile.TemporaryDirectory(prefix='mtab-frame-oracle-') as temp:
                                   'chord_symbols': []}), encoding='utf-8')
         run = subprocess.run([binary, 'eval', '--annotations', str(jams), '--tab-ir', str(ir),
                               '--clip-duration', '1'], text=True, capture_output=True, check=True)
+        # The JAMS parser reconstructs end from the JSON duration.
+        ref = [(start, start + (end-start), string, pitch) for start, end, string, pitch in ref]
         actual = brute(ref, pred)
         for name, tp, total_r, total_p in [('Multi-pitch frames', 'pitch_tp', 'pitch_ref', 'pitch_pred'),
                                            ('Tab position frames', 'tab_tp', 'tab_ref', 'tab_pred')]:
@@ -84,8 +111,14 @@ with tempfile.TemporaryDirectory(prefix='mtab-frame-oracle-') as temp:
             found = tuple(map(int, match.groups()))
             want = (actual[tp], actual[total_p]-actual[tp], actual[total_r]-actual[tp])
             assert found == want, (case, name, found, want)
+        for name, offset in [('Pitch + onset notes', False), ('Pitch + onset + offset notes', True)]:
+            match = re.search(r'\| ' + re.escape(name) + r' \| (\d+) \| (\d+) \| (\d+) \|', run.stdout)
+            assert match, run.stdout
+            found = tuple(map(int, match.groups()))
+            want = note_matches(ref, pred, offset)
+            assert found == want, (case, name, found, want)
         tdr = re.search(r'TDR-style ratio .*?: (\d+) / (\d+) =', run.stdout)
         wrong = re.search(r'Wrong-string among pitch-matched string instances: (\d+) / (\d+) =', run.stdout)
         assert tdr and tuple(map(int, tdr.groups())) == (actual['tab_tp'], actual['pitch_tp'])
         assert wrong and tuple(map(int, wrong.groups())) == (actual['wrong'], actual['paired'])
-print('20 randomized frame-set, unison, duplicate, TDR-ratio and wrong-string cases passed')
+print('20 randomized frame-set, note-match, unison, duplicate, TDR-ratio and wrong-string cases passed')
