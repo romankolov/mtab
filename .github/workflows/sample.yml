@@ -90,11 +90,13 @@ jobs:
           # WebM/Opus behind a file-sharing link that expires, and a sample job
           # that silently breaks when a link dies is worse than no sample.
           ls -l samples/showcase/audio/sample.wav
+          # Plain defaults on purpose: several flags are rejected together with
+          # --format jsonl, which is itself a documented limitation.
           ./target/release/mtab transcribe samples/showcase/audio/sample.wav \
             --size "${{ inputs.size || 'large' }}" \
             --weights "$RUNNER_TEMP/weights/muscriptor-${{ inputs.size || 'large' }}.safetensors" \
-            --grid off --format jsonl --max-gen-len 8 > /dev/null
-          echo "the CLI reads the bundled clip"
+            --format jsonl --max-gen-len 8 > /dev/null
+          echo "the CLI reads the bundled clip with the large checkpoint"
 
       - name: Generate the gallery
         run: |
