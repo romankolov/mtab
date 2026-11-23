@@ -83,6 +83,83 @@ fn build_tempo_tick_map(
         .collect()
 }
 
+/// The actual SMF playback timeline after tempo values and event ticks have
+/// been rounded to their integer MIDI representations.
+#[derive(Debug, Clone, Copy)]
+struct PlaybackSegment {
+    tick: u64,
+    seconds: f64,
+    micros_per_quarter: u32,
+}
+
+struct PlaybackTimeline {
+    ppq: u16,
+    segments: Vec<PlaybackSegment>,
+}
+
+impl PlaybackTimeline {
+    fn new(events: &[(u64, u32)], ppq: u16) -> Result<Self> {
+        if ppq == 0
+            || events.first().map(|e| e.0) != Some(0)
+            || events.iter().any(|&(_, us)| us == 0)
+            || events.windows(2).any(|pair| pair[0].0 >= pair[1].0)
+        {
+            return Err(MtabError::InvalidTempo(
+                "invalid encoded MIDI tempo timeline".into(),
+            ));
+        }
+        let mut segments: Vec<PlaybackSegment> = Vec::with_capacity(events.len());
+        let mut seconds = 0.0;
+        let mut compensation = 0.0;
+        for &(tick, micros_per_quarter) in events {
+            if let Some(previous) = segments.last() {
+                let delta = (tick - previous.tick) as f64 * f64::from(previous.micros_per_quarter)
+                    / (f64::from(ppq) * 1_000_000.0);
+                // Compensated summation keeps long maps stable in f64.
+                let adjusted = delta - compensation;
+                let next = seconds + adjusted;
+                compensation = (next - seconds) - adjusted;
+                if !next.is_finite() || next <= seconds {
+                    return Err(MtabError::InvalidTempo(
+                        "encoded MIDI timeline exceeds f64 range or precision".into(),
+                    ));
+                }
+                seconds = next;
+            }
+            segments.push(PlaybackSegment {
+                tick,
+                seconds,
+                micros_per_quarter,
+            });
+        }
+        Ok(Self { ppq, segments })
+    }
+
+    /// Choose the nearest tick using the *encoded* tempo, not ideal BPMs.
+    fn time_to_tick(&self, seconds: f64) -> Result<u64> {
+        if !seconds.is_finite() || seconds < 0.0 {
+            return Err(MtabError::InvalidTempo(
+                "MIDI event time must be finite and nonnegative".into(),
+            ));
+        }
+        let index = self
+            .segments
+            .partition_point(|segment| segment.seconds <= seconds)
+            - 1;
+        let segment = self.segments[index];
+        let tick = (segment.tick as f64
+            + (seconds - segment.seconds)
+                * (f64::from(self.ppq) * 1_000_000.0 / f64::from(segment.micros_per_quarter)))
+        .round();
+        if !tick.is_finite() || tick < 0.0 || tick >= u64::MAX as f64 {
+            return Err(MtabError::InvalidTempo(
+                "MIDI tick position exceeds u64 range".into(),
+            ));
+        }
+        Ok(tick as u64)
+    }
+}
+
 /// Bar boundaries in ticks are determined by meter, not elapsed seconds;
 /// therefore they remain exact even if tempo changes within a bar.
 fn time_sig_ticks(doc: &TabDocument, ppq: u16) -> Vec<(u64, u8, u8)> {
@@ -106,7 +183,7 @@ fn time_sig_ticks(doc: &TabDocument, ppq: u16) -> Vec<(u64, u8, u8)> {
 /// Pitch-bend control points (tick, wheel value) for a note.
 /// Wheel: 8192 = neutral, ±8191 max; default sensitivity 2 semitones →
 /// value = 8192 + cents / 200 * 8192.
-fn bend_events(note: &TabNote, ppq: u16, timeline: &TempoTimeline) -> Result<Vec<(u64, i16)>> {
+fn bend_events(note: &TabNote, timeline: &PlaybackTimeline) -> Result<Vec<(u64, i16)>> {
     let Some(bend) = note.bend else {
         return Ok(Vec::new());
     };
@@ -122,7 +199,7 @@ fn bend_events(note: &TabNote, ppq: u16, timeline: &TempoTimeline) -> Result<Vec
     };
     let mut result: Vec<(u64, i16)> = Vec::new();
     let mut append = |time: f64, value: i16| -> Result<()> {
-        let tick = time_to_tick(timeline, ppq, time)?;
+        let tick = timeline.time_to_tick(time)?;
         if let Some(last) = result.last_mut() {
             if last.0 == tick {
                 last.1 = value;
@@ -238,6 +315,7 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
             "distinct tempo changes must occupy distinct MIDI ticks",
         ));
     }
+    let playback_timeline = PlaybackTimeline::new(&tempo_events, ppq)?;
     for (tick, us) in tempo_events {
         meta_events.push(AbsEvent {
             tick,
@@ -279,8 +357,8 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
             .notes
             .iter()
             .map(|note| {
-                let on = time_to_tick(&timeline, ppq, note.start)?;
-                let off = time_to_tick(&timeline, ppq, note.end)?.max(
+                let on = playback_timeline.time_to_tick(note.start)?;
+                let off = playback_timeline.time_to_tick(note.end)?.max(
                     on.checked_add(1)
                         .ok_or_else(|| invalid("note tick overflow"))?,
                 );
@@ -392,7 +470,7 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
         {
             let channel = u4::from(channel);
             let vel = note.velocity;
-            let bends = bend_events(note, ppq, &timeline)?;
+            let bends = bend_events(note, &playback_timeline)?;
             if events.len().saturating_add(bends.len()).saturating_add(3) > 1_000_000 {
                 return Err(invalid(
                     "MIDI track exceeds one million events; split the score",
@@ -589,6 +667,55 @@ mod tests {
     }
 
     #[test]
+    fn encoded_playback_mapping_handles_boundaries_and_long_rounding() {
+        let events: Vec<_> = (0..10_000).map(|i| (i * 480, 500_000)).collect();
+        let timeline = PlaybackTimeline::new(&events, PPQ).unwrap();
+        for seconds in [0.0, 0.5 - 1e-6, 0.5, 0.5 + 1e-6, 4999.75489951] {
+            let tick = timeline.time_to_tick(seconds).unwrap();
+            let actual = tick as f64 * 0.5 / f64::from(PPQ);
+            assert!((actual - seconds).abs() <= 0.5 / (2.0 * f64::from(PPQ)) + 1e-10);
+        }
+        assert!(PlaybackTimeline::new(&[], PPQ).is_err());
+        assert!(PlaybackTimeline::new(&[(0, 0)], PPQ).is_err());
+        assert!(PlaybackTimeline::new(&[(0, 500_000), (0, 600_000)], PPQ).is_err());
+        assert!(timeline.time_to_tick(f64::NAN).is_err());
+        assert!(timeline.time_to_tick(-1.0).is_err());
+    }
+
+    #[test]
+    fn encoded_playback_nearest_tick_matches_independent_integration() {
+        let events = [
+            (0, 500_003),
+            (731, 327_111),
+            (1500, 876_543),
+            (5011, 250_001),
+        ];
+        let timeline = PlaybackTimeline::new(&events, PPQ).unwrap();
+        let played_seconds = |tick: u64| {
+            let mut seconds = 0.0;
+            for (i, &(start, us)) in events.iter().enumerate() {
+                if tick <= start {
+                    break;
+                }
+                let end = events.get(i + 1).map_or(tick, |event| event.0.min(tick));
+                seconds += (end - start) as f64 * f64::from(us) / (f64::from(PPQ) * 1_000_000.0);
+            }
+            seconds
+        };
+        let mut seed = 718321u64;
+        for _ in 0..10_000 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let time = ((seed >> 32) % 10_000_000) as f64 / 1_000_000.0;
+            let tick = timeline.time_to_tick(time).unwrap();
+            let error = (played_seconds(tick) - time).abs();
+            if tick > 0 {
+                assert!(error <= (played_seconds(tick - 1) - time).abs() + 1e-12);
+            }
+            assert!(error <= (played_seconds(tick + 1) - time).abs() + 1e-12);
+        }
+    }
+
+    #[test]
     fn indexed_timeline_matches_direct_integration_on_random_maps() {
         let mut seed = 0x9f75_41bcu64;
         let mut next = |limit: u64| {
@@ -723,7 +850,7 @@ mod tests {
     }
     #[test]
     fn interpolated_contours_include_endpoints_and_are_bounded() {
-        let tempo = TempoTimeline::new(&TempoMap::constant(120.0)).unwrap();
+        let tempo = PlaybackTimeline::new(&[(0, 500_000)], PPQ).unwrap();
         let mut note = test_note(60, 0.0, 1.0, true);
         for (kind, first, last) in [
             (BendKind::Bend, 8192, 12288),
@@ -731,7 +858,7 @@ mod tests {
             (BendKind::BendRelease, 8192, 8192),
         ] {
             note.bend.as_mut().unwrap().kind = kind;
-            let events = bend_events(&note, PPQ, &tempo).unwrap();
+            let events = bend_events(&note, &tempo).unwrap();
             assert_eq!(events[0], (0, first));
             assert_eq!(events.last().unwrap().1, last);
             assert!(events
@@ -747,7 +874,7 @@ mod tests {
         note.end = 1000.0;
         note.bend.as_mut().unwrap().peak = 500.0;
         note.bend.as_mut().unwrap().kind = BendKind::BendRelease;
-        assert!(bend_events(&note, PPQ, &tempo).unwrap().len() <= 4097);
+        assert!(bend_events(&note, &tempo).unwrap().len() <= 4097);
     }
     #[test]
     fn collapsed_tick_points_keep_last_value_before_next_note() {

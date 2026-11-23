@@ -39,3 +39,20 @@ beats into MIDI and IR and runs the independent Mido check; a separate tiny
 synthetic-model test exercises audio through transcription to MIDI and IR.
 Neither test is a real-checkpoint or audio beat-tracking validation. The input
 must begin at zero; 4/4 is assumed and the last tempo is extrapolated.
+
+## Long-map rounding regression
+
+MIDI tempo values are integer microseconds and tempo-event positions are
+integer ticks. Previously, note and bend positions used the ideal input map,
+which could accumulate error relative to what a MIDI player actually plays.
+They now use an indexed playback timeline reconstructed from the *encoded*
+tempo events, with compensated summation. Tempo-event placement still follows
+the ideal map; this change preserves note and bend wall-clock timing rather
+than claiming exact beat positions. MIDI tick resolution and forced minimum
+one-tick note duration can still cause timing error.
+
+A synthetic 10,000-interval map of 0.50000049 s per beat exposed about
+4.90 ms of drift near 5,000 s before the fix. Mido 1.3.3 independently
+measures note onset, bend peak and note offset after export; each is within
+half a tick (about 0.521 ms). CI repeats this test. This is a rounding
+regression, not a real performance or beat-tracking quality benchmark.
