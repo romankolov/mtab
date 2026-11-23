@@ -65,11 +65,16 @@ applied to raw JSONL. MIDI is subject to tick and tempo-event rounding.
 
 For MIDI only, `--beat-times beats.json` instead accepts manually supplied
 quarter-beat times in seconds, for example `[0.0, 0.5, 1.1, 1.8, 2.3]`.
-The first beat must be exactly at audio time zero; there is no support for a
-pickup, an offset first beat, meter detection or automatic beat tracking. The
-CLI assumes 4/4 and uses the final interval's tempo beyond the last beat.
-Provide 2–100,001 finite, strictly increasing times, with intervals from 1 to
-16,777,215 microseconds; the UTF-8 JSON file must be at most 2 MiB. The file is
+A first beat after zero is supported using a **synthetic pre-roll tempo** to
+align it to a quarter-note boundary: the pre-roll beat count is the offset
+divided by the first interval, rounded to the nearest integer and at least one.
+This does not infer earlier beats, a downbeat, meter, or pickup measures; 4/4
+bars still start at audio time zero. The CLI warns about this convention and
+uses the final interval's tempo beyond the last beat. There is no automatic
+beat tracking. Provide 2–100,001 finite, nonnegative, strictly increasing
+times, with intervals from 1 to 16,777,215 microseconds. The synthetic pre-roll
+interval has the same bounds and is limited to 100,000 beats; the UTF-8 JSON
+file must be at most 2 MiB. The file is
 validated and read before model loading. Preflight rejects paths and existing
 hard links that alias inputs or other outputs, but cannot protect against files
 changed concurrently after the check. This option conflicts with `--bpm`, raw JSONL, GP5, MusicXML and ASCII outputs.

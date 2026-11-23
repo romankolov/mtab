@@ -38,7 +38,8 @@ output. A CLI document-path test feeds the same synthetic notes and supplied
 beats into MIDI and IR and runs the independent Mido check; a separate tiny
 synthetic-model test exercises audio through transcription to MIDI and IR.
 Neither test is a real-checkpoint or audio beat-tracking validation. The input
-must begin at zero; 4/4 is assumed and the last tempo is extrapolated.
+can begin after zero via the synthetic pre-roll convention described below;
+4/4 is assumed and the last tempo is extrapolated.
 
 ## Long-map rounding regression
 
@@ -56,3 +57,21 @@ A synthetic 10,000-interval map of 0.50000049 s per beat exposed about
 measures note onset, bend peak and note offset after export; each is within
 half a tick (about 0.521 ms). CI repeats this test. This is a rounding
 regression, not a real performance or beat-tracking quality benchmark.
+
+## Supplied first-beat offset
+
+`TempoMap::from_offset_quarter_beat_times` and `--beat-times` accept a first
+quarter beat after zero. A synthetic pre-roll of N equal beats is generated,
+where N is the offset divided by the first supplied interval, rounded to the
+nearest integer and clamped to at least one. This makes the first supplied beat
+a quarter-note boundary; it is not evidence of unobserved beats or a downbeat.
+Bar lines still begin at zero in 4/4 and may not match the performance's meter
+or pickup. Pre-roll is limited to 100,000 beats with a MIDI-representable
+interval. Playback note timing still follows original seconds subject to tick
+rounding and the minimum one-tick duration.
+
+For synthetic beats `[0.25, 0.75, 1.35, 2.05]`, the pre-roll is one quarter
+at 250,000 µs; later intervals are 500,000, 600,000 and 700,000 µs. Mido
+independently checks their ticks plus notes before and after the first beat,
+both from an export example and the CLI document path. This is not automatic
+tracking or a real-checkpoint test.

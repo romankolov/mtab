@@ -171,7 +171,7 @@ struct TranscribeArgs {
     #[arg(long, conflicts_with = "beat_times")]
     bpm: Option<u16>,
 
-    /// JSON array of quarter-beat seconds starting at zero (MIDI only; no detection)
+    /// JSON quarter-beat seconds, possibly offset (MIDI only; no detection)
     #[arg(long, conflicts_with = "bpm")]
     beat_times: Option<PathBuf>,
 
@@ -613,7 +613,11 @@ fn resolve_tempo(args: &TranscribeArgs) -> Result<TempoMap> {
             "--beat-times must be a JSON array of seconds: {error}"
         ))
     })?;
-    TempoMap::from_quarter_beat_times(&times)
+    let map = TempoMap::from_offset_quarter_beat_times(&times)?;
+    if times[0] > 0.0 {
+        eprintln!("warning: offset beat times use a synthetic pre-roll tempo; 4/4 bars start at zero, not necessarily at the first beat or downbeat");
+    }
+    Ok(map)
 }
 
 /// Canonical identity for an existing path or an as-yet-unwritten file whose
@@ -1370,6 +1374,73 @@ mod tests {
     }
 
     #[test]
+    fn offset_supplied_beats_flow_through_cli_document_to_midi() {
+        let audio = make_test_wav();
+        let beats = audio.with_extension("beats.json");
+        let midi = audio.with_extension("mid");
+        std::fs::write(&beats, "[0.25, 0.75, 1.35, 2.05]").unwrap();
+        let cli = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "--beat-times",
+            beats.to_str().unwrap(),
+            "-o",
+            midi.to_str().unwrap(),
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        let tempo = validate_transcribe(&args).unwrap();
+        let data = mtab_audio::AudioBuffer {
+            samples: vec![],
+            sample_rate: 16_000,
+            channels: 1,
+        };
+        let events: Vec<_> = [
+            (0.125, 0.25, 40),
+            (0.5, 0.75, 45),
+            (1.05, 1.35, 50),
+            (1.7, 2.05, 55),
+        ]
+        .into_iter()
+        .map(|(start, end, midi)| mtab_core::NoteEvent {
+            start,
+            end,
+            midi,
+            velocity: 90,
+            instrument: 24,
+        })
+        .collect();
+        let (doc, omitted) = build_midi_document(&args, &data, &events, &tempo).unwrap();
+        assert!(omitted.is_empty());
+        write_document_outputs(&args, &doc, None).unwrap();
+        if let Some(python) = std::env::var_os("MTAB_TEMPO_PYTHON") {
+            let output = std::process::Command::new(python)
+                .arg(
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("../../tools/check_midi_offset_tempo.py"),
+                )
+                .arg(&midi)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        for path in [audio, beats, midi] {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
     fn synthetic_model_transcription_uses_supplied_beats() {
         let audio = make_test_wav();
         let beats = audio.with_extension("beats.json");
@@ -1519,7 +1590,7 @@ mod tests {
         for content in [
             "{}",
             "[0]",
-            "[1, 2]",
+            "[-1, 2]",
             "[0, 0.5, 0.5]",
             "[0, 17]",
             "[0, null]",

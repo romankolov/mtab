@@ -69,6 +69,8 @@ jobs:
       - run: python tools/check_midi_bend_mido.py "$RUNNER_TEMP/bend.mid"
       - run: cargo run --locked -p mtab-export --example midi_variable_tempo_fixture -- "$RUNNER_TEMP/variable.mid"
       - run: python tools/check_midi_variable_tempo.py "$RUNNER_TEMP/variable.mid"
+      - run: cargo run --locked -p mtab-export --example midi_offset_tempo_fixture -- "$RUNNER_TEMP/offset.mid"
+      - run: python tools/check_midi_offset_tempo.py "$RUNNER_TEMP/offset.mid"
       - run: cargo run --locked -p mtab-export --example midi_tempo_rounding_fixture -- "$RUNNER_TEMP/rounding.mid"
       - run: python tools/check_midi_tempo_rounding.py "$RUNNER_TEMP/rounding.mid"
       - run: python tools/test_ardour_midi_import.py "$RUNNER_TEMP/bend.mid" crates/mtab-export/tests/fixtures/ardour-8.12.0/bend-import.mid
@@ -148,6 +150,7 @@ jobs:
           cargo test --locked -p mtab-cli --bin mtab gp5_ir_reconstruction_handles_ties_and_quantized_notes -- --nocapture
           cargo test --locked -p mtab-cli --bin mtab constant_tempo_propagates_to_all_formats -- --nocapture
           cargo test --locked -p mtab-cli --bin mtab supplied_beats_flow_to_midi_and_ir_without_reloading -- --nocapture
+          cargo test --locked -p mtab-cli --bin mtab offset_supplied_beats_flow_through_cli_document_to_midi -- --nocapture
           python tools/check_gp5_tuxguitar_roundtrip.py "$MTAB_GP5_FIXTURE_DIR/bends.gp5" crates/mtab-export/tests/fixtures/tuxguitar-1.6.6/bends.gp5
           python tools/check_gp5_tuxguitar_roundtrip.py "$MTAB_GP5_FIXTURE_DIR/techniques.gp5" crates/mtab-export/tests/fixtures/tuxguitar-1.6.6/techniques.gp5
 

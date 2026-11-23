@@ -47,6 +47,61 @@ impl TempoMap {
         }
         Ok(Self { changes })
     }
+
+    /// Convert supplied quarter beats with a nonnegative first-beat offset.
+    ///
+    /// For a first beat after zero, a synthetic pre-roll tempo aligns it to an
+    /// integer quarter-note boundary. The number of pre-roll quarter notes is
+    /// the offset divided by the first interval, rounded to the nearest integer
+    /// and clamped to at least one. This is a timing convention, **not** an
+    /// estimate of unobserved beats, a downbeat, or a pickup measure. MIDI bars
+    /// still start at zero; the caller must not infer meter or bar phase from it.
+    /// At most 100,000 pre-roll quarter notes are permitted. Both the pre-roll
+    /// and supplied intervals must be MIDI-representable. A zero first beat has
+    /// the same behavior as `from_quarter_beat_times`.
+    pub fn from_offset_quarter_beat_times(times: &[f64]) -> Result<Self> {
+        if !(2..=MAX_BEAT_TIMES).contains(&times.len())
+            || times.iter().any(|t| !t.is_finite())
+            || times[0] < 0.0
+        {
+            return Err(invalid(
+                "provide 2–100001 finite, nonnegative quarter-beat times",
+            ));
+        }
+        if times[0] == 0.0 {
+            return Self::from_quarter_beat_times(times);
+        }
+        let mut changes = Vec::with_capacity(times.len());
+        for pair in times.windows(2) {
+            let delta = pair[1] - pair[0];
+            if !(0.000_001..=16.777_215).contains(&delta) {
+                return Err(invalid("quarter beats must be strictly increasing with MIDI-representable intervals (1–16777215 microseconds)"));
+            }
+            changes.push(TempoChange {
+                time: pair[0],
+                bpm: 60.0 / delta,
+            });
+        }
+        let first_interval = times[1] - times[0];
+        let pre_roll_beats = (times[0] / first_interval).round().max(1.0);
+        if pre_roll_beats > 100_000.0 {
+            return Err(invalid("synthetic pre-roll exceeds 100000 quarter notes"));
+        }
+        let pre_roll_interval = times[0] / pre_roll_beats;
+        if !(0.000_001..=16.777_215).contains(&pre_roll_interval) {
+            return Err(invalid(
+                "synthetic pre-roll tempo must be MIDI-representable",
+            ));
+        }
+        changes.insert(
+            0,
+            TempoChange {
+                time: 0.0,
+                bpm: 60.0 / pre_roll_interval,
+            },
+        );
+        Ok(Self { changes })
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -163,6 +218,51 @@ mod tests {
             assert!((timeline.beats_to_seconds(beats).unwrap() - time).abs() < 1e-12);
         }
         assert!((timeline.seconds_to_beats(3.3).unwrap() - 6.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn offset_beats_align_to_quarters_after_synthetic_preroll() {
+        for (times, pre_beats) in [
+            (vec![0.25, 0.75, 1.35, 2.05], 1.0),
+            (vec![1.1, 1.6, 2.2, 2.9], 2.0),
+            (vec![0.0, 0.5, 1.1], 0.0),
+        ] {
+            let map = TempoMap::from_offset_quarter_beat_times(&times).unwrap();
+            let timeline = TempoTimeline::new(&map).unwrap();
+            for (i, time) in times.iter().enumerate() {
+                assert!(
+                    (timeline.seconds_to_beats(*time).unwrap() - (pre_beats + i as f64)).abs()
+                        < 1e-12
+                );
+                assert!(
+                    (timeline.beats_to_seconds(pre_beats + i as f64).unwrap() - time).abs() < 1e-12
+                );
+            }
+        }
+        assert_eq!(
+            TempoMap::from_offset_quarter_beat_times(&[0.0, 0.5, 1.1]).unwrap(),
+            TempoMap::from_quarter_beat_times(&[0.0, 0.5, 1.1]).unwrap()
+        );
+    }
+
+    #[test]
+    fn offset_beats_reject_invalid_prerolls_and_intervals() {
+        for times in [
+            vec![],
+            vec![1.0],
+            vec![-0.1, 0.5],
+            vec![f64::NAN, 1.0],
+            vec![1.0, f64::INFINITY],
+            vec![0.5, 0.5],
+            vec![0.5, 17.5],
+            vec![0.000_000_1, 0.5],
+            vec![100_001.0, 100_001.5],
+        ] {
+            assert!(
+                TempoMap::from_offset_quarter_beat_times(&times).is_err(),
+                "{times:?}"
+            );
+        }
     }
 
     #[test]
