@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- CLI `--beat-times` accepts a bounded JSON list of supplied quarter-beat times
+  for variable-tempo MIDI. It does not perform audio beat or meter detection;
+  it assumes 4/4 and does not support JSONL or notation exports.
 - MIDI now indexes validated tempo maps for logarithmic-time timestamp lookup;
   collapsed tempo-change ticks and unrepresentable timestamps are rejected.
   Added a synthetic variable-tempo fixture and independent Mido timing check.

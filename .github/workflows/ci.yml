@@ -139,6 +139,7 @@ jobs:
           cargo test --locked -p mtab-cli --bin mtab synthetic_silent_transcription_writes_all_four_formats -- --nocapture
           cargo test --locked -p mtab-cli --bin mtab gp5_ir_reconstruction_handles_ties_and_quantized_notes -- --nocapture
           cargo test --locked -p mtab-cli --bin mtab constant_tempo_propagates_to_all_formats -- --nocapture
+          cargo test --locked -p mtab-cli --bin mtab supplied_beats_flow_to_midi_and_ir_without_reloading -- --nocapture
           python tools/check_gp5_tuxguitar_roundtrip.py "$MTAB_GP5_FIXTURE_DIR/bends.gp5" crates/mtab-export/tests/fixtures/tuxguitar-1.6.6/bends.gp5
           python tools/check_gp5_tuxguitar_roundtrip.py "$MTAB_GP5_FIXTURE_DIR/techniques.gp5" crates/mtab-export/tests/fixtures/tuxguitar-1.6.6/techniques.gp5
 

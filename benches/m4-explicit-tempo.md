@@ -17,7 +17,7 @@ recorded 96 BPM, and the ASCII header matched. This checks one synthetic
 example, not upstream beat parity or notation in every application. The
 independent checks run on GitHub CI; no Python is needed by the application.
 
-## Library: supplied variable quarter beats
+## Supplied variable quarter beats
 
 `TempoMap::from_quarter_beat_times` accepts explicitly supplied, strictly
 increasing quarter-beat times starting at zero and makes one piecewise-constant
@@ -33,4 +33,9 @@ The synthetic `midi_variable_tempo_fixture` uses beats at 0, 0.5, 1.1, 1.8,
 and 2.3 s. Mido independently verified tempo events at ticks 0, 480, 960 and
 1440 (500,000; 600,000; 700,000; 500,000 µs/quarter), note ticks and velocities,
 and the reconstructed seconds. CI repeats this without a model checkpoint.
-No CLI beat-map input or automated beat tracking is implemented at this step.
+The CLI also accepts this map via `--beat-times beats.json` for MIDI-only
+output. A CLI document-path test feeds the same synthetic notes and supplied
+beats into MIDI and IR and runs the independent Mido check; a separate tiny
+synthetic-model test exercises audio through transcription to MIDI and IR.
+Neither test is a real-checkpoint or audio beat-tracking validation. The input
+must begin at zero; 4/4 is assumed and the last tempo is extrapolated.

@@ -7,7 +7,7 @@ mod guitarset;
 mod guitarset_notes;
 mod guitarset_tab;
 
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -168,8 +168,12 @@ struct TranscribeArgs {
     chords: bool,
 
     /// Use an explicit constant integer tempo (4–255 BPM); no audio beat detection
-    #[arg(long)]
+    #[arg(long, conflicts_with = "beat_times")]
     bpm: Option<u16>,
+
+    /// JSON array of quarter-beat seconds starting at zero (MIDI only; no detection)
+    #[arg(long, conflicts_with = "bpm")]
+    beat_times: Option<PathBuf>,
 
     /// Quantization grid: auto, off, 1/4..1/64 (T suffix = triplets)
     #[arg(long, default_value = "1/16")]
@@ -389,7 +393,7 @@ fn eval(args: EvalArgs) -> Result<()> {
 }
 
 fn transcribe(args: TranscribeArgs) -> Result<()> {
-    validate_transcribe(&args)?;
+    let tempo = validate_transcribe(&args)?;
     let source = args
         .weights
         .as_deref()
@@ -405,7 +409,7 @@ fn transcribe(args: TranscribeArgs) -> Result<()> {
         return Err(MtabError::WeightsNotFound { path });
     }
     let model = LmModel::load(LmConfig::from_size(args.size), &path)?;
-    transcribe_with_model(&args, &model)
+    transcribe_with_model(&args, &model, &tempo)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -428,7 +432,7 @@ fn output_mode(args: &TranscribeArgs) -> Result<OutputMode> {
     }
 }
 
-fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
+fn validate_transcribe(args: &TranscribeArgs) -> Result<TempoMap> {
     if !args.input.is_file() {
         return Err(MtabError::UnsupportedAudio(format!(
             "file not found: {}",
@@ -471,7 +475,8 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
         _ => {}
     }
     let protected = std::iter::once(args.input.as_path())
-        .chain(args.weights.as_deref().map(std::path::Path::new));
+        .chain(args.weights.as_deref().map(std::path::Path::new))
+        .chain(args.beat_times.as_deref());
     let protected: Vec<PathBuf> = protected.filter_map(path_identity).collect();
     let mut outputs = std::collections::HashSet::new();
     for path in args
@@ -483,7 +488,7 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
         if let Some(identity) = path_identity(path) {
             if protected.contains(&identity) {
                 return Err(MtabError::InvalidModelSource(
-                    "output must not overwrite the input audio or weights".into(),
+                    "output must not overwrite input audio, weights or beat times".into(),
                 ));
             }
             if !outputs.insert(identity) {
@@ -517,11 +522,22 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
             || args.allow_wide_stretch
             || args.partial_report.is_some()
             || args.bpm.is_some()
+            || args.beat_times.is_some()
             || args.grid != Grid::SIXTEENTH
         {
             return Err(MtabError::NotImplemented("tuning, capo, fretting, rhythm and TabDocument IR are not applied to raw JSONL notes"));
         }
     } else {
+        if args.beat_times.is_some()
+            && args
+                .outputs
+                .iter()
+                .any(|path| ExportFormat::from_path(path) != Some(ExportFormat::Midi))
+        {
+            return Err(MtabError::InvalidTempo(
+                "--beat-times supports MIDI outputs only; GP5, MusicXML and ASCII do not support changing tempos".into(),
+            ));
+        }
         if args.bpm.is_some_and(|bpm| !(4..=255).contains(&bpm)) {
             return Err(MtabError::InvalidTempo(
                 "--bpm must be an integer from 4 to 255".into(),
@@ -551,7 +567,30 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
             ));
         }
     }
-    Ok(())
+    resolve_tempo(args)
+}
+
+/// Read and validate supplied beat times once, before model loading or output.
+fn resolve_tempo(args: &TranscribeArgs) -> Result<TempoMap> {
+    const MAX_BYTES: usize = 2 * 1024 * 1024;
+    let Some(path) = &args.beat_times else {
+        return Ok(TempoMap::constant(f64::from(args.bpm.unwrap_or(120))));
+    };
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?
+        .take((MAX_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_BYTES {
+        return Err(MtabError::InvalidTempo(
+            "--beat-times file exceeds 2 MiB".into(),
+        ));
+    }
+    let times: Vec<f64> = serde_json::from_slice(&bytes).map_err(|error| {
+        MtabError::InvalidTempo(format!(
+            "--beat-times must be a JSON array of seconds: {error}"
+        ))
+    })?;
+    TempoMap::from_quarter_beat_times(&times)
 }
 
 /// Canonical identity for an existing path or an as-yet-unwritten file whose
@@ -566,7 +605,7 @@ fn path_identity(path: &std::path::Path) -> Option<PathBuf> {
     })
 }
 
-fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel) -> Result<()> {
+fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel, tempo: &TempoMap) -> Result<()> {
     let audio = mtab_audio::load_model_input(&args.input)?;
     let names: Vec<String> = args.instruments.as_deref().map_or_else(Vec::new, |value| {
         value
@@ -616,7 +655,7 @@ fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel) -> Result<()> {
             write_notes(writer, &result.notes)
         }
         OutputMode::Document => {
-            let (doc, omissions) = build_midi_document(args, &audio, &result.notes)?;
+            let (doc, omissions) = build_midi_document(args, &audio, &result.notes, tempo)?;
             let partial_report = args
                 .partial_report
                 .as_ref()
@@ -768,10 +807,15 @@ fn build_midi_document(
     args: &TranscribeArgs,
     audio: &mtab_audio::AudioBuffer,
     notes: &[mtab_core::NoteEvent],
+    tempo: &TempoMap,
 ) -> Result<(TabDocument, Vec<serde_json::Value>)> {
     let (tuning, capo) = resolve_tuning_and_capo(args, audio)?;
-    let bpm = args.bpm.unwrap_or(120);
-    eprintln!("warning: beat tracking is not implemented; MIDI uses raw timing and a fixed {bpm} BPM, 4/4 tempo map");
+    if args.beat_times.is_some() {
+        eprintln!("warning: beat tracking is not implemented; MIDI uses raw timing, supplied quarter beats and assumed 4/4 meter");
+    } else {
+        let bpm = args.bpm.unwrap_or(120);
+        eprintln!("warning: beat tracking is not implemented; MIDI uses raw timing and a fixed {bpm} BPM, 4/4 tempo map");
+    }
     let mut grouped: std::collections::BTreeMap<u16, Vec<(usize, mtab_core::NoteEvent)>> =
         std::collections::BTreeMap::new();
     for (index, note) in notes.iter().enumerate() {
@@ -845,7 +889,7 @@ fn build_midi_document(
                     .file_stem()
                     .and_then(|v| v.to_str())
                     .map(str::to_owned),
-                tempo_map: TempoMap::constant(f64::from(bpm)),
+                tempo_map: tempo.clone(),
                 time_signatures: vec![(0, 4, 4)],
                 frets: args.frets,
                 source_hash: None,
@@ -1014,8 +1058,8 @@ mod tests {
         let Some(Cmd::Transcribe(args)) = cli.command else {
             panic!("wrong command")
         };
-        validate_transcribe(&args).unwrap();
-        transcribe_with_model(&args, &model).unwrap();
+        let tempo = validate_transcribe(&args).unwrap();
+        transcribe_with_model(&args, &model, &tempo).unwrap();
         let contents = std::fs::read_to_string(&output).unwrap();
         for line in contents.lines() {
             let _: mtab_core::NoteEvent = serde_json::from_str(line).unwrap();
@@ -1060,8 +1104,8 @@ mod tests {
         let Some(Cmd::Transcribe(args)) = cli.command else {
             panic!("wrong command")
         };
-        validate_transcribe(&args).unwrap();
-        transcribe_with_model(&args, &model).unwrap();
+        let tempo = validate_transcribe(&args).unwrap();
+        transcribe_with_model(&args, &model, &tempo).unwrap();
         assert!(std::fs::read(&midi).unwrap().starts_with(b"MThd"));
         assert!(std::fs::read(&gp5)
             .unwrap()
@@ -1177,7 +1221,8 @@ mod tests {
                 instrument: 24,
             },
         ];
-        let (doc, omitted) = build_midi_document(&args, &data, &events).unwrap();
+        let (doc, omitted) =
+            build_midi_document(&args, &data, &events, &resolve_tempo(&args).unwrap()).unwrap();
         assert!(omitted.is_empty());
         assert_eq!(doc.meta.tempo_map, TempoMap::constant(96.0));
         assert_eq!(doc.tracks[0].notes[1].start, 0.625);
@@ -1206,6 +1251,239 @@ mod tests {
         for path in [audio, midi, gp5, xml, ascii, ir] {
             std::fs::remove_file(path).unwrap();
         }
+    }
+
+    #[test]
+    fn supplied_beats_flow_to_midi_and_ir_without_reloading() {
+        let audio = make_test_wav();
+        let beats = audio.with_extension("beats.json");
+        let midi = audio.with_extension("mid");
+        let ir = audio.with_extension("ir.json");
+        std::fs::write(&beats, "[0.0, 0.5, 1.1, 1.8, 2.3]").unwrap();
+        let cli = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "--beat-times",
+            beats.to_str().unwrap(),
+            "--emit-ir",
+            ir.to_str().unwrap(),
+            "-o",
+            midi.to_str().unwrap(),
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        let tempo = validate_transcribe(&args).unwrap();
+        // Preflight owns a snapshot: later edits do not change a long-running job.
+        std::fs::write(&beats, "[0, 1]").unwrap();
+        let data = mtab_audio::AudioBuffer {
+            samples: vec![],
+            sample_rate: 16_000,
+            channels: 1,
+        };
+        let events: Vec<_> = [
+            (0.25, 0.5, 40),
+            (0.8, 1.1, 45),
+            (1.45, 1.8, 50),
+            (2.05, 2.3, 55),
+        ]
+        .into_iter()
+        .map(|(start, end, midi)| mtab_core::NoteEvent {
+            start,
+            end,
+            midi,
+            velocity: 90,
+            instrument: 24,
+        })
+        .collect();
+        let (doc, omitted) = build_midi_document(&args, &data, &events, &tempo).unwrap();
+        assert!(omitted.is_empty());
+        assert_eq!(
+            doc.meta.tempo_map,
+            TempoMap::from_quarter_beat_times(&[0.0, 0.5, 1.1, 1.8, 2.3]).unwrap()
+        );
+        write_document_outputs(&args, &doc, None).unwrap();
+        let ir_doc = TabDocument::from_json(&std::fs::read_to_string(&ir).unwrap()).unwrap();
+        assert_eq!(ir_doc.meta.tempo_map.changes.len(), tempo.changes.len());
+        for (actual, expected) in ir_doc.meta.tempo_map.changes.iter().zip(&tempo.changes) {
+            assert!((actual.time - expected.time).abs() < 1e-12);
+            assert!((actual.bpm - expected.bpm).abs() < 1e-12);
+        }
+        if let Some(python) = std::env::var_os("MTAB_TEMPO_PYTHON") {
+            let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tools/check_midi_variable_tempo.py");
+            let output = std::process::Command::new(python)
+                .arg(script)
+                .arg(&midi)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        for path in [audio, beats, midi, ir] {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn synthetic_model_transcription_uses_supplied_beats() {
+        let audio = make_test_wav();
+        let beats = audio.with_extension("beats.json");
+        let midi = audio.with_extension("mid");
+        let ir = audio.with_extension("ir.json");
+        std::fs::write(&beats, "[0, 0.5, 1.1, 1.8, 2.3]").unwrap();
+        let model_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../mtab-core/tests/fixtures/model/tiny.fixture");
+        let model = LmModel::load(LmConfig::fixture_tiny(), &model_path).unwrap();
+        let cli = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "--max-gen-len",
+            "2",
+            "--instruments",
+            "guitar",
+            "--beat-times",
+            beats.to_str().unwrap(),
+            "--emit-ir",
+            ir.to_str().unwrap(),
+            "-o",
+            midi.to_str().unwrap(),
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        let tempo = validate_transcribe(&args).unwrap();
+        transcribe_with_model(&args, &model, &tempo).unwrap();
+        let bytes = std::fs::read(&midi).unwrap();
+        let smf = midly::Smf::parse(&bytes).unwrap();
+        let mut tick = 0;
+        let mut tempos = Vec::new();
+        for event in &smf.tracks[0] {
+            tick += event.delta.as_int();
+            if let midly::TrackEventKind::Meta(midly::MetaMessage::Tempo(us)) = event.kind {
+                tempos.push((tick, us.as_int()));
+            }
+        }
+        assert_eq!(
+            tempos,
+            [
+                (0, 500_000),
+                (480, 600_000),
+                (960, 700_000),
+                (1440, 500_000)
+            ]
+        );
+        let doc = TabDocument::from_json(&std::fs::read_to_string(&ir).unwrap()).unwrap();
+        assert_eq!(doc.meta.tempo_map.changes.len(), 4);
+        for path in [audio, beats, midi, ir] {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn supplied_beats_preflight_rejects_invalid_or_overwritten_inputs() {
+        let audio = make_test_wav();
+        let beats = audio.with_extension("beats.json");
+        let midi = audio.with_extension("mid");
+        let xml = audio.with_extension("musicxml");
+        let parse = |output: &std::path::Path| {
+            let cli = Cli::try_parse_from([
+                "mtab",
+                "transcribe",
+                audio.to_str().unwrap(),
+                "--beat-times",
+                beats.to_str().unwrap(),
+                "-o",
+                output.to_str().unwrap(),
+            ])
+            .unwrap();
+            let Some(Cmd::Transcribe(args)) = cli.command else {
+                panic!("wrong command")
+            };
+            args
+        };
+        for content in [
+            "{}",
+            "[0]",
+            "[1, 2]",
+            "[0, 0.5, 0.5]",
+            "[0, 17]",
+            "[0, null]",
+        ] {
+            std::fs::write(&beats, content).unwrap();
+            let args = parse(&midi);
+            assert!(validate_transcribe(&args).is_err(), "{content}");
+            assert!(
+                transcribe(args).unwrap_err().to_string().contains("tempo"),
+                "{content}"
+            );
+        }
+        std::fs::write(&beats, vec![b' '; 2 * 1024 * 1024 + 1]).unwrap();
+        assert!(validate_transcribe(&parse(&midi))
+            .unwrap_err()
+            .to_string()
+            .contains("2 MiB"));
+        std::fs::write(&beats, "[0, 0.5, 1]").unwrap();
+        assert!(validate_transcribe(&parse(&xml)).is_err());
+        let mut mixed = parse(&midi);
+        mixed.outputs.push(xml.clone());
+        assert!(validate_transcribe(&mixed)
+            .unwrap_err()
+            .to_string()
+            .contains("MIDI outputs only"));
+        assert!(validate_transcribe(&parse(&beats)).is_err());
+        let mut alias = parse(&midi);
+        alias.emit_ir = Some(beats.clone());
+        assert!(validate_transcribe(&alias).is_err());
+        alias.emit_ir = None;
+        alias.partial_report = Some(beats.clone());
+        assert!(validate_transcribe(&alias).is_err());
+        let jsonl = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--format",
+            "jsonl",
+            "--beat-times",
+            beats.to_str().unwrap(),
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = jsonl.command else {
+            panic!("wrong command")
+        };
+        assert!(validate_transcribe(&args).is_err());
+        assert!(Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--beat-times",
+            beats.to_str().unwrap(),
+            "--bpm",
+            "120",
+            "-o",
+            midi.to_str().unwrap()
+        ])
+        .is_err());
+        assert_eq!(std::fs::read_to_string(&beats).unwrap(), "[0, 0.5, 1]");
+        assert!(!midi.exists() && !xml.exists());
+        std::fs::remove_file(&beats).unwrap();
+        assert!(validate_transcribe(&parse(&midi)).is_err());
+        std::fs::remove_file(audio).unwrap();
     }
 
     #[test]
@@ -1288,7 +1566,9 @@ mod tests {
             sample_rate: 16000,
             channels: 1,
         };
-        let doc = build_midi_document(&args, &audio_data, &[note]).unwrap().0;
+        let doc = build_midi_document(&args, &audio_data, &[note], &resolve_tempo(&args).unwrap())
+            .unwrap()
+            .0;
         assert_eq!(doc.tracks.len(), 1);
         assert_eq!(doc.tracks[0].notes[0].midi, 40);
         assert_eq!(doc.tracks[0].notes[0].velocity, 89);
@@ -1364,7 +1644,8 @@ mod tests {
             instrument,
         };
         let notes = [event(20, 27), event(40, 24), event(64, 27), event(40, 24)];
-        let (doc, omissions) = build_midi_document(&args, &data, &notes).unwrap();
+        let (doc, omissions) =
+            build_midi_document(&args, &data, &notes, &resolve_tempo(&args).unwrap()).unwrap();
         let first = partial_report_bytes(notes.len(), &omissions).unwrap();
         assert_eq!(
             first,
@@ -1531,7 +1812,13 @@ mod tests {
             instrument: 24,
         };
         let strict = args_for_tuning(&["--tuning", "standard", "--capo", "0"]);
-        assert!(build_midi_document(&strict, &audio, &[note, note]).is_err());
+        assert!(build_midi_document(
+            &strict,
+            &audio,
+            &[note, note],
+            &resolve_tempo(&strict).unwrap()
+        )
+        .is_err());
         let wide = args_for_tuning(&[
             "--tuning",
             "standard",
@@ -1539,7 +1826,9 @@ mod tests {
             "0",
             "--allow-wide-stretch",
         ]);
-        let doc = build_midi_document(&wide, &audio, &[note, note]).unwrap().0;
+        let doc = build_midi_document(&wide, &audio, &[note, note], &resolve_tempo(&wide).unwrap())
+            .unwrap()
+            .0;
         assert_eq!(doc.tracks[0].notes.len(), 2);
         assert_ne!(doc.tracks[0].notes[0].string, doc.tracks[0].notes[1].string);
         assert!(mtab_export::midi::midi_bytes(&doc).is_ok());
@@ -1591,7 +1880,9 @@ mod tests {
             sample_rate: 16000,
             channels: 1,
         };
-        let doc = build_midi_document(&args, &audio_data, &[event]).unwrap().0;
+        let doc = build_midi_document(&args, &audio_data, &[event], &resolve_tempo(&args).unwrap())
+            .unwrap()
+            .0;
         write_document_outputs(&args, &doc, None).unwrap();
         assert!(std::fs::read(&midi).unwrap().starts_with(b"MThd"));
         assert!(std::fs::read(&gp5)
@@ -1722,7 +2013,10 @@ mod tests {
             sample_rate: 16000,
             channels: 1,
         };
-        let mut doc = build_midi_document(&args, &audio_data, &[event]).unwrap().0;
+        let mut doc =
+            build_midi_document(&args, &audio_data, &[event], &resolve_tempo(&args).unwrap())
+                .unwrap()
+                .0;
         doc.tracks[0].notes[0]
             .technique
             .push(mtab_guitar::Technique::HammerOn);
@@ -1784,7 +2078,9 @@ mod tests {
             sample_rate: 16000,
             channels: 1,
         };
-        let doc = build_midi_document(&args, &audio_data, &events).unwrap().0;
+        let doc = build_midi_document(&args, &audio_data, &events, &resolve_tempo(&args).unwrap())
+            .unwrap()
+            .0;
         let (_, plan) = mtab_export::gp5::gp5_bytes(&doc).unwrap();
         assert!(plan.tracks[0]
             .bars
@@ -1849,7 +2145,10 @@ mod tests {
             sample_rate: 16000,
             channels: 1,
         };
-        let mut doc = build_midi_document(&args, &audio_data, &[event]).unwrap().0;
+        let mut doc =
+            build_midi_document(&args, &audio_data, &[event], &resolve_tempo(&args).unwrap())
+                .unwrap()
+                .0;
         doc.tracks[0].notes[0].bend = Some(mtab_guitar::PitchBend {
             start: 0.0,
             peak: 0.25,

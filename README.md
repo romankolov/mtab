@@ -52,8 +52,24 @@ Beat tracking is not implemented: MIDI preserves note times with a fixed
 roundoff of at most one nanosecond. Use `--bpm 96` to specify a constant
 integer tempo (4–255 BPM) instead; it sets the musical grid and metadata but
 does not change the recorded timing or detect beats. Tempo overrides are not
-applied to raw JSONL. Fret assignment may
-fail on unplayable or beam-pruned polyphony; it is not a quality evaluation.
+applied to raw JSONL. MIDI is subject to tick and tempo-event rounding.
+
+For MIDI only, `--beat-times beats.json` instead accepts manually supplied
+quarter-beat times in seconds, for example `[0.0, 0.5, 1.1, 1.8, 2.3]`.
+The first beat must be exactly at audio time zero; there is no support for a
+pickup, an offset first beat, meter detection or automatic beat tracking. The
+CLI assumes 4/4 and uses the final interval's tempo beyond the last beat.
+Provide 2–100,001 finite, strictly increasing times, with intervals from 1 to
+16,777,215 microseconds; the UTF-8 JSON file must be at most 2 MiB. The file is
+validated and read before model loading, and cannot also be an output. This
+option conflicts with `--bpm`, raw JSONL, GP5, MusicXML and ASCII outputs.
+
+```console
+mtab transcribe song.wav --size small --weights ./muscriptor-small.safetensors \
+    --tuning standard --capo 0 --beat-times beats.json --emit-ir song.json -o song.mid
+```
+
+Fret assignment may fail on unplayable or beam-pruned polyphony; it is not a quality evaluation.
 The optional `--allow-wide-stretch` retries a failed assignment with a maximum
 seven-fret span instead of four, without dropping notes or allowing same-string
 overlaps. It emits a warning when used: the resulting grips may be physically
