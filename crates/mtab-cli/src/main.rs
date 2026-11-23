@@ -674,6 +674,36 @@ fn existing_file_identity(path: &std::path::Path) -> Result<Option<same_file::Ha
     }
 }
 
+/// Preflight a report path against input paths, including hard-link aliases.
+/// This is not atomic against concurrent filesystem changes after the check.
+struct ReportGuard {
+    path: Option<PathBuf>,
+    file: Option<same_file::Handle>,
+}
+
+impl ReportGuard {
+    fn new(report: Option<&std::path::Path>) -> Result<Self> {
+        Ok(Self {
+            path: report.and_then(path_identity),
+            file: match report {
+                Some(path) => existing_file_identity(path)?,
+                None => None,
+            },
+        })
+    }
+
+    fn protect(&self, input: &std::path::Path) -> Result<()> {
+        if self.path.is_some() && self.path == path_identity(input)
+            || self.file.is_some() && self.file == existing_file_identity(input)?
+        {
+            return Err(MtabError::InvalidOutput(
+                "report must not overwrite an input, including a hard-link alias".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Protect resolved cache blobs too, including aliases through symlinks or hard links.
 fn protect_resolved_weights(args: &TranscribeArgs, path: &std::path::Path) -> Result<()> {
     let identity = path_identity(path);

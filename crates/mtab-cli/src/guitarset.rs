@@ -338,17 +338,9 @@ pub fn evaluate(path: &Path, report: Option<&Path>) -> Result<()> {
             "no .jams files found in annotation directory".into(),
         ));
     }
-    if let Some(out) = report {
-        if let Ok(dest) = std::fs::canonicalize(out) {
-            if files
-                .iter()
-                .any(|file| std::fs::canonicalize(file).ok().as_ref() == Some(&dest))
-            {
-                return Err(MtabError::InvalidModelSource(
-                    "report must not overwrite a source annotation".into(),
-                ));
-            }
-        }
+    let guard = crate::ReportGuard::new(report)?;
+    for file in &files {
+        guard.protect(file)?;
     }
     let mut counts = Counts::default();
     let mut failures = Vec::new();

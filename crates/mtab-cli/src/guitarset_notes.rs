@@ -186,18 +186,9 @@ pub fn evaluate(
             "--clip-duration must be a finite positive number of seconds",
         ));
     }
-    if let Some(dest) = report {
-        if let Ok(dest) = std::fs::canonicalize(dest) {
-            if [annotation, predictions]
-                .iter()
-                .any(|input| std::fs::canonicalize(input).ok().as_ref() == Some(&dest))
-            {
-                return Err(failure(
-                    "report must not overwrite annotation or prediction input",
-                ));
-            }
-        }
-    }
+    let guard = crate::ReportGuard::new(report)?;
+    guard.protect(annotation)?;
+    guard.protect(predictions)?;
     let mut reference: Vec<NoteEvent> = parse_jams(annotation)?
         .into_iter()
         .map(|r| r.note)

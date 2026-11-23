@@ -289,16 +289,9 @@ fn score_document(refs: &[Reference], doc: &TabDocument, duration: f64) -> Resul
 }
 
 pub fn evaluate(annotation: &Path, ir: &Path, duration: f64, report: Option<&Path>) -> Result<()> {
-    if let Some(dest) = report.and_then(|p| std::fs::canonicalize(p).ok()) {
-        if [annotation, ir]
-            .iter()
-            .any(|input| std::fs::canonicalize(input).ok().as_ref() == Some(&dest))
-        {
-            return Err(fail(
-                "report must not overwrite annotation or prediction input",
-            ));
-        }
-    }
+    let guard = crate::ReportGuard::new(report)?;
+    guard.protect(annotation)?;
+    guard.protect(ir)?;
     let refs = parse_jams(annotation)?;
     let doc = TabDocument::from_json(&std::fs::read_to_string(ir)?)?;
     let scored = score_document(&refs, &doc, duration)?;
@@ -325,13 +318,8 @@ pub fn evaluate_manifest(manifest: &Path, report: Option<&Path>) -> Result<()> {
         return Err(fail("tab manifest needs 1–10000 entries"));
     }
     let root = manifest.parent().unwrap_or_else(|| Path::new("."));
-    let report_path = report.and_then(|p| std::fs::canonicalize(p).ok());
-    if report_path
-        .as_ref()
-        .is_some_and(|p| std::fs::canonicalize(manifest).ok().as_ref() == Some(p))
-    {
-        return Err(fail("report must not overwrite the manifest"));
-    }
+    let guard = crate::ReportGuard::new(report)?;
+    guard.protect(manifest)?;
     let mut seen = HashSet::new();
     let mut seen_ir = HashSet::new();
     let mut total = Counts::default();
@@ -357,14 +345,8 @@ pub fn evaluate_manifest(manifest: &Path, report: Option<&Path>) -> Result<()> {
         if !seen.insert(identity.clone()) || !seen_ir.insert(ir_identity.clone()) {
             return Err(fail("tab manifest must not repeat annotations or IR files"));
         }
-        if report_path
-            .as_ref()
-            .is_some_and(|p| p == &identity || p == &ir_identity)
-        {
-            return Err(fail(
-                "report must not overwrite annotation or prediction input",
-            ));
-        }
+        guard.protect(&annotation)?;
+        guard.protect(&ir)?;
         let refs = parse_jams(&annotation)?;
         let doc = TabDocument::from_json(&std::fs::read_to_string(&ir)?)?;
         let s = score_document(&refs, &doc, duration)?;
@@ -442,14 +424,9 @@ fn load_audio_manifest(
         return Err(fail("audio manifest needs 1–10000 entries"));
     }
     let root = manifest.parent().unwrap_or_else(|| Path::new("."));
-    let destination = report.and_then(|p| std::fs::canonicalize(p).ok());
-    let protected = [
-        std::fs::canonicalize(manifest)?,
-        std::fs::canonicalize(weights)?,
-    ];
-    if destination.as_ref().is_some_and(|d| protected.contains(d)) {
-        return Err(fail("report must not overwrite manifest or weights"));
-    }
+    let guard = crate::ReportGuard::new(report)?;
+    guard.protect(manifest)?;
+    guard.protect(weights)?;
     let mut annotations = HashSet::new();
     let mut audios = HashSet::new();
     let mut loaded = Vec::new();
@@ -485,12 +462,8 @@ fn load_audio_manifest(
                 "audio manifest must not repeat audio or annotation files",
             ));
         }
-        if destination
-            .as_ref()
-            .is_some_and(|d| *d == audio_id || *d == annotation_id)
-        {
-            return Err(fail("report must not overwrite audio or annotation input"));
-        }
+        guard.protect(&audio)?;
+        guard.protect(&annotation)?;
         let expected_audio = entry.get("audio_sha256");
         let expected_annotation = entry.get("annotation_sha256");
         let hashes_verified = match (expected_audio, expected_annotation) {

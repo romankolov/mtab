@@ -459,3 +459,91 @@ fn audio_manifest_preflights_files_and_protects_inputs() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("must not repeat"));
 }
+
+#[test]
+fn evaluation_reports_reject_hard_links_to_all_input_kinds() {
+    let dir = Scratch::new();
+    let jams = dir.0.join("reference.jams");
+    let prediction = dir.0.join("notes.jsonl");
+    let ir = dir.0.join("tab.json");
+    let audio = dir.0.join("audio.wav");
+    let weights = dir.0.join("weights.safetensors");
+    let tab_manifest = dir.0.join("tab-manifest.json");
+    let audio_manifest = dir.0.join("audio-manifest.json");
+    let annotations: Vec<_> = (0..6).map(|s| serde_json::json!({"namespace":"note_midi", "annotation_metadata":{"data_source":s.to_string()}, "data":[]})).collect();
+    std::fs::write(
+        &jams,
+        serde_json::to_vec(&serde_json::json!({"annotations":annotations})).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(&prediction, b"").unwrap();
+    std::fs::write(&ir, b"{}\n").unwrap();
+    std::fs::write(&audio, b"audio fixture").unwrap();
+    std::fs::write(&weights, b"weight fixture").unwrap();
+    std::fs::write(
+        &tab_manifest,
+        serde_json::to_vec(
+            &serde_json::json!([{"annotation":"reference.jams", "ir":"tab.json", "duration":1.0}]),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    std::fs::write(&audio_manifest, serde_json::to_vec(&serde_json::json!([{"annotation":"reference.jams", "audio":"audio.wav", "duration":1.0}])).unwrap()).unwrap();
+    let alias = dir.0.join("alias.md");
+    let j = jams.to_str().unwrap();
+    let p = prediction.to_str().unwrap();
+    let i = ir.to_str().unwrap();
+    let t = tab_manifest.to_str().unwrap();
+    let a = audio_manifest.to_str().unwrap();
+    let w = weights.to_str().unwrap();
+    let cases: Vec<(Vec<&str>, Vec<&std::path::Path>)> = vec![
+        (
+            vec!["eval", "--oracle-notes", "--annotations", j],
+            vec![&jams],
+        ),
+        (
+            vec!["eval", "--annotations", j, "--predictions", p],
+            vec![&jams, &prediction],
+        ),
+        (
+            vec![
+                "eval",
+                "--annotations",
+                j,
+                "--tab-ir",
+                i,
+                "--clip-duration",
+                "1",
+            ],
+            vec![&jams, &ir],
+        ),
+        (
+            vec!["eval", "--tab-manifest", t],
+            vec![&tab_manifest, &jams, &ir],
+        ),
+        (
+            vec!["eval", "--audio-manifest", a, "--weights", w],
+            vec![&audio_manifest, &jams, &audio, &weights],
+        ),
+    ];
+    for (args, inputs) in cases {
+        for input in inputs {
+            let before = std::fs::read(input).unwrap();
+            std::fs::hard_link(input, &alias).unwrap();
+            let output = Command::new(env!("CARGO_BIN_EXE_mtab"))
+                .args(&args)
+                .arg("--report")
+                .arg(&alias)
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                !output.status.success() && stderr.contains("overwrite"),
+                "{args:?}, {}: {stderr}",
+                input.display()
+            );
+            assert_eq!(std::fs::read(input).unwrap(), before);
+            std::fs::remove_file(&alias).unwrap();
+        }
+    }
+}
