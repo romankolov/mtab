@@ -3,7 +3,7 @@
 Precommitted before running the evaluation. This is **not** the M5/M8
 end-to-end acceptance benchmark: it supplies ground-truth pitches and timings,
 not transcribed audio, and its model was trained on GuitarSet. It is an
-in-sample diagnostic, not a generalization estimate. It does not measure
+training/validation-contaminated aggregate diagnostic, not a generalization estimate. It does not measure
 TabCNN/TDR, audio recognition, or the full MuScriptor-to-tab pipeline.
 
 Run the unmodified external AutoTab CLI from

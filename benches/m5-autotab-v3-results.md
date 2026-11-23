@@ -4,8 +4,10 @@ The frozen protocol is [m5-autotab-v3-protocol.md](m5-autotab-v3-protocol.md),
 committed before evaluation. `autotab` is the **unmodified**
 `lepusagri/autotab-rust` application at commit
 `a1eebbebbd74db669a6a5f74079eed907717cfb3`. Its v3-egset model is trained on
-GuitarSet and EGSet12, so **this is an in-sample diagnostic, not held-out**.
-Ground-truth note pitches and times were supplied through MIDI, so neither
+GuitarSet and EGSet12, so **the corpus aggregate is not held-out**. The
+[model card](https://huggingface.co/cstr/tab-labeler-onnx) says guitarist 05
+was its validation player and that the model checkpoint and arranger tuning
+were selected against validation results. Ground-truth note pitches and times were supplied through MIDI, so neither
 MuScriptor nor audio transcription was evaluated. This result does not satisfy
 the end-to-end acceptance criterion, and is not a TabCNN/TDR metric.
 
@@ -20,6 +22,13 @@ the end-to-end acceptance criterion, and is not a TabCNN/TDR metric.
 | Unassigned notes | 0 |
 | Preparation, CLI or note-identity failures | 0 |
 
+Post-hoc, the 60 player-05 files contain 8,715 notes, of which 7,459 have the
+correct primary-guitar string (**85.59%**); none were assigned to extra
+guitars. Although the model card describes this player as held out from model
+training, it was used for validation and selection, and this subset analysis
+was not separately preregistered. It is not an independent test or
+end-to-end score.
+
 Per-file results and SHA-256 hashes are in
 [autotab-v3-results/guitarset-oracle.json](autotab-v3-results/guitarset-oracle.json).
 All source-note pitch, tick and channel identities were checked against the
@@ -32,7 +41,7 @@ network isolation against every possible mechanism.
 For context, our own independently evaluated **reference-note** solver
 reported 68.50% on the same corpus with span-four partial retry
 ([guitarset-oracle.md](guitarset-oracle.md)). This comparison has confounds:
-AutoTab was trained on GuitarSet, uses 0–19 frets and 20 µs MIDI timing,
+AutoTab was trained and validated on GuitarSet, uses 0–19 frets and 20 µs MIDI timing,
 groups close onsets, permits extra guitars and has its own fallback; mtab uses
 original note times and 0–22 frets. Both are in-sample, non-end-to-end
 analyses, and neither provides the requested full-pipeline benchmark.
