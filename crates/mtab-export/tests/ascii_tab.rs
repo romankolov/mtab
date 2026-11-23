@@ -50,7 +50,7 @@ fn aligned_multidigit_notes_ties_and_bars_are_deterministic() {
     assert_eq!(plan.max_boundary_shift_seconds, 0.0);
     assert_eq!(text, concat!(
         "mtab ASCII tab | 120 BPM | 4/4 | 1/32 grid\n",
-        "Legend: ~ continuation; x dead note; p palm mute; b/r/br bend/release/bend-release; @ peak in twelfths\n",
+        "Legend: ~ continuation; x dead note; p palm mute; l let ring; b/r/br bend/release/bend-release; @ peak in twelfths\n",
         "Durations: denominator, optional dot; velocities omitted; fret is relative to capo.\n",
         "\nTrack 1 | capo 0 | tuning MIDI [40, 45, 50, 55, 59, 64]\n",
         "Bar 1\n",
@@ -70,6 +70,16 @@ fn aligned_multidigit_notes_ties_and_bars_are_deterministic() {
         " 45 |---------|\n",
         " 40 |p~x3-----|\n"
     ));
+}
+
+#[test]
+fn let_ring_is_visible_on_attack_and_tied_segments() {
+    let mut doc = fixture();
+    doc.tracks[0].notes[0].technique.push(Technique::LetRing);
+    let (text, _) = ascii::ascii_tab(&doc).unwrap();
+    assert!(text.contains("plx3"));
+    assert!(text.contains("pl~x3"));
+    assert!(text.contains("l let ring"));
 }
 
 #[test]

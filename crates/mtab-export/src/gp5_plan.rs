@@ -4,7 +4,7 @@
 //! [`TabDocument`] to bar-contained beats with ties and rests. It intentionally
 //! rejects input it cannot yet preserve, including tempo/meter changes,
 //! eight-string tuning, chord symbols, unsupported bends and techniques; it
-//! never silently drops them. Dead-note and palm-mute flags are retained. Timing is quantized to 1/32 notes at an integer, constant BPM.
+//! never silently drops them. Dead-note, palm-mute and let-ring flags are retained. Timing is quantized to 1/32 notes at an integer, constant BPM.
 //!
 //! GP5 uses two voices per measure. This initial planner uses a single voice,
 //! tying notes across beat boundaries when another string changes. Notes whose
@@ -78,6 +78,8 @@ pub struct PlannedNote {
     pub dead_note: bool,
     /// The source marks this as palm-muted.
     pub palm_mute: bool,
+    /// The source marks the string to ring beyond its written duration.
+    pub let_ring: bool,
 }
 
 /// A bend on a single unsplit beat. Positions are twelfths of its duration.
@@ -102,6 +104,7 @@ struct QuantizedNote {
     bend: Option<PlannedBend>,
     dead_note: bool,
     palm_mute: bool,
+    let_ring: bool,
 }
 
 fn invalid(reason: &str) -> MtabError {
@@ -117,7 +120,7 @@ fn invalid(reason: &str) -> MtabError {
 /// onset/offset displacement is reported. Sequential notes that quantize to
 /// overlapping intervals on the same string are rejected rather than lost.
 /// Supported tunings contain six or seven strings; this planner does not
-/// support techniques other than dead notes and palm muting, explicit source
+/// support techniques other than dead notes, palm muting and let-ring, explicit source
 /// ties, chords, changing tempo/meter, or empty documents. Bends must start at
 /// the attack, peak on an interior twelfth of the original note, have a positive
 /// whole-semitone height of at most two semitones, and fit a single planned beat.
@@ -209,13 +212,15 @@ fn quantize_track(
             ));
         }
         if note.tie_from_prev
-            || note
-                .technique
-                .iter()
-                .any(|technique| !matches!(technique, Technique::DeadNote | Technique::PalmMute))
+            || note.technique.iter().any(|technique| {
+                !matches!(
+                    technique,
+                    Technique::DeadNote | Technique::PalmMute | Technique::LetRing
+                )
+            })
         {
             return Err(invalid(
-                "techniques other than dead notes or palm muting and explicit source ties are not yet supported",
+                "techniques other than dead notes, palm muting or let-ring and explicit source ties are not yet supported",
             ));
         }
         let Some(&open) = strings.get(note.string as usize) else {
@@ -252,6 +257,7 @@ fn quantize_track(
             bend: plan_bend(note)?,
             dead_note: note.technique.contains(&Technique::DeadNote),
             palm_mute: note.technique.contains(&Technique::PalmMute),
+            let_ring: note.technique.contains(&Technique::LetRing),
         });
     }
     Ok(out)
@@ -335,6 +341,7 @@ fn plan_track(notes: &[QuantizedNote], bars: u64, beat_count: &mut usize) -> Res
                         tied: n.start < tick,
                         dead_note: n.dead_note,
                         palm_mute: n.palm_mute,
+                        let_ring: n.let_ring,
                     }
                 })
                 .collect();
@@ -614,6 +621,26 @@ mod tests {
         let muted = notes.iter().find(|n| n.source_index == 1).unwrap();
         assert!(muted.palm_mute && !muted.dead_note && !muted.tied);
     }
+    #[test]
+    fn carries_let_ring_across_tied_segments() {
+        let mut doc = document(vec![note(0.0, 2.5, 0, 0), note(0.5, 1.0, 1, 0)]);
+        doc.tracks[0].notes[0].technique.push(Technique::LetRing);
+        let plan = plan(&doc).unwrap();
+        let notes: Vec<_> = plan.tracks[0]
+            .bars
+            .iter()
+            .flatten()
+            .flat_map(|beat| &beat.notes)
+            .collect();
+        let held: Vec<_> = notes.iter().filter(|n| n.source_index == 0).collect();
+        assert_eq!(held.len(), 4);
+        assert!(held.iter().all(|n| n.let_ring));
+        assert!(notes
+            .iter()
+            .filter(|n| n.source_index == 1)
+            .all(|n| !n.let_ring));
+    }
+
     #[test]
     fn bends_accept_only_representable_unsplit_notes() {
         use mtab_guitar::{BendKind, PitchBend};

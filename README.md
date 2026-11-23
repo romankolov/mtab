@@ -123,7 +123,7 @@ and a 1/32-note grid, regardless of `--grid`; the CLI reports the largest quanti
 to 15 six- or seven-string tracks, titles representable in Windows-1252
 (without control characters, up to 255 encoded bytes), and GP5's discrete
 velocity levels. Other Unicode titles require renaming the audio file. It can
-encode dead-note, palm-mute and restricted bend markings supplied in the library
+encode dead-note, palm-mute, let-ring and restricted bend markings supplied in the library
 IR, but does not infer them from audio. It rejects same-string quantization
 collisions, unsupported bends, eight-string tracks and other unsupported
 notation rather than dropping notes.
@@ -366,7 +366,7 @@ benchmark; see `benches/m7-pitch-fixture.md`.
 `ExportFormat::AsciiTab` dispatcher writes `.txt`/`.tab` files. It shares
 the GP5 planner's constant integer tempo, 4/4, six/seven-string and 1/32-grid
 constraints. Each bar shows beat durations above aligned strings. The legend
-explains ties, dead notes, palm mutes and the supported bend notation; velocities
+explains ties, dead notes, palm mutes, let-ring and the supported bend notation; velocities
 are omitted. It is a readable quantized view, not a lossless performance format.
 The CLI supports `.txt` and `.tab` outputs, alone or alongside other formats.
 
@@ -375,7 +375,7 @@ The CLI supports `.txt` and `.tab` outputs, alone or alongside other formats.
 `mtab_export::musicxml::musicxml` returns MusicXML 3.1 and the quantized
 notation plan; `ExportFormat::MusicXml` writes `.musicxml` or `.xml`. It emits
 standard concert-pitch and tablature staves, tuning, capo, bars, durations,
-chords, ties, string/fret, dead-note heads and palm-mute annotations. It uses
+chords, ties, string/fret, dead-note heads, palm-mute and let-ring annotations. It uses
 the restricted GP5 planner and rejects timed bends rather than discarding
 them. Velocities are not encoded; the two notation staves duplicate notes and
 may double playback in applications. MuseScore 3.2.3 imported a fixture but changed some string/fret assignments
@@ -389,7 +389,7 @@ or alongside other formats.
 
 `mtab_export::gp5::gp5_bytes` encodes the currently restricted GP5 5.00 subset:
 constant integer tempo, 4/4, six or seven strings, and a 1/32-note grid. It
-preserves explicit dead-note and palm-mute marks and a restricted set of bends,
+preserves explicit dead-note, palm-mute and let-ring marks and a restricted set of bends,
 but rejects unsupported contours, other techniques, explicit source ties, chord
 symbols, variable tempo/meter and quantization collisions rather than silently
 discarding them. A bend must start at the note attack, peak at an interior
@@ -401,7 +401,10 @@ stores interpolated bend points; the MIDI exporter samples linear pitch-wheel
 ramps, so timing and playback can still differ between applications. Velocity is
 rounded to GP5 dynamic levels. Two small fixtures have been visually checked and re-exported in TuxGuitar
 1.6.6; see `benches/m6-tuxguitar.md` for scope and limitations. Guitar Pro
-itself has not yet been checked.
+itself has not yet been checked. Explicit let-ring markings were separately
+checked with PyGuitarPro and MusicXML XSD; notation-app round trips and playback
+have not been tested. MIDI preserves the supplied note-off time and does not
+extend it merely because a let-ring mark is present.
 
 An independent PyGuitarPro round-trip fixture check is required in CI. To run
 it locally, install `PyGuitarPro==0.10.1` in a Python environment and use:

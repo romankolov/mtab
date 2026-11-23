@@ -175,6 +175,26 @@ fn pyguitarpro_reads_tracks_ties_and_dynamics() {
         "techniques parser failure: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let mut ringing = fixture();
+    ringing.tracks[0].notes[0]
+        .technique
+        .push(mtab_guitar::Technique::LetRing);
+    ringing.tracks[0].notes[1]
+        .technique
+        .push(mtab_guitar::Technique::LetRing);
+    let ringing_file = dir.0.join("let-ring.gp5");
+    gp5::write_gp5(&ringing, &ringing_file).unwrap();
+    let output = Command::new(&python)
+        .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_let_ring.py"))
+        .arg(&ringing_file)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "let-ring parser failure: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
     let mut bent = fixture();
     bent.tracks.truncate(1);
     let mut notes = vec![

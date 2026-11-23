@@ -4,7 +4,7 @@
 //! particular, it rejects unsupported bends and techniques, source ties,
 //! variable tempo, non-4/4 meters, eight-string tracks and quantization
 //! collisions rather than losing them. Explicit dead-note and palm-mute marks
-//! are supported. GP5 velocities are rounded to its eight dynamic levels.
+//! and let-ring marks are supported. GP5 velocities are rounded to its eight dynamic levels.
 //! This is not a replacement for manual verification in a notation program.
 
 use std::path::Path;
@@ -130,6 +130,7 @@ pub fn gp5_bytes(doc: &TabDocument) -> Result<(Vec<u8>, ScorePlan)> {
                         NoteType::Normal
                     };
                     target_note.effect.palm_mute = note.palm_mute;
+                    target_note.effect.let_ring = note.let_ring;
                     if let Some(bend) = note.bend {
                         // GP5 point values use quarter-tone units: two units
                         // per semitone. TuxGuitar renders a value of one as 1/4.

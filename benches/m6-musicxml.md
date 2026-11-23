@@ -42,3 +42,14 @@ python tools/check_musicxml_music21.py /tmp/musescore-output.musicxml
 The final check requires `music21==9.7.1`. Inspect the XML `staff-details`,
 `technical/string`, `technical/fret`, and `other-technical` fields before and
 after to reproduce the documented losses. Python packages are test-only.
+
+## Supplied let-ring markings
+
+The notation planner accepts explicit `Technique::LetRing`. GP5 writes a
+let-ring flag on each generated segment; PyGuitarPro 0.10.1 independently
+verified flags on synthetic attacks and ties. MusicXML emits a `tied` element
+with type `let-ring` on the final segment of each marked note in both staves;
+the W3C 3.1 XSD and an independent lxml parser verify those placements. ASCII
+uses `l` in its legend. These checks run in CI. This is not inference from
+audio, a playback check, or a notation-app round trip. MIDI does not lengthen
+the given note-off based on this symbol; application playback varies.

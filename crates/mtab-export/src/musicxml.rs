@@ -1,5 +1,7 @@
 //! Experimental MusicXML 3.1 score with standard and tablature staves.
 //!
+//! Explicit let-ring marks use a visual `tied` let-ring on the final segment.
+//! Playback sustain is application-dependent and is not encoded as a sound tie.
 //! Uses the restricted notation plan. Bends are rejected for now because a
 //! MusicXML bend mark alone cannot preserve the supplied timed contour.
 //! MuseScore 3.2.3 changed string/fret assignments and dropped capo and palm
@@ -101,7 +103,8 @@ fn note_xml(
     }
     write!(out, "<staff>{staff}</staff>").unwrap();
     if let Some(note) = note {
-        let has_notation = note.tied || tie_start || staff == 2 || note.palm_mute;
+        let has_notation =
+            note.tied || tie_start || staff == 2 || note.palm_mute || (note.let_ring && !tie_start);
         if has_notation {
             out.push_str("<notations>");
             if note.tied {
@@ -109,6 +112,9 @@ fn note_xml(
             }
             if tie_start {
                 out.push_str("<tied type=\"start\"/>");
+            }
+            if note.let_ring && !tie_start {
+                out.push_str("<tied type=\"let-ring\"/>");
             }
             if staff == 2 || note.palm_mute {
                 out.push_str("<technical>");
