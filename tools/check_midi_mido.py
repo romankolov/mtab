@@ -15,7 +15,7 @@ import mido
 
 
 def tick(seconds):
-    # Current CLI MIDI uses 120 BPM and 480 ticks per quarter. Inputs are
+    # This checker is for the CLI's default 120 BPM and 480 ticks per quarter. Inputs are
     # nonnegative, so floor(x + .5) matches Rust's f64::round.
     return math.floor(seconds * 960 + 0.5)
 

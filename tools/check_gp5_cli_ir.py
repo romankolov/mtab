@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare a CLI GP5 to its emitted IR, independently reconstructing ties.
 
-Restricted to the CLI's 120 BPM, 4/4, straight 1/32-grid unmarked notes;
+Restricted to the CLI's constant integer BPM, 4/4, straight 1/32-grid unmarked notes;
 PyGuitarPro is a test-only dependency. This does not evaluate model accuracy.
 """
 import json
@@ -12,11 +12,15 @@ import guitarpro
 with open(sys.argv[2], encoding='utf-8') as file:
     doc = json.load(file)
 song = guitarpro.parse(sys.argv[1])
-assert song.tempo == 120 and song.versionTuple == (5, 0, 0)
+tempo = doc['meta']['tempo_map']['changes']
+assert len(tempo) == 1 and tempo[0]['time'] == 0
+bpm = tempo[0]['bpm']
+assert 4 <= bpm <= 255 and bpm == int(bpm)
+assert song.tempo == bpm and song.versionTuple == (5, 0, 0)
 assert len(song.tracks) == len(doc['tracks'])
 
 def grid(time):
-    return math.floor(time / 0.0625 + 0.5) * 120
+    return math.floor(time * bpm / 60 * 8 + 0.5) * 120
 
 def velocity(v):
     v = max(15, min(v, 127))

@@ -167,6 +167,10 @@ struct TranscribeArgs {
     #[arg(long)]
     chords: bool,
 
+    /// Use an explicit constant integer tempo (4–255 BPM); no audio beat detection
+    #[arg(long)]
+    bpm: Option<u16>,
+
     /// Quantization grid: auto, off, 1/4..1/64 (T suffix = triplets)
     #[arg(long, default_value = "1/16")]
     grid: Grid,
@@ -512,11 +516,17 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
             || args.frets != 22
             || args.allow_wide_stretch
             || args.partial_report.is_some()
+            || args.bpm.is_some()
             || args.grid != Grid::SIXTEENTH
         {
             return Err(MtabError::NotImplemented("tuning, capo, fretting, rhythm and TabDocument IR are not applied to raw JSONL notes"));
         }
     } else {
+        if args.bpm.is_some_and(|bpm| !(4..=255).contains(&bpm)) {
+            return Err(MtabError::InvalidModelSource(
+                "--bpm must be an integer from 4 to 255".into(),
+            ));
+        }
         if args.frets == 0 || args.frets > 36 {
             return Err(MtabError::InvalidTuning("--frets must be 1–36".into()));
         }
@@ -648,7 +658,7 @@ fn write_document_outputs(
         .transpose()?;
     let gp5 = if wants_gp5 {
         let (bytes, plan) = mtab_export::gp5::gp5_bytes(doc)?;
-        eprintln!("warning: experimental GP5 uses fixed 120 BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift {:.1} ms; review the score", plan.max_boundary_shift_seconds * 1000.0);
+        eprintln!("warning: experimental GP5 uses fixed {} BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift {:.1} ms; review the score", plan.bpm, plan.max_boundary_shift_seconds * 1000.0);
         Some(bytes)
     } else {
         None
@@ -663,14 +673,14 @@ fn write_document_outputs(
         .any(|p| ExportFormat::from_path(p) == Some(ExportFormat::AsciiTab));
     let xml = if wants_xml {
         let (text, plan) = mtab_export::musicxml::musicxml(doc)?;
-        eprintln!("warning: experimental MusicXML uses fixed 120 BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift {:.1} ms; velocities omitted, staves may double playback; MuseScore may change fingerings and lose capo or palm mutes", plan.max_boundary_shift_seconds * 1000.0);
+        eprintln!("warning: experimental MusicXML uses fixed {} BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift {:.1} ms; velocities omitted, staves may double playback; MuseScore may change fingerings and lose capo or palm mutes", plan.bpm, plan.max_boundary_shift_seconds * 1000.0);
         Some(text.into_bytes())
     } else {
         None
     };
     let ascii = if wants_ascii {
         let (text, plan) = mtab_export::ascii::ascii_tab(doc)?;
-        eprintln!("warning: experimental ASCII tab uses fixed 120 BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift {:.1} ms; velocities omitted", plan.max_boundary_shift_seconds * 1000.0);
+        eprintln!("warning: experimental ASCII tab uses fixed {} BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift {:.1} ms; velocities omitted", plan.bpm, plan.max_boundary_shift_seconds * 1000.0);
         Some(text.into_bytes())
     } else {
         None
@@ -760,7 +770,8 @@ fn build_midi_document(
     notes: &[mtab_core::NoteEvent],
 ) -> Result<(TabDocument, Vec<serde_json::Value>)> {
     let (tuning, capo) = resolve_tuning_and_capo(args, audio)?;
-    eprintln!("warning: beat tracking and quantization are not implemented; MIDI uses raw timing and a 120 BPM, 4/4 tempo map");
+    let bpm = args.bpm.unwrap_or(120);
+    eprintln!("warning: beat tracking is not implemented; MIDI uses raw timing and a fixed {bpm} BPM, 4/4 tempo map");
     let mut grouped: std::collections::BTreeMap<u16, Vec<(usize, mtab_core::NoteEvent)>> =
         std::collections::BTreeMap::new();
     for (index, note) in notes.iter().enumerate() {
@@ -834,7 +845,7 @@ fn build_midi_document(
                     .file_stem()
                     .and_then(|v| v.to_str())
                     .map(str::to_owned),
-                tempo_map: TempoMap::constant(120.0),
+                tempo_map: TempoMap::constant(f64::from(bpm)),
                 time_signatures: vec![(0, 4, 4)],
                 frets: args.frets,
                 source_hash: None,
@@ -1110,6 +1121,139 @@ mod tests {
         assert!(std::fs::metadata(&audio).unwrap().len() > 0);
         std::fs::remove_file(audio).unwrap();
     }
+    #[test]
+    fn constant_tempo_propagates_to_all_formats() {
+        let audio = make_test_wav();
+        let midi = audio.with_extension("mid");
+        let gp5 = audio.with_extension("gp5");
+        let xml = audio.with_extension("musicxml");
+        let ascii = audio.with_extension("txt");
+        let ir = audio.with_extension("json");
+        let outputs = format!(
+            "{},{},{},{}",
+            midi.display(),
+            gp5.display(),
+            xml.display(),
+            ascii.display()
+        );
+        let cli = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "--bpm",
+            "96",
+            "--emit-ir",
+            ir.to_str().unwrap(),
+            "-o",
+            &outputs,
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        validate_transcribe(&args).unwrap();
+        let data = mtab_audio::AudioBuffer {
+            samples: vec![],
+            sample_rate: 16_000,
+            channels: 1,
+        };
+        let events = [
+            mtab_core::NoteEvent {
+                start: 0.0,
+                end: 0.3125,
+                midi: 40,
+                velocity: 81,
+                instrument: 24,
+            },
+            mtab_core::NoteEvent {
+                start: 0.625,
+                end: 1.25,
+                midi: 45,
+                velocity: 104,
+                instrument: 24,
+            },
+        ];
+        let (doc, omitted) = build_midi_document(&args, &data, &events).unwrap();
+        assert!(omitted.is_empty());
+        assert_eq!(doc.meta.tempo_map, TempoMap::constant(96.0));
+        assert_eq!(doc.tracks[0].notes[1].start, 0.625);
+        let (_, plan) = mtab_export::gp5::gp5_bytes(&doc).unwrap();
+        assert_eq!(plan.bpm, 96);
+        assert_eq!(plan.max_boundary_shift_seconds, 0.0);
+        write_document_outputs(&args, &doc, None).unwrap();
+        if let Some(python) = std::env::var_os("MTAB_TEMPO_PYTHON") {
+            let tools = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools");
+            for (script, paths) in [
+                ("check_cli_fixed_tempo.py", vec![&midi, &xml, &ascii, &ir]),
+                ("check_gp5_cli_ir.py", vec![&gp5, &ir]),
+            ] {
+                let output = std::process::Command::new(&python)
+                    .arg(tools.join(script))
+                    .args(paths)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{script}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+        }
+        for path in [audio, midi, gp5, xml, ascii, ir] {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn tempo_override_is_bounded_and_rejected_for_raw_jsonl() {
+        let audio = make_test_wav();
+        for (bpm, valid) in [("3", false), ("4", true), ("255", true), ("256", false)] {
+            let cli = Cli::try_parse_from([
+                "mtab",
+                "transcribe",
+                audio.to_str().unwrap(),
+                "--bpm",
+                bpm,
+                "-o",
+                "output.mid",
+            ])
+            .unwrap();
+            let Some(Cmd::Transcribe(args)) = cli.command else {
+                panic!("wrong command")
+            };
+            assert_eq!(validate_transcribe(&args).is_ok(), valid, "bpm={bpm}");
+        }
+        let cli = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--bpm",
+            "96",
+            "--format",
+            "jsonl",
+        ])
+        .unwrap();
+        let Some(Cmd::Transcribe(args)) = cli.command else {
+            panic!("wrong command")
+        };
+        assert!(validate_transcribe(&args).is_err());
+        assert!(Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--bpm",
+            "96.5",
+            "-o",
+            "x.mid"
+        ])
+        .is_err());
+        std::fs::remove_file(audio).unwrap();
+    }
+
     #[test]
     fn midi_document_preserves_notes_and_tuning() {
         let audio = make_test_wav();

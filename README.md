@@ -47,9 +47,12 @@ result or set `--tuning` and `--capo` explicitly. Run
 `mtab detect-tuning song.wav` for ranked hypotheses, or
 `mtab detect-tuning --list` for tunings.
 
-Beat tracking and quantization are not implemented: MIDI preserves note times
-with a fixed 120 BPM / 4/4 map, apart from clipping sequential boundary
-roundoff of at most one nanosecond. Fret assignment may
+Beat tracking is not implemented: MIDI preserves note times with a fixed
+120 BPM / 4/4 map by default, apart from clipping sequential boundary
+roundoff of at most one nanosecond. Use `--bpm 96` to specify a constant
+integer tempo (4–255 BPM) instead; it sets the musical grid and metadata but
+does not change the recorded timing or detect beats. Tempo overrides are not
+applied to raw JSONL. Fret assignment may
 fail on unplayable or beam-pruned polyphony; it is not a quality evaluation.
 The optional `--allow-wide-stretch` retries a failed assignment with a maximum
 seven-fret span instead of four, without dropping notes or allowing same-string
@@ -73,8 +76,8 @@ mtab transcribe song.wav --size small --weights ./muscriptor-small.safetensors \
     -o partial.mid,partial.gp5
 ```
 
-GP5 output always uses a fixed 120 BPM, 4/4 and a 1/32-note grid, regardless
-of `--grid`; the CLI reports the largest quantization shift. It supports up
+GP5, MusicXML and ASCII use the selected constant BPM (120 by default), 4/4
+and a 1/32-note grid, regardless of `--grid`; the CLI reports the largest quantization shift. It supports up
 to 15 six- or seven-string tracks, titles representable in Windows-1252
 (without control characters, up to 255 encoded bytes), and GP5's discrete
 velocity levels. Other Unicode titles require renaming the audio file. It can
