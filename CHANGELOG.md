@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Added a deterministic exhaustive-search oracle for short fingering cases,
+  checking score optimality and constraints for a wide beam, with varied
+  overlaps, capo and span; this does not measure musical quality.
 - Added a synthetic MIDI bend/release playback sanity check with FluidSynth,
   a test-only soundfont, an independent spectral pitch estimate and a flat
   negative control. This is not a DAW round-trip or real-guitar bend test.
