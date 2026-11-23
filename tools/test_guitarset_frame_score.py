@@ -41,16 +41,16 @@ def brute(ref, pred):
     return result
 
 
-def note_matches(ref, pred, offsets):
+def note_matches(ref, pred, offsets, position=False):
     # Independent straightforward augmenting-path matching; note events are
     # clipped to the requested window just as they are in the CLI report.
-    ref = [(a, min(b, 1.0), p) for a, b, _, p in ref if a < 1.0]
-    pred = [(a, min(b, 1.0), p) for a, b, _, p in pred if a < 1.0]
+    ref = [(a, min(b, 1.0), string, p) for a, b, string, p in ref if a < 1.0]
+    pred = [(a, min(b, 1.0), string, p) for a, b, string, p in pred if a < 1.0]
     edges = []
-    for a, b, pitch in ref:
+    for a, b, string, pitch in ref:
         limit = max(.05, .2 * (b-a))
-        edges.append([j for j, (x, y, p) in enumerate(pred)
-                      if pitch == p and abs(a-x) <= .05 + 1e-12
+        edges.append([j for j, (x, y, pred_string, p) in enumerate(pred)
+                      if pitch == p and (not position or string == pred_string) and abs(a-x) <= .05 + 1e-12
                       and (not offsets or abs(b-y) <= limit + 1e-12)])
     right = [None] * len(pred)
     def augment(i, visited):
@@ -111,11 +111,12 @@ with tempfile.TemporaryDirectory(prefix='mtab-frame-oracle-') as temp:
             found = tuple(map(int, match.groups()))
             want = (actual[tp], actual[total_p]-actual[tp], actual[total_r]-actual[tp])
             assert found == want, (case, name, found, want)
-        for name, offset in [('Pitch + onset notes', False), ('Pitch + onset + offset notes', True)]:
+        for name, offset, position in [('Pitch + onset notes', False, False), ('Pitch + onset + offset notes', True, False),
+                                       ('Tab + onset notes', False, True), ('Tab + onset + offset notes', True, True)]:
             match = re.search(r'\| ' + re.escape(name) + r' \| (\d+) \| (\d+) \| (\d+) \|', run.stdout)
             assert match, run.stdout
             found = tuple(map(int, match.groups()))
-            want = note_matches(ref, pred, offset)
+            want = note_matches(ref, pred, offset, position)
             assert found == want, (case, name, found, want)
         tdr = re.search(r'TDR-style ratio .*?: (\d+) / (\d+) =', run.stdout)
         wrong = re.search(r'Wrong-string among pitch-matched string instances: (\d+) / (\d+) =', run.stdout)

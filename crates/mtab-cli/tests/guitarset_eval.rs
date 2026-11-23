@@ -298,6 +298,14 @@ fn scores_emitted_ir_framewise_and_rejects_misleading_inputs() {
             .contains("| Pitch + onset + offset notes | 2 | 0 | 0 | 100.00% | 100.00% | 100.00% |"),
         "{report}"
     );
+    assert!(
+        report.contains("| Tab + onset notes | 1 | 1 | 1 | 50.00% | 50.00% | 50.00% |"),
+        "{report}"
+    );
+    assert!(
+        report.contains("| Tab + onset + offset notes | 1 | 1 | 1 | 50.00% | 50.00% | 50.00% |"),
+        "{report}"
+    );
     let clipped = run(&["--clip-duration", "1"]);
     assert!(String::from_utf8(clipped.stdout)
         .unwrap()
@@ -356,6 +364,10 @@ fn scores_emitted_ir_framewise_and_rejects_misleading_inputs() {
     );
     assert!(
         text.contains("| Pitch + onset notes | 4 | 0 | 0 | 100.00% | 100.00% | 100.00% |"),
+        "{text}"
+    );
+    assert!(
+        text.contains("| Tab + onset notes | 2 | 2 | 2 | 50.00% | 50.00% | 50.00% |"),
         "{text}"
     );
     for protected in [&manifest, &jams, &ir, &second_jams, &second_ir] {

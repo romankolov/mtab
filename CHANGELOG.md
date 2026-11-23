@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- GuitarSet IR and audio reports include one-to-one note-level string/fret
+  precision, recall and F1 with onset and optional offset matching. The scorer
+  is checked against an independent brute-force Python implementation.
 - Release workflow now tests and smoke-runs each target, uses the supported
   macOS Intel runner, validates archive contents and produces checksums for
   both manual dry runs and tagged releases. Cross-platform results must still

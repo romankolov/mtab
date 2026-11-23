@@ -69,6 +69,15 @@ pub(super) fn clip(notes: &mut Vec<NoteEvent>, duration: Option<f64>) {
     }
 }
 
+/// Shared event-compatibility rule; note matching ignores instrument labels.
+pub(super) fn compatible(reference: &NoteEvent, predicted: &NoteEvent, offsets: bool) -> bool {
+    let offset_limit =
+        OFFSET_MIN_TOLERANCE.max(OFFSET_DURATION_FACTOR * (reference.end - reference.start));
+    reference.midi == predicted.midi
+        && (reference.start - predicted.start).abs() <= ONSET_TOLERANCE + 1e-12
+        && (!offsets || (reference.end - predicted.end).abs() <= offset_limit + 1e-12)
+}
+
 /// Maximum-cardinality one-to-one matching via augmenting paths.
 pub(super) fn matching(reference: &[NoteEvent], predicted: &[NoteEvent], offsets: bool) -> usize {
     let edges: Vec<Vec<usize>> = reference
@@ -77,14 +86,7 @@ pub(super) fn matching(reference: &[NoteEvent], predicted: &[NoteEvent], offsets
             predicted
                 .iter()
                 .enumerate()
-                .filter_map(|(i, p)| {
-                    let offset_limit =
-                        OFFSET_MIN_TOLERANCE.max(OFFSET_DURATION_FACTOR * (r.end - r.start));
-                    (r.midi == p.midi
-                        && (r.start - p.start).abs() <= ONSET_TOLERANCE + 1e-12
-                        && (!offsets || (r.end - p.end).abs() <= offset_limit + 1e-12))
-                        .then_some(i)
-                })
+                .filter_map(|(i, p)| compatible(r, p, offsets).then_some(i))
                 .collect()
         })
         .collect();
@@ -94,7 +96,7 @@ pub(super) fn matching(reference: &[NoteEvent], predicted: &[NoteEvent], offsets
 // Hopcroft–Karp: unlike naive augmenting-path search, dense simultaneous
 // pitches do not incur a cubic traversal. The note-count limit bounds the
 // adjacency allocation and recursion depth.
-fn maximum_matching(edges: &[Vec<usize>], right_count: usize) -> usize {
+pub(super) fn maximum_matching(edges: &[Vec<usize>], right_count: usize) -> usize {
     use std::collections::VecDeque;
     let mut left = vec![None; edges.len()];
     let mut right = vec![None; right_count];

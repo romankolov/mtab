@@ -34,6 +34,8 @@ struct Counts {
     note_pred: u64,
     onset_tp: u64,
     onset_offset_tp: u64,
+    tab_onset_tp: u64,
+    tab_onset_offset_tp: u64,
 }
 
 // Frame centers t=(index+0.5)*10ms; half-open note [start,end).
@@ -149,6 +151,28 @@ fn row(name: &str, tp: u64, reference: u64, predicted: u64) -> String {
         percent(2 * tp, reference + predicted)
     )
 }
+fn position_matches(
+    reference: &[(mtab_core::NoteEvent, u8)],
+    predicted: &[(mtab_core::NoteEvent, u8)],
+    offsets: bool,
+) -> u64 {
+    let edges: Vec<Vec<usize>> = reference
+        .iter()
+        .map(|(r, string)| {
+            predicted
+                .iter()
+                .enumerate()
+                .filter_map(|(i, (p, predicted_string))| {
+                    (*string == *predicted_string
+                        && crate::guitarset_notes::compatible(r, p, offsets))
+                    .then_some(i)
+                })
+                .collect()
+        })
+        .collect();
+    crate::guitarset_notes::maximum_matching(&edges, predicted.len()) as u64
+}
+
 #[derive(Debug)]
 struct Scored {
     counts: Counts,
@@ -227,6 +251,35 @@ fn score_document(refs: &[Reference], doc: &TabDocument, duration: f64) -> Resul
         crate::guitarset_notes::matching(&reference_notes, &predicted_notes, false) as u64;
     counts.onset_offset_tp =
         crate::guitarset_notes::matching(&reference_notes, &predicted_notes, true) as u64;
+    let reference_positions: Vec<_> = refs
+        .iter()
+        .filter(|r| r.note.start < duration)
+        .map(|r| {
+            let mut n = r.note;
+            n.end = n.end.min(duration);
+            (n, r.string)
+        })
+        .collect();
+    let predicted_positions: Vec<_> = doc
+        .tracks
+        .iter()
+        .flat_map(|t| &t.notes)
+        .filter(|n| n.start < duration)
+        .map(|n| {
+            (
+                mtab_core::NoteEvent {
+                    start: n.start,
+                    end: n.end.min(duration),
+                    midi: n.midi,
+                    velocity: n.velocity,
+                    instrument: 24,
+                },
+                n.string,
+            )
+        })
+        .collect();
+    counts.tab_onset_tp = position_matches(&reference_positions, &predicted_positions, false);
+    counts.tab_onset_offset_tp = position_matches(&reference_positions, &predicted_positions, true);
     Ok(Scored {
         counts,
         frames,
@@ -251,7 +304,7 @@ pub fn evaluate(annotation: &Path, ir: &Path, duration: f64, report: Option<&Pat
     let scored = score_document(&refs, &doc, duration)?;
     let frames = scored.frames;
     let c = scored.counts;
-    let output = format!("# GuitarSet framewise IR evaluation\n\nA user-supplied TabDocument and JAMS file must describe the same recording. Both use standard tuning and no capo. The evaluator uses fixed MIDI note pitches, not continuous F0 annotations; pitch bends, technique, velocity and instrument labels are ignored. Multiple predicted tracks are combined.\n\n- Window: first {duration:.6} seconds; frame centers at 5 ms + 10 ms × k, strictly before the window end\n- Frame count: {frames}\n- Reference notes: {}\n- Predicted notes: {}\n\n| Metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n{}\n{}\n\nNote-event rows use same MIDI pitch and onset within 50 ms; the offset row also requires offset within max(50 ms, 20% of reference duration). Each uses independent maximum-cardinality matching. Notes crossing the window end are clipped.\n\nTDR-style ratio (correct tab positions / correct unique pitches): {}. Simultaneous unisons can produce a ratio above 100%; it is not the complement of wrong-string rate.\n\nWrong-string among pitch-matched string instances: {} / {} = {}. Per frame, identical pitch/string duplicates are collapsed; matching same-pitch instances maximizes same-string matches first. The multi-pitch row collapses unisons to pitch sets. The tablature row uses (string, MIDI pitch), equivalent to (string, fret) in standard tuning.\n\nThe TDR ratio follows Wiggins and Kim (2019), Eq. 8, but our note-derived reference and frame grid are not the original TabCNN evaluation protocol. This is not a held-out corpus result or a tab-labeler-v3 comparison. GuitarSet 1.1.0, Xi et al., CC BY 4.0; known annotation errors may affect scores.\n", scored.reference_notes, scored.predicted_notes, row("Multi-pitch frames",c.pitch_tp,c.pitch_ref,c.pitch_pred), row("Tab position frames",c.tab_tp,c.tab_ref,c.tab_pred), row("Pitch + onset notes", c.onset_tp,c.note_ref,c.note_pred), row("Pitch + onset + offset notes",c.onset_offset_tp,c.note_ref,c.note_pred), tdr(&c), c.wrong_string,c.pitch_string_matches,percent(c.wrong_string,c.pitch_string_matches));
+    let output = format!("# GuitarSet framewise IR evaluation\n\nA user-supplied TabDocument and JAMS file must describe the same recording. Both use standard tuning and no capo. The evaluator uses fixed MIDI note pitches, not continuous F0 annotations; pitch bends, technique, velocity and instrument labels are ignored. Multiple predicted tracks are combined.\n\n- Window: first {duration:.6} seconds; frame centers at 5 ms + 10 ms × k, strictly before the window end\n- Frame count: {frames}\n- Reference notes: {}\n- Predicted notes: {}\n\n| Metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n{}\n{}\n{}\n{}\n\nNote-event rows use same MIDI pitch and onset within 50 ms; the offset row also requires offset within max(50 ms, 20% of reference duration). Tab note rows additionally require the same string (and therefore the same fret in standard tuning). Each uses independent maximum-cardinality matching. Notes crossing the window end are clipped.\n\nTDR-style ratio (correct tab positions / correct unique pitches): {}. Simultaneous unisons can produce a ratio above 100%; it is not the complement of wrong-string rate.\n\nWrong-string among pitch-matched string instances: {} / {} = {}. Per frame, identical pitch/string duplicates are collapsed; matching same-pitch instances maximizes same-string matches first. The multi-pitch row collapses unisons to pitch sets. The tablature row uses (string, MIDI pitch), equivalent to (string, fret) in standard tuning.\n\nThe TDR ratio follows Wiggins and Kim (2019), Eq. 8, but our note-derived reference and frame grid are not the original TabCNN evaluation protocol. This is not a held-out corpus result or a tab-labeler-v3 comparison. GuitarSet 1.1.0, Xi et al., CC BY 4.0; known annotation errors may affect scores.\n", scored.reference_notes, scored.predicted_notes, row("Multi-pitch frames",c.pitch_tp,c.pitch_ref,c.pitch_pred), row("Tab position frames",c.tab_tp,c.tab_ref,c.tab_pred), row("Pitch + onset notes", c.onset_tp,c.note_ref,c.note_pred), row("Pitch + onset + offset notes",c.onset_offset_tp,c.note_ref,c.note_pred), row("Tab + onset notes",c.tab_onset_tp,c.note_ref,c.note_pred), row("Tab + onset + offset notes",c.tab_onset_offset_tp,c.note_ref,c.note_pred), tdr(&c), c.wrong_string,c.pitch_string_matches,percent(c.wrong_string,c.pitch_string_matches));
     if let Some(path) = report {
         std::fs::write(path, output)?;
     } else {
@@ -329,6 +382,8 @@ pub fn evaluate_manifest(manifest: &Path, report: Option<&Path>) -> Result<()> {
         total.note_pred += c.note_pred;
         total.onset_tp += c.onset_tp;
         total.onset_offset_tp += c.onset_offset_tp;
+        total.tab_onset_tp += c.tab_onset_tp;
+        total.tab_onset_offset_tp += c.tab_onset_offset_tp;
         details.push_str(&format!(
             "| {} | {} | {} | {} | {} | {} |\n",
             i + 1,
@@ -339,7 +394,7 @@ pub fn evaluate_manifest(manifest: &Path, report: Option<&Path>) -> Result<()> {
             percent(2 * c.tab_tp, c.tab_ref + c.tab_pred)
         ));
     }
-    let output = format!("# GuitarSet framewise IR manifest evaluation\n\n{} manifest entries were all scored; inputs are user-supplied precomputed IR, not inference run by this command. Relative paths resolve against the manifest directory. Each duration is user-provided.\n\n- Total frames: {total_frames}\n\n| Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n{}\n{}\n\nNote-event rows use same MIDI pitch and onset within 50 ms; the offset row also requires offset within max(50 ms, 20% of reference duration). Each uses independent maximum-cardinality matching. Notes crossing the window end are clipped.\n\nTDR-style ratio (correct tab positions / correct unique pitches): {}. Simultaneous unisons can produce a ratio above 100%; it is not the complement of wrong-string rate.\n\nWrong-string among pitch-matched string instances: {} / {} = {}.\n\n| Manifest entry | Frames | Reference notes | Predicted notes | Multi-pitch F1 | Tab-position F1 |\n| ---: | ---: | ---: | ---: | ---: | ---: |\n{details}\n10 ms frame centers; standard tuning and no capo; half-open note intervals; fixed MIDI note pitches rather than F0 contours. Multi-pitch unisons collapse to pitch sets; tab-position duplicates collapse to string/pitch sets. Wrong-string pairs maximize same-string matches among equal-pitch instances. Multiple IR tracks are combined.\n\nTDR-style ratio follows Wiggins and Kim (2019), Eq. 8, but the note-derived reference and frame grid differ from their evaluation protocol. Not a verified held-out split or tab-labeler-v3 comparison. Manifest selection and model/decoding provenance must be recorded separately. GuitarSet 1.1.0, Xi et al., CC BY 4.0; annotations may contain errors.\n", entries.len(), row("Multi-pitch frames",total.pitch_tp,total.pitch_ref,total.pitch_pred), row("Tab position frames",total.tab_tp,total.tab_ref,total.tab_pred), row("Pitch + onset notes", total.onset_tp,total.note_ref,total.note_pred), row("Pitch + onset + offset notes",total.onset_offset_tp,total.note_ref,total.note_pred), tdr(&total), total.wrong_string,total.pitch_string_matches,percent(total.wrong_string,total.pitch_string_matches));
+    let output = format!("# GuitarSet framewise IR manifest evaluation\n\n{} manifest entries were all scored; inputs are user-supplied precomputed IR, not inference run by this command. Relative paths resolve against the manifest directory. Each duration is user-provided.\n\n- Total frames: {total_frames}\n\n| Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n{}\n{}\n{}\n{}\n\nNote-event rows use same MIDI pitch and onset within 50 ms; the offset row also requires offset within max(50 ms, 20% of reference duration). Tab note rows additionally require the same string (and therefore the same fret in standard tuning). Each uses independent maximum-cardinality matching. Notes crossing the window end are clipped.\n\nTDR-style ratio (correct tab positions / correct unique pitches): {}. Simultaneous unisons can produce a ratio above 100%; it is not the complement of wrong-string rate.\n\nWrong-string among pitch-matched string instances: {} / {} = {}.\n\n| Manifest entry | Frames | Reference notes | Predicted notes | Multi-pitch F1 | Tab-position F1 |\n| ---: | ---: | ---: | ---: | ---: | ---: |\n{details}\n10 ms frame centers; standard tuning and no capo; half-open note intervals; fixed MIDI note pitches rather than F0 contours. Multi-pitch unisons collapse to pitch sets; tab-position duplicates collapse to string/pitch sets. Wrong-string pairs maximize same-string matches among equal-pitch instances. Multiple IR tracks are combined.\n\nTDR-style ratio follows Wiggins and Kim (2019), Eq. 8, but the note-derived reference and frame grid differ from their evaluation protocol. Not a verified held-out split or tab-labeler-v3 comparison. Manifest selection and model/decoding provenance must be recorded separately. GuitarSet 1.1.0, Xi et al., CC BY 4.0; annotations may contain errors.\n", entries.len(), row("Multi-pitch frames",total.pitch_tp,total.pitch_ref,total.pitch_pred), row("Tab position frames",total.tab_tp,total.tab_ref,total.tab_pred), row("Pitch + onset notes", total.onset_tp,total.note_ref,total.note_pred), row("Pitch + onset + offset notes",total.onset_offset_tp,total.note_ref,total.note_pred), row("Tab + onset notes",total.tab_onset_tp,total.note_ref,total.note_pred), row("Tab + onset + offset notes",total.tab_onset_offset_tp,total.note_ref,total.note_pred), tdr(&total), total.wrong_string,total.pitch_string_matches,percent(total.wrong_string,total.pitch_string_matches));
     if let Some(path) = report {
         std::fs::write(path, output)?;
     } else {
@@ -593,6 +648,8 @@ where
         total.note_pred += c.note_pred;
         total.onset_tp += c.onset_tp;
         total.onset_offset_tp += c.onset_offset_tp;
+        total.tab_onset_tp += c.tab_onset_tp;
+        total.tab_onset_offset_tp += c.tab_onset_offset_tp;
         details.push_str(&format!(
             "| {} | {} | {} | {} | {} | {} | {} |\n",
             i + 1,
@@ -604,7 +661,7 @@ where
             status
         ));
     }
-    Ok((format!("# GuitarSet end-to-end audio evaluation\n\nEntries: {}; failed entries: {failures}; total frames: {frames}; pairs with both supplied SHA-256 hashes verified: {hashes_verified}. Model architecture: {model_label}; greedy decoding, seed 0, guitar-family mask, strict EOS, token limit {max_tokens}, standard tuning, capo 0, 22 frets, default bounded fingering (no wide-stretch retry). The model is loaded once. Each manifest duration is rounded down to 16 kHz sample boundaries; only that prefix is transcribed and scored. No source separation, technique inference, or dynamics estimation.\n\n| Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n{}\n{}\n\nNote-event rows use same MIDI pitch and onset within 50 ms; the offset row also requires offset within max(50 ms, 20% of reference duration). Each uses independent maximum-cardinality matching. Notes crossing the window end are clipped.\n\nTDR-style ratio (correct tab positions / correct unique pitches): {}. Simultaneous unisons can produce a ratio above 100%; it is not the complement of wrong-string rate.\n\nWrong-string among pitch-matched string instances: {} / {} = {}.\n\n| Manifest entry | Frames | Reference notes | Predicted notes | Multi-pitch F1 | Tab-position F1 | Status |\n| ---: | ---: | ---: | ---: | ---: | ---: | --- |\n{details}\nFailures (including strict-EOS, decoding, assignment or short audio) count as empty predictions, never excluded; thus failures contribute reference false negatives but cannot estimate their hypothetical false positives. Pitch and tab metrics are 10 ms note-derived fixed-pitch frame sets, not continuous F0. The TDR-style ratio follows Wiggins and Kim (2019), Eq. 8, but the reference and frame grid differ from their protocol. No held-out split, tab-labeler-v3 baseline, or independent ground-truth pairing is established by the manifest. Keep the manifest and document data selection separately; supplied hashes verify identity against the manifest, not provenance or license. GuitarSet 1.1.0, Xi et al., CC BY 4.0; annotations can contain errors.\n", entries.len(), row("Multi-pitch frames", total.pitch_tp,total.pitch_ref,total.pitch_pred), row("Tab position frames", total.tab_tp,total.tab_ref,total.tab_pred), row("Pitch + onset notes", total.onset_tp,total.note_ref,total.note_pred), row("Pitch + onset + offset notes",total.onset_offset_tp,total.note_ref,total.note_pred), tdr(&total), total.wrong_string,total.pitch_string_matches,percent(total.wrong_string,total.pitch_string_matches)), failures))
+    Ok((format!("# GuitarSet end-to-end audio evaluation\n\nEntries: {}; failed entries: {failures}; total frames: {frames}; pairs with both supplied SHA-256 hashes verified: {hashes_verified}. Model architecture: {model_label}; greedy decoding, seed 0, guitar-family mask, strict EOS, token limit {max_tokens}, standard tuning, capo 0, 22 frets, default bounded fingering (no wide-stretch retry). The model is loaded once. Each manifest duration is rounded down to 16 kHz sample boundaries; only that prefix is transcribed and scored. No source separation, technique inference, or dynamics estimation.\n\n| Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n{}\n{}\n{}\n{}\n\nNote-event rows use same MIDI pitch and onset within 50 ms; the offset row also requires offset within max(50 ms, 20% of reference duration). Tab note rows additionally require the same string (and therefore the same fret in standard tuning). Each uses independent maximum-cardinality matching. Notes crossing the window end are clipped.\n\nTDR-style ratio (correct tab positions / correct unique pitches): {}. Simultaneous unisons can produce a ratio above 100%; it is not the complement of wrong-string rate.\n\nWrong-string among pitch-matched string instances: {} / {} = {}.\n\n| Manifest entry | Frames | Reference notes | Predicted notes | Multi-pitch F1 | Tab-position F1 | Status |\n| ---: | ---: | ---: | ---: | ---: | ---: | --- |\n{details}\nFailures (including strict-EOS, decoding, assignment or short audio) count as empty predictions, never excluded; thus failures contribute reference false negatives but cannot estimate their hypothetical false positives. Pitch and tab metrics are 10 ms note-derived fixed-pitch frame sets, not continuous F0. The TDR-style ratio follows Wiggins and Kim (2019), Eq. 8, but the reference and frame grid differ from their protocol. No held-out split, tab-labeler-v3 baseline, or independent ground-truth pairing is established by the manifest. Keep the manifest and document data selection separately; supplied hashes verify identity against the manifest, not provenance or license. GuitarSet 1.1.0, Xi et al., CC BY 4.0; annotations can contain errors.\n", entries.len(), row("Multi-pitch frames", total.pitch_tp,total.pitch_ref,total.pitch_pred), row("Tab position frames", total.tab_tp,total.tab_ref,total.tab_pred), row("Pitch + onset notes", total.onset_tp,total.note_ref,total.note_pred), row("Pitch + onset + offset notes",total.onset_offset_tp,total.note_ref,total.note_pred), row("Tab + onset notes",total.tab_onset_tp,total.note_ref,total.note_pred), row("Tab + onset + offset notes",total.tab_onset_offset_tp,total.note_ref,total.note_pred), tdr(&total), total.wrong_string,total.pitch_string_matches,percent(total.wrong_string,total.pitch_string_matches)), failures))
 }
 
 pub fn evaluate_audio_manifest(
