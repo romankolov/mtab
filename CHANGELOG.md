@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- An experimental, bounded spectral-flux onset-envelope library API with an
+  independent NumPy FFT check. This is not beat or onset-event detection and
+  does not affect the CLI's tempo behavior.
 - Transcription output preflight checks existing file identities to reject
   hard-link aliases to inputs or other outputs, as well as canonical paths.
   This is not a defense against concurrent filesystem changes.
