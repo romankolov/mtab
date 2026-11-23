@@ -83,26 +83,48 @@ jobs:
           ./target/release/mtab inspect-weights \
             "$RUNNER_TEMP/weights/muscriptor-${{ inputs.size || 'large' }}.safetensors"
 
-      - name: Confirm the bundled audio
+      - name: Choose the excerpt
         run: |
-          # The clip is committed as 16 kHz mono WAV so this job is hermetic.
-          # It is deliberate rather than convenience: the original upload was
-          # WebM/Opus behind a file-sharing link that expires, and a sample job
-          # that silently breaks when a link dies is worse than no sample.
-          ls -l samples/showcase/audio/sample.wav
+          # The committed clip is 87 s and the gallery decodes it once per demo,
+          # which is hours at `large`. A short excerpt keeps the sample honest
+          # (real audio, real weights, real decode) and finishable. Trimming
+          # happens here rather than in the repository so the full clip stays
+          # the single committed source.
+          #
+          # Written as a WAV header + samples loop instead of shelling out to
+          # ffmpeg: only the standard library is guaranteed on the runner.
+          python3 - <<'PY' > "$GITHUB_ENV"
+          import struct, wave
+          src = "samples/showcase/audio/sample.wav"
+          dst = "samples/showcase/audio/excerpt.wav"
+          seconds = 20
+          with wave.open(src) as reader:
+              frames = min(int(seconds * reader.getframerate()), reader.getnframes())
+              data = reader.readframes(frames)
+              params = reader.getparams()
+          with wave.open(dst, "wb") as writer:
+              writer.setparams(params)
+              writer.writeframes(data)
+          print(f"MTAB_EXCERPT={dst}")
+          print(f"MTAB_EXCERPT_SECONDS={seconds}")
+          PY
+          ls -l "$MTAB_EXCERPT"
+
+      - name: Confirm the CLI reads the excerpt
+        run: |
           # Plain defaults on purpose: several flags are rejected together with
           # --format jsonl, which is itself a documented limitation.
-          ./target/release/mtab transcribe samples/showcase/audio/sample.wav \
+          ./target/release/mtab transcribe "$MTAB_EXCERPT" \
             --size "${{ inputs.size || 'large' }}" \
             --weights "$RUNNER_TEMP/weights/muscriptor-${{ inputs.size || 'large' }}.safetensors" \
             --format jsonl --max-gen-len 8 > /dev/null
-          echo "the CLI reads the bundled clip with the large checkpoint"
+          echo "the CLI reads the excerpt with the ${{ inputs.size || 'large' }} checkpoint"
 
       - name: Generate the gallery
         run: |
           python3 samples/showcase/generate_gallery.py \
             --binary target/release/mtab \
-            --audio samples/showcase/audio/sample.wav \
+            --audio "$MTAB_EXCERPT" \
             --weights "$RUNNER_TEMP/weights/muscriptor-${{ inputs.size || 'large' }}.safetensors" \
             --size "${{ inputs.size || 'large' }}" \
             --out samples/showcase/output \
