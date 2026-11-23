@@ -15,7 +15,7 @@ pub fn ascii_tab(doc: &TabDocument) -> Result<(String, ScorePlan)> {
     let plan = gp5_plan::plan(doc)?;
     let mut out = String::new();
     writeln!(out, "mtab ASCII tab | {} BPM | 4/4 | 1/32 grid", plan.bpm).unwrap();
-    writeln!(out, "Legend: ~ continuation; x dead note; p palm mute; l let ring; b/r/br bend/release/bend-release; @ peak in twelfths").unwrap();
+    writeln!(out, "Legend: ~ continuation; x dead note; p palm mute; l let ring; v vibrato; b/r/br bend/release/bend-release; @ peak in twelfths").unwrap();
     writeln!(
         out,
         "Durations: denominator, optional dot; velocities omitted; fret is relative to capo."
@@ -51,6 +51,9 @@ pub fn ascii_tab(doc: &TabDocument) -> Result<(String, ScorePlan)> {
                     }
                     if note.dead_note {
                         cell.push('x');
+                    }
+                    if note.vibrato {
+                        cell.push('v');
                     }
                     write!(cell, "{}", note.fret).unwrap();
                     if let Some(bend) = note.bend {

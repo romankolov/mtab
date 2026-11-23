@@ -4,7 +4,9 @@
 //! [`TabDocument`] to bar-contained beats with ties and rests. It intentionally
 //! rejects input it cannot yet preserve, including tempo/meter changes,
 //! eight-string tuning, chord symbols, unsupported bends and techniques; it
-//! never silently drops them. Dead-note, palm-mute and let-ring flags are retained. Timing is quantized to 1/32 notes at an integer, constant BPM.
+//! never silently drops them. Dead-note, palm-mute, let-ring and vibrato flags
+//! are retained; vibrato depth and rate are not encodable in GP5. Timing is
+//! quantized to 1/32 notes at an integer, constant BPM.
 //!
 //! GP5 uses two voices per measure. This initial planner uses a single voice,
 //! tying notes across beat boundaries when another string changes. Notes whose
@@ -80,6 +82,8 @@ pub struct PlannedNote {
     pub palm_mute: bool,
     /// The source marks the string to ring beyond its written duration.
     pub let_ring: bool,
+    /// The source marks vibrato; GP5 stores only a yes/no flag.
+    pub vibrato: bool,
 }
 
 /// A bend on a single unsplit beat. Positions are twelfths of its duration.
@@ -105,6 +109,7 @@ struct QuantizedNote {
     dead_note: bool,
     palm_mute: bool,
     let_ring: bool,
+    vibrato: bool,
 }
 
 fn invalid(reason: &str) -> MtabError {
@@ -120,8 +125,8 @@ fn invalid(reason: &str) -> MtabError {
 /// onset/offset displacement is reported. Sequential notes that quantize to
 /// overlapping intervals on the same string are rejected rather than lost.
 /// Supported tunings contain six or seven strings; this planner does not
-/// support techniques other than dead notes, palm muting and let-ring, explicit source
-/// ties, chords, changing tempo/meter, or empty documents. Bends must start at
+/// support techniques other than dead notes, palm muting, let-ring and vibrato,
+/// explicit source ties, chords, changing tempo/meter, or empty documents. Bends must start at
 /// the attack, peak on an interior twelfth of the original note, have a positive
 /// whole-semitone height of at most two semitones, and fit a single planned beat.
 /// The peak is mapped proportionally onto the quantized beat. Errors describe the unsupported input. Input order is preserved
@@ -215,12 +220,15 @@ fn quantize_track(
             || note.technique.iter().any(|technique| {
                 !matches!(
                     technique,
-                    Technique::DeadNote | Technique::PalmMute | Technique::LetRing
+                    Technique::DeadNote
+                        | Technique::PalmMute
+                        | Technique::LetRing
+                        | Technique::Vibrato { .. }
                 )
             })
         {
             return Err(invalid(
-                "techniques other than dead notes, palm muting or let-ring and explicit source ties are not yet supported",
+                "techniques other than dead notes, palm muting, let-ring, vibrato and explicit source ties are not yet supported",
             ));
         }
         let Some(&open) = strings.get(note.string as usize) else {
@@ -258,6 +266,10 @@ fn quantize_track(
             dead_note: note.technique.contains(&Technique::DeadNote),
             palm_mute: note.technique.contains(&Technique::PalmMute),
             let_ring: note.technique.contains(&Technique::LetRing),
+            vibrato: note
+                .technique
+                .iter()
+                .any(|t| matches!(t, Technique::Vibrato { .. })),
         });
     }
     Ok(out)
@@ -342,6 +354,7 @@ fn plan_track(notes: &[QuantizedNote], bars: u64, beat_count: &mut usize) -> Res
                         dead_note: n.dead_note,
                         palm_mute: n.palm_mute,
                         let_ring: n.let_ring,
+                        vibrato: n.vibrato,
                     }
                 })
                 .collect();

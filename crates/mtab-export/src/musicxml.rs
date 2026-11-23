@@ -56,15 +56,29 @@ fn pitch_xml(out: &mut String, midi: u8, prefix: &str) {
     }
     write!(out, "<{prefix}octave>{octave}</{prefix}octave>").unwrap();
 }
+/// Per-note rendering state: which staff, whether this beat continues a chord
+/// or tie, and where it sits in a vibrato.
+#[derive(Debug, Clone, Copy)]
+struct NoteContext {
+    staff: u8,
+    chord: bool,
+    tie_start: bool,
+    vibrato: VibratoStage,
+}
+
 fn note_xml(
     out: &mut String,
     source: &GuitarTrack,
     beat: &BeatPlan,
     note: Option<&PlannedNote>,
-    chord: bool,
-    staff: u8,
-    tie_start: bool,
+    context: NoteContext,
 ) {
+    let NoteContext {
+        staff,
+        chord,
+        tie_start,
+        vibrato: vibrato_stage,
+    } = context;
     out.push_str("<note>");
     if chord {
         out.push_str("<chord/>");
@@ -103,8 +117,12 @@ fn note_xml(
     }
     write!(out, "<staff>{staff}</staff>").unwrap();
     if let Some(note) = note {
-        let has_notation =
-            note.tied || tie_start || staff == 2 || note.palm_mute || (note.let_ring && !tie_start);
+        let has_notation = note.tied
+            || tie_start
+            || staff == 2
+            || note.palm_mute
+            || vibrato_stage != VibratoStage::None
+            || (note.let_ring && !tie_start);
         if has_notation {
             out.push_str("<notations>");
             if note.tied {
@@ -115,6 +133,13 @@ fn note_xml(
             }
             if note.let_ring && !tie_start {
                 out.push_str("<tied type=\"let-ring\"/>");
+            }
+            if let Some(types) = vibrato_stage.types() {
+                out.push_str("<ornaments>");
+                for kind in types {
+                    write!(out, "<wavy-line type=\"{kind}\" number=\"1\"/>").unwrap();
+                }
+                out.push_str("</ornaments>");
             }
             if staff == 2 || note.palm_mute {
                 out.push_str("<technical>");
@@ -136,6 +161,41 @@ fn note_xml(
         }
     }
     out.push_str("</note>\n");
+}
+
+/// Where a beat sits inside a note's vibrato, so the wavy line gets a
+/// `start`, optional `continue`s and one `stop` instead of restarting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VibratoStage {
+    None,
+    StartStop,
+    Start,
+    Continue,
+    Stop,
+}
+
+impl VibratoStage {
+    fn types(self) -> Option<&'static [&'static str]> {
+        match self {
+            Self::None => None,
+            Self::StartStop => Some(&["start", "stop"]),
+            Self::Start => Some(&["start"]),
+            Self::Continue => Some(&["continue"]),
+            Self::Stop => Some(&["stop"]),
+        }
+    }
+}
+
+fn vibrato_stage(note: &PlannedNote, first: u64, last: u64, start: u64) -> VibratoStage {
+    if !note.vibrato {
+        return VibratoStage::None;
+    }
+    match (start == first, start == last) {
+        (true, true) => VibratoStage::StartStop,
+        (true, false) => VibratoStage::Start,
+        (false, true) => VibratoStage::Stop,
+        (false, false) => VibratoStage::Continue,
+    }
 }
 
 /// Render MusicXML and return the timing plan. Velocities are not encoded;
@@ -177,9 +237,13 @@ pub fn musicxml(doc: &TabDocument) -> Result<(String, ScorePlan)> {
     }
     out.push_str("</part-list>\n");
     for (i, (source, track)) in doc.tracks.iter().zip(&plan.tracks).enumerate() {
+        // First and last planned beat of each source note, used for tie and
+        // vibrato continuation state.
+        let mut first_start = vec![u64::MAX; source.notes.len()];
         let mut last_start = vec![0; source.notes.len()];
         for beat in track.bars.iter().flatten() {
             for note in &beat.notes {
+                first_start[note.source_index] = first_start[note.source_index].min(beat.start);
                 last_start[note.source_index] = beat.start;
             }
         }
@@ -201,7 +265,18 @@ pub fn musicxml(doc: &TabDocument) -> Result<(String, ScorePlan)> {
                 }
                 for beat in bar {
                     if beat.notes.is_empty() {
-                        note_xml(&mut out, source, beat, None, false, staff, false);
+                        note_xml(
+                            &mut out,
+                            source,
+                            beat,
+                            None,
+                            NoteContext {
+                                staff,
+                                chord: false,
+                                tie_start: false,
+                                vibrato: VibratoStage::None,
+                            },
+                        );
                     }
                     for (j, note) in beat.notes.iter().enumerate() {
                         note_xml(
@@ -209,9 +284,17 @@ pub fn musicxml(doc: &TabDocument) -> Result<(String, ScorePlan)> {
                             source,
                             beat,
                             Some(note),
-                            j > 0,
-                            staff,
-                            last_start[note.source_index] > beat.start,
+                            NoteContext {
+                                staff,
+                                chord: j > 0,
+                                tie_start: last_start[note.source_index] > beat.start,
+                                vibrato: vibrato_stage(
+                                    note,
+                                    first_start[note.source_index],
+                                    last_start[note.source_index],
+                                    beat.start,
+                                ),
+                            },
                         );
                     }
                 }

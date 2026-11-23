@@ -237,6 +237,48 @@ fn pyguitarpro_reads_tracks_ties_and_dynamics() {
         "bend parser failure: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    // Note-level vibrato is a GP5 boolean; rate and depth are not encodable.
+    let mut vibrated = fixture();
+    vibrated.tracks.truncate(1);
+    // The track is E standard with capo 2, so a repeated G#2 (44) at fret 2
+    // of the low string keeps every fret/pitch/capo check valid.
+    let low = vibrated.tracks[0].tuning.strings[0];
+    assert_eq!(u16::from(low) + 2 + 2, 44);
+    vibrated.tracks[0].notes = vec![
+        note(0.0, 0.5, 44, 0, 2, 90),
+        note(0.5, 1.0, 44, 0, 2, 90),
+        note(1.0, 1.5, 44, 0, 2, 90),
+    ];
+    vibrated.tracks[0].notes[0].technique = vec![mtab_guitar::Technique::Vibrato {
+        rate_hz: 5.5,
+        depth_cents: 35.0,
+    }];
+    vibrated.tracks[0].notes[1].technique = vec![mtab_guitar::Technique::PalmMute];
+    vibrated.tracks[0].notes[2].technique = vec![mtab_guitar::Technique::Vibrato {
+        rate_hz: 6.0,
+        depth_cents: 50.0,
+    }];
+    vibrated.tracks[0].notes[2].bend = Some(mtab_guitar::PitchBend {
+        start: 1.0,
+        peak: 1.25,
+        depth_cents: 100.0,
+        kind: mtab_guitar::BendKind::Bend,
+    });
+    let vibrato_file = dir.0.join("vibrato.gp5");
+    gp5::write_gp5(&vibrated, &vibrato_file).unwrap();
+    keep_fixture(&vibrato_file);
+    let output = Command::new(&python)
+        .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_vibrato.py"))
+        .arg(&vibrato_file)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
     let header_check =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_bar_headers.py");
     for (index, title) in ["Café — déjà vu".to_owned(), "é".repeat(255)]

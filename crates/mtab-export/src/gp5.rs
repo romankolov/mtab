@@ -131,6 +131,7 @@ pub fn gp5_bytes(doc: &TabDocument) -> Result<(Vec<u8>, ScorePlan)> {
                     };
                     target_note.effect.palm_mute = note.palm_mute;
                     target_note.effect.let_ring = note.let_ring;
+                    target_note.effect.vibrato = note.vibrato;
                     if let Some(bend) = note.bend {
                         // GP5 point values use quarter-tone units: two units
                         // per semitone. TuxGuitar renders a value of one as 1/4.

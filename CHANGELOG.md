@@ -6,6 +6,15 @@ versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Supplied-IR vibrato marks now survive every notation export: GP5 note-level
+  vibrato flags, ASCII `v` markers, and MusicXML wavy-line ornaments with
+  start/continue/stop across split notes. Vibrato depth and rate are not
+  encodable in GP5, and nothing infers vibrato from audio.
+- Independent checks: `tools/check_gp5_vibrato.py` (PyGuitarPro) and
+  `tools/check_musicxml_vibrato.py` (W3C XSD plus exact per-staff ornament
+  positions) run in the same gated CI jobs as the existing let-ring checks.
+
 ### Security
 - Audio decoding now rejects hostile containers instead of aborting. Bounded
   libFuzzer campaigns against the safetensors loader and the Symphonia decode
@@ -18,11 +27,11 @@ versioning: [SemVer](https://semver.org/).
   decoded-sample and duration limits. Regression seeds are tracked in
   `fuzz/seeds/` and two decode tests cover zero-rate and truncated headers.
   A single-core, time-boxed campaign is not proof of memory safety.
-
-### Added
 - Opt-in `cargo-fuzz` targets for the safetensors loader and audio decoding,
   with synthetic tracked seeds, a seeding helper, ignored corpora, and a
   findings log. They require a nightly toolchain and are not part of CI.
+
+### Added
 - A predeclared beat-path tightness grid and separate 50-take validation,
   including all per-recording results and input hashes. Automatic tracking
   remains experimental and is not enabled in the CLI.

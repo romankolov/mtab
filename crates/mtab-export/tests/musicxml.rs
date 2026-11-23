@@ -107,6 +107,43 @@ fn independent_schema_and_semantic_validation() {
 
 #[test]
 #[ignore = "requires lxml and the bundled MusicXML 3.1 schema"]
+fn independent_vibrato_schema_and_semantics() {
+    let mut doc = fixture();
+    doc.tracks[0].notes[0].technique.push(Technique::Vibrato {
+        rate_hz: 5.5,
+        depth_cents: 35.0,
+    });
+    doc.tracks[0].notes[2].technique.push(Technique::Vibrato {
+        rate_hz: 6.0,
+        depth_cents: 50.0,
+    });
+    let (text, _) = musicxml::musicxml(&doc).unwrap();
+    // Each note is written on both the standard and tab staff, so the count is
+    // not asserted here; the checker pins exact per-staff positions.
+    assert!(text.contains("<wavy-line type=\"start\""));
+    let path =
+        std::env::temp_dir().join(format!("mtab-xml-vibrato-{}.musicxml", std::process::id()));
+    std::fs::write(&path, text).unwrap();
+    let python =
+        std::env::var_os("MTAB_XML_PYTHON").expect("set MTAB_XML_PYTHON to a Python with lxml");
+    let output = std::process::Command::new(python)
+        .arg(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_musicxml_vibrato.py"),
+        )
+        .arg(&path)
+        .output()
+        .unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+#[ignore = "requires lxml and the bundled MusicXML 3.1 schema"]
 fn independent_let_ring_schema_and_semantics() {
     let mut doc = fixture();
     doc.tracks[0].notes[0].technique.push(Technique::LetRing);

@@ -396,7 +396,8 @@ The CLI supports `.txt` and `.tab` outputs, alone or alongside other formats.
 `mtab_export::musicxml::musicxml` returns MusicXML 3.1 and the quantized
 notation plan; `ExportFormat::MusicXml` writes `.musicxml` or `.xml`. It emits
 standard concert-pitch and tablature staves, tuning, capo, bars, durations,
-chords, ties, string/fret, dead-note heads, palm-mute and let-ring annotations. It uses
+chords, ties, string/fret, dead-note heads, palm-mute, let-ring and vibrato
+(wavy-line start/continue/stop) annotations. It uses
 the restricted GP5 planner and rejects timed bends rather than discarding
 them. Velocities are not encoded; the two notation staves duplicate notes and
 may double playback in applications. MuseScore 3.2.3 imported a fixture but changed some string/fret assignments
@@ -410,7 +411,8 @@ or alongside other formats.
 
 `mtab_export::gp5::gp5_bytes` encodes the currently restricted GP5 5.00 subset:
 constant integer tempo, 4/4, six or seven strings, and a 1/32-note grid. It
-preserves explicit dead-note, palm-mute and let-ring marks and a restricted set of bends,
+preserves explicit dead-note, palm-mute, let-ring and vibrato marks (GP5 stores
+vibrato as a boolean, not rate/depth) and a restricted set of bends,
 but rejects unsupported contours, other techniques, explicit source ties, chord
 symbols, variable tempo/meter and quantization collisions rather than silently
 discarding them. A bend must start at the note attack, peak at an interior
@@ -422,9 +424,10 @@ stores interpolated bend points; the MIDI exporter samples linear pitch-wheel
 ramps, so timing and playback can still differ between applications. Velocity is
 rounded to GP5 dynamic levels. Two small fixtures have been visually checked and re-exported in TuxGuitar
 1.6.6; see `benches/m6-tuxguitar.md` for scope and limitations. Guitar Pro
-itself has not yet been checked. Explicit let-ring markings were separately
-checked with PyGuitarPro and MusicXML XSD; notation-app round trips and playback
-have not been tested. MIDI preserves the supplied note-off time and does not
+itself has not yet been checked. Explicit let-ring and vibrato markings were
+separately checked with PyGuitarPro and the MusicXML XSD; notation-app round
+trips and playback have not been tested, and nothing infers vibrato from audio
+(`--techniques` remains unavailable). MIDI preserves the supplied note-off time and does not
 extend it merely because a let-ring mark is present.
 
 An independent PyGuitarPro round-trip fixture check is required in CI. To run
