@@ -51,6 +51,8 @@ The audio library has experimental bounded spectral-flux onset and
 periodicity-evidence APIs, plus an experimental beat-path search conditioned
 on a supplied tempo ([details and independent checks](benches/m4-onset-envelope.md)).
 These are not a complete automatic beat tracker and do not change CLI output.
+A limited [50-recording diagnostic](benches/m4-guitarset-beat-path.md) found
+substantial beat-phase and tempo errors, even when reference tempo was supplied.
 
 Beat tracking is not implemented: MIDI preserves note times with a fixed
 120 BPM / 4/4 map by default, apart from clipping sequential boundary

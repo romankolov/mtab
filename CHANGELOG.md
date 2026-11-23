@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- A reproducible 50-recording GuitarSet rhythm diagnostic, with separate
+  reference-tempo and uncalibrated autocorrelation baselines and input hashes.
+  Results expose substantial beat-path errors; no CLI tracker was enabled.
 - Experimental tempo-conditioned beat-path search with synthetic, exhaustive
   and small real-audio evaluations. It is not a complete automatic tracker and
   is not wired to CLI output.

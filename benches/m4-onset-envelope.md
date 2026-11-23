@@ -128,3 +128,8 @@ The principal next steps remain held-out, multi-track beat evaluation, robust
 phase/tempo selection and abstention, changing-tempo tracking, and meter
 inference. Do not treat this experimental path search as automatic production
 beat tracking.
+
+A subsequent 50-recording GuitarSet rhythm-development holdout diagnostic
+found substantially weaker performance, including with reference tempo:
+[full methodology and per-recording results](m4-guitarset-beat-path.md).
+The result supports keeping this experimental search out of the CLI.
