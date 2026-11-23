@@ -8,6 +8,7 @@
 //! Tuning detection is preliminary; chord-shape constraints, evaluation and
 //! technique detection remain future work.
 
+pub mod chords;
 pub mod detection;
 pub mod fingering;
 pub mod rhythm;
@@ -15,6 +16,7 @@ pub mod tab;
 pub mod tempo;
 pub mod tuning;
 
+pub use chords::suggest_chords;
 pub use detection::{
     detect_tuning, standard_candidates, TuningCandidate, TuningDetection, TuningScore,
 };
