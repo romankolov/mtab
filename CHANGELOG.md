@@ -7,6 +7,8 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- An experimental autocorrelation evidence API for onset envelopes, returning
+  competing 40–240 BPM lag peaks without claiming beat or tempo detection.
 - An experimental, bounded spectral-flux onset-envelope library API with an
   independent NumPy FFT check. This is not beat or onset-event detection and
   does not affect the CLI's tempo behavior.
