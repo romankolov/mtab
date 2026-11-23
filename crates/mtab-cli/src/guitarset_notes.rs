@@ -60,7 +60,7 @@ fn load_predictions(path: &Path) -> Result<Vec<NoteEvent>> {
     Ok(notes)
 }
 
-fn clip(notes: &mut Vec<NoteEvent>, duration: Option<f64>) {
+pub(super) fn clip(notes: &mut Vec<NoteEvent>, duration: Option<f64>) {
     if let Some(end) = duration {
         notes.retain(|n| n.start < end);
         for note in notes {
@@ -70,7 +70,7 @@ fn clip(notes: &mut Vec<NoteEvent>, duration: Option<f64>) {
 }
 
 /// Maximum-cardinality one-to-one matching via augmenting paths.
-fn matching(reference: &[NoteEvent], predicted: &[NoteEvent], offsets: bool) -> usize {
+pub(super) fn matching(reference: &[NoteEvent], predicted: &[NoteEvent], offsets: bool) -> usize {
     let edges: Vec<Vec<usize>> = reference
         .iter()
         .map(|r| {

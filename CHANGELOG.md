@@ -7,6 +7,8 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- IR and end-to-end GuitarSet reports now also include note-level pitch/onset
+  and pitch/onset/offset precision, recall and F1 with one-to-one matching.
 - End-to-end evaluation reports include SHA-256 identifiers for the manifest
   and local weights. Audio manifests can provide hashes for each audio/JAMS
   pair, verified before inference; the preparation helper supplies both.

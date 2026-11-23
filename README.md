@@ -246,6 +246,7 @@ split, model, and decoding settings separately.
 
 The IR score uses 10 ms frame centers and fixed MIDI notes (not continuous
 pitch contours), reports multi-pitch and tab-position precision/recall/F1,
+as well as one-to-one pitch/onset and pitch/onset/offset note-event scores,
 and gives a pitch-matched wrong-string rate plus a TDR-style ratio: correct
 string/fret activations divided by correctly detected unique-pitch activations
 ([Wiggins and Kim 2019, Eq. 8](https://archives.ismir.net/ismir2019/paper/000033.pdf)).

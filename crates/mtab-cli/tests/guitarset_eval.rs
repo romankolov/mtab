@@ -289,6 +289,15 @@ fn scores_emitted_ir_framewise_and_rejects_misleading_inputs() {
         report.contains("Wrong-string among pitch-matched string instances: 100 / 200 = 50.00%"),
         "{report}"
     );
+    assert!(
+        report.contains("| Pitch + onset notes | 2 | 0 | 0 | 100.00% | 100.00% | 100.00% |"),
+        "{report}"
+    );
+    assert!(
+        report
+            .contains("| Pitch + onset + offset notes | 2 | 0 | 0 | 100.00% | 100.00% | 100.00% |"),
+        "{report}"
+    );
     let clipped = run(&["--clip-duration", "1"]);
     assert!(String::from_utf8(clipped.stdout)
         .unwrap()
@@ -343,6 +352,10 @@ fn scores_emitted_ir_framewise_and_rejects_misleading_inputs() {
     );
     assert!(
         text.contains("Wrong-string among pitch-matched string instances: 200 / 400 = 50.00%"),
+        "{text}"
+    );
+    assert!(
+        text.contains("| Pitch + onset notes | 4 | 0 | 0 | 100.00% | 100.00% | 100.00% |"),
         "{text}"
     );
     for protected in [&manifest, &jams, &ir, &second_jams, &second_ir] {
