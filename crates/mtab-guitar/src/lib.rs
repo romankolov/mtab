@@ -12,6 +12,7 @@ pub mod detection;
 pub mod fingering;
 pub mod rhythm;
 pub mod tab;
+pub mod tempo;
 pub mod tuning;
 
 pub use detection::{
@@ -26,4 +27,5 @@ pub use tab::{
     BendKind, ChordSymbol, GuitarTrack, PitchBend, SlideKind, TabDocument, TabNote, Technique,
     TempoChange, TempoMap, TrackMeta,
 };
+pub use tempo::TempoTimeline;
 pub use tuning::{Capo, Tuning};

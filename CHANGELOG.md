@@ -7,6 +7,8 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Added validated piecewise tempo timelines and conversion from explicitly
+  supplied quarter-beat timestamps; this utility does not detect beats.
 - Support an explicit constant `--bpm` (integer 4–255) for MIDI and notation
   output. Default remains 120; this is not automatic beat detection. MIDI
   keeps raw note timing, while notation uses its existing 1/32 grid.

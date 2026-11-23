@@ -523,7 +523,7 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<()> {
         }
     } else {
         if args.bpm.is_some_and(|bpm| !(4..=255).contains(&bpm)) {
-            return Err(MtabError::InvalidModelSource(
+            return Err(MtabError::InvalidTempo(
                 "--bpm must be an integer from 4 to 255".into(),
             ));
         }
