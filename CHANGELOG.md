@@ -14,6 +14,13 @@ versioning: [SemVer](https://semver.org/).
 - Independent checks: `tools/check_gp5_vibrato.py` (PyGuitarPro) and
   `tools/check_musicxml_vibrato.py` (W3C XSD plus exact per-staff ornament
   positions) run in the same gated CI jobs as the existing let-ring checks.
+- `--techniques` now suggests dead notes and palm mutes from audio
+  (`mtab_audio::articulation`), and `--chords` now derives chord symbols from
+  the detected notes (`mtab_guitar::suggest_chords`) instead of both being
+  rejected as unimplemented. Both are uncalibrated heuristics with fixed
+  thresholds/vocabulary, attach to the IR with a warning, and are rejected
+  together with `--format jsonl`. `--separate` is still rejected because it
+  needs an auxiliary separation model.
 - Supplied chord symbols now reach all notation exports. Only the fixed
   `mtab_guitar` root/vocabulary spellings are accepted; each symbol anchors to
   the containing beat of the first track (a trailing symbol to the last beat),

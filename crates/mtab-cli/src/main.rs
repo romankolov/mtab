@@ -158,7 +158,7 @@ struct TranscribeArgs {
     #[arg(long)]
     experimental_bends: bool,
 
-    /// Detect bends/vibrato/dead notes/slides (§6.8)
+    /// Suggest dead notes and palm mutes from audio (experimental; uncalibrated)
     #[arg(long)]
     techniques: bool,
 
@@ -550,9 +550,9 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<TempoMap> {
                 .into(),
         });
     }
-    if args.separate || args.techniques || args.chords {
+    if args.separate {
         return Err(MtabError::NotImplemented(
-            "separation, techniques and chords (future milestones)",
+            "separation requires an auxiliary model and is not implemented",
         ));
     }
     if mode == OutputMode::Jsonl {
@@ -566,6 +566,8 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<TempoMap> {
             || args.beat_times.is_some()
             || args.experimental_beat_tracking
             || args.experimental_bends
+            || args.techniques
+            || args.chords
             || args.grid != Grid::SIXTEENTH
         {
             return Err(MtabError::NotImplemented("tuning, capo, fretting, rhythm and TabDocument IR are not applied to raw JSONL notes"));
@@ -961,7 +963,17 @@ fn build_midi_document(
     } else {
         None
     };
+    let articulation_assessments = if args.techniques {
+        eprintln!("warning: experimental dead-note/palm-mute suggestions use fixed thresholds on a mix; review every mark before trusting it");
+        Some(mtab_audio::articulation::suggest_articulations(
+            audio, notes,
+        )?)
+    } else {
+        None
+    };
     let mut suggested_bends = 0usize;
+    let mut suggested_dead_notes = 0usize;
+    let mut suggested_palm_mutes = 0usize;
     let mut grouped: std::collections::BTreeMap<u16, Vec<(usize, mtab_core::NoteEvent)>> =
         std::collections::BTreeMap::new();
     for (index, note) in notes.iter().enumerate() {
@@ -1037,6 +1049,26 @@ fn build_midi_document(
                 }
             }
         }
+        if let Some(assessments) = &articulation_assessments {
+            let retained = indexed_notes
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| skipped_local.binary_search(i).is_err());
+            for (target, (_, (source_index, _))) in assigned.iter_mut().zip(retained) {
+                use mtab_audio::articulation::Articulation;
+                match assessments[*source_index].articulation {
+                    Articulation::DeadNote => {
+                        target.technique.push(mtab_guitar::Technique::DeadNote);
+                        suggested_dead_notes += 1;
+                    }
+                    Articulation::PalmMute => {
+                        target.technique.push(mtab_guitar::Technique::PalmMute);
+                        suggested_palm_mutes += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
         tracks.push(GuitarTrack {
             tuning: tuning.clone(),
             capo,
@@ -1046,6 +1078,9 @@ fn build_midi_document(
     }
     if bend_assessments.is_some() {
         eprintln!("experimental bends: {suggested_bends} candidates attached to {} input notes; absence is not proof of no bend", notes.len());
+    }
+    if articulation_assessments.is_some() {
+        eprintln!("experimental techniques: {suggested_dead_notes} dead-note and {suggested_palm_mutes} palm-mute suggestions attached to {} input notes; absence is not proof of an open note", notes.len());
     }
     if tracks.is_empty() {
         eprintln!(
@@ -1058,6 +1093,16 @@ fn build_midi_document(
             notes: Vec::new(),
         });
     }
+    let chord_symbols = if args.chords {
+        let detected = mtab_guitar::suggest_chords(notes, 0.25)?;
+        eprintln!(
+            "chords: {} symbols from detected notes (limited vocabulary; a symbol spans at least 0.25 s)",
+            detected.len()
+        );
+        detected
+    } else {
+        Vec::new()
+    };
     omissions.sort_by_key(|(index, _)| *index);
     Ok((
         TabDocument {
@@ -1073,7 +1118,7 @@ fn build_midi_document(
                 source_hash: None,
             },
             tracks,
-            chord_symbols: Vec::new(),
+            chord_symbols,
         },
         omissions.into_iter().map(|(_, value)| value).collect(),
     ))
@@ -1580,6 +1625,30 @@ mod tests {
     }
 
     #[test]
+    fn technique_and_chord_flags_validate_but_jsonsl_and_separation_do_not() {
+        let audio = make_test_wav();
+        let args = |options: &[&str]| {
+            let mut argv = vec!["mtab", "transcribe", audio.to_str().unwrap()];
+            argv.extend_from_slice(options);
+            let Some(Cmd::Transcribe(args)) = Cli::try_parse_from(argv).unwrap().command else {
+                panic!()
+            };
+            args
+        };
+        // Audio-derived techniques are attached to the IR, which drives the
+        // notation exports and MIDI, so every document output is supported.
+        validate_transcribe(&args(&["--techniques", "-o", "a.mid"])).unwrap();
+        validate_transcribe(&args(&["--chords", "-o", "a.txt"])).unwrap();
+        validate_transcribe(&args(&["--techniques", "--chords", "-o", "a.gp5"])).unwrap();
+        // Raw JSONL has no IR, so these flags are rejected there.
+        assert!(validate_transcribe(&args(&["--techniques", "--format", "jsonl"])).is_err());
+        assert!(validate_transcribe(&args(&["--chords", "--format", "jsonl"])).is_err());
+        // Separation still needs an auxiliary model.
+        assert!(validate_transcribe(&args(&["--separate"])).is_err());
+        std::fs::remove_file(audio).unwrap();
+    }
+
+    #[test]
     fn experimental_bends_reject_unsupported_formats() {
         let audio = make_test_wav();
         for options in [
@@ -1601,6 +1670,113 @@ mod tests {
             assert!(validate_transcribe(&args).is_err());
         }
         std::fs::remove_file(audio).unwrap();
+    }
+
+    #[test]
+    fn technique_suggestions_reach_the_ir_and_chords_reach_exports() {
+        use std::f64::consts::PI;
+        let path = make_test_wav();
+        let text = path.with_extension("txt");
+        let Some(Cmd::Transcribe(args)) = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            path.to_str().unwrap(),
+            "--techniques",
+            "--chords",
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "-o",
+            text.to_str().unwrap(),
+        ])
+        .unwrap()
+        .command
+        else {
+            panic!()
+        };
+        let tempo = validate_transcribe(&args).unwrap();
+        // A muted chuck then an open chord, so one dead note and one chord
+        // symbol are expected; the point is that the wiring works at all.
+        let mut samples = vec![0.0_f32; 16_000 * 3 / 2];
+        for (i, sample) in samples.iter_mut().enumerate() {
+            let t = i as f64 / 16_000.0;
+            if t < 0.25 {
+                // Short, dark, fast-decaying low tone: a dead note.
+                let (a, b, c) = (
+                    2.0 * PI * 82.41 * t,
+                    2.0 * PI * 164.82 * t,
+                    2.0 * PI * 247.23 * t,
+                );
+                *sample =
+                    (0.3 * (a.sin() + b.sin() / 2.0 + c.sin() / 3.0) * (-80.0 * t).exp()) as f32;
+            } else if t < 1.4 {
+                let local = t - 0.25;
+                *sample = (0.3
+                    * (-local).exp()
+                    * ((2.0 * PI * 261.63 * local).sin()
+                        + (2.0 * PI * 329.63 * local).sin()
+                        + (2.0 * PI * 392.0 * local).sin())) as f32;
+            }
+        }
+        let audio = mtab_audio::AudioBuffer {
+            samples,
+            sample_rate: 16_000,
+            channels: 1,
+        };
+        let notes = [
+            mtab_core::NoteEvent {
+                start: 0.0,
+                end: 0.25,
+                midi: 40,
+                velocity: 90,
+                instrument: 24,
+            },
+            mtab_core::NoteEvent {
+                start: 0.25,
+                end: 1.4,
+                midi: 60,
+                velocity: 90,
+                instrument: 24,
+            },
+            mtab_core::NoteEvent {
+                start: 0.25,
+                end: 1.4,
+                midi: 64,
+                velocity: 90,
+                instrument: 24,
+            },
+            mtab_core::NoteEvent {
+                start: 0.25,
+                end: 1.4,
+                midi: 67,
+                velocity: 90,
+                instrument: 24,
+            },
+        ];
+        let (doc, omitted) = build_midi_document(&args, &audio, &notes, &tempo).unwrap();
+        assert!(omitted.is_empty());
+        // The dead note is marked, and the open notes are not.
+        let dead = doc.tracks[0]
+            .notes
+            .iter()
+            .filter(|n| n.technique.contains(&mtab_guitar::Technique::DeadNote))
+            .count();
+        assert_eq!(dead, 1, "{:?}", doc.tracks[0].notes);
+        assert_eq!(doc.chord_symbols.len(), 1);
+        let (rendered, _) = mtab_export::ascii::ascii_tab(&doc).unwrap();
+        // C major is recognized from the three open notes and prints on the
+        // beat that starts at 0.25 s, not on the dead-note beat.
+        assert!(rendered.contains("chd |---C"), "{rendered}");
+        // The same marks survive the TabDocument JSON round trip used by
+        // --emit-ir.
+        let round_tripped = mtab_guitar::TabDocument::from_json(&doc.to_json().unwrap()).unwrap();
+        assert_eq!(round_tripped.chord_symbols.len(), 1);
+        assert!(round_tripped.tracks[0]
+            .notes
+            .iter()
+            .any(|n| n.technique.contains(&mtab_guitar::Technique::DeadNote)));
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

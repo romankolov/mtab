@@ -38,6 +38,12 @@ mtab transcribe song.wav --size small --weights ./muscriptor-small.safetensors \
     --dynamics --emit-ir song.json -o song.mid,song.gp5,song.musicxml,song.txt
 ```
 
+Optional experimental analysis flags: `--techniques` suggests dead notes and
+palm mutes, and `--chords` adds chord symbols from the detected notes. Both are
+uncalibrated heuristics (see below), and both are rejected with `--format
+jsonl`, where there is no tablature IR to annotate.
+
+
 Automatic tuning and capo detection are experimental. The detector analyses
 bounded monophonic pitch evidence and scores possible open strings; it warns
 and falls back to standard tuning and capo 0 when evidence is ambiguous. If
@@ -370,8 +376,8 @@ sweep, silence and noise tests exercise the implementation. It is **not**
 source separation and is not reliable on arbitrary polyphonic mixtures.
 `mtab_audio::bend_analysis::suggest_bends` can also suggest simple bend shapes
 for non-overlapping notes, with explicit abstention reasons. The optional
-`--experimental-bends` flag attaches candidates to MIDI/IR output; it is not
-`--techniques` (which remains unavailable) and does not detect other effects.
+`--experimental-bends` flag attaches candidates to MIDI/IR output and does not
+detect other effects.
 It skips detected overlapping notes across all tracks, short notes, and other
 insufficient evidence, but undetected mixture sounds can still produce false
 bends. Its output is uncalibrated and requires manual review. It is MIDI-only,
@@ -380,6 +386,28 @@ a bend through partial fingering and an independent Mido playback-time/wheel
 inspection; the tiny-model transcription is not real-checkpoint validation.
 One isolated real GuitarSet note provides a small F0 sanity check, not a
 bend-quality benchmark; see `benches/m7-pitch-fixture.md`.
+
+`mtab_audio::articulation::suggest_articulations` implements the
+dead-note/palm-mute half of `--techniques`. For every supplied note it measures
+a 32 ms attack window against a 32 ms tail window 16 ms later, then classifies
+by attack-to-tail energy loss and spectral centroid with **fixed thresholds**:
+a fast decay with a dark spectrum is a dead note, a milder decay with a
+darkening spectrum is a palm mute, and everything else is left open. Decay and
+centroid are gain-invariant, but the classifier is not trained, not calibrated
+and not per-instrument: drums, bass and other mixture content share the same
+windows, window placement follows transcription timing rather than a detected
+onset, and short or silent notes are reported rather than guessed. Suggested
+marks are attached to the IR (and so reach MIDI and every notation export) with
+a warning; review them before trusting a tab. Synthetic checks cover open,
+dead, palm-muted, short, silent and out-of-range notes.
+
+`mtab_guitar::suggest_chords` (the `--chords` flag) builds chord symbols from
+the detected notes using a fixed vocabulary — the twelve roots C, C#, D, Eb, E,
+F, F#, G, Ab, A, Bb, B with `""`, `m`, `dim`, `7`, `maj7` and `m7` — and emits
+nothing for notes that do not form exactly one of those chords. Symbols span at
+least 0.25 s. On the GuitarSet oracle diagnostic coverage was 15.8% with 87.0%
+precision when it did fire (`benches/m7-guitarset-chord-results.md`); it is not
+a chord-recognition benchmark and the vocabulary makes it abstain often.
 
 ### Experimental ASCII library exporter
 
