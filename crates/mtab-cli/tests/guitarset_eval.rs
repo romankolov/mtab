@@ -279,7 +279,16 @@ fn scores_emitted_ir_framewise_and_rejects_misleading_inputs() {
         report.contains("| Tab position frames | 100 | 100 | 100 | 50.00% | 50.00% | 50.00% |"),
         "{report}"
     );
-    assert!(report.contains("100 / 200 = 50.00%"), "{report}");
+    assert!(
+        report.contains(
+            "TDR-style ratio (correct tab positions / correct unique pitches): 100 / 200 = 50.00%"
+        ),
+        "{report}"
+    );
+    assert!(
+        report.contains("Wrong-string among pitch-matched string instances: 100 / 200 = 50.00%"),
+        "{report}"
+    );
     let clipped = run(&["--clip-duration", "1"]);
     assert!(String::from_utf8(clipped.stdout)
         .unwrap()
@@ -326,7 +335,16 @@ fn scores_emitted_ir_framewise_and_rejects_misleading_inputs() {
         text.contains("| Tab position frames | 200 | 200 | 200 | 50.00% | 50.00% | 50.00% |"),
         "{text}"
     );
-    assert!(text.contains("200 / 400 = 50.00%"), "{text}");
+    assert!(
+        text.contains(
+            "TDR-style ratio (correct tab positions / correct unique pitches): 200 / 400 = 50.00%"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("Wrong-string among pitch-matched string instances: 200 / 400 = 50.00%"),
+        "{text}"
+    );
     for protected in [&manifest, &jams, &ir, &second_jams, &second_ir] {
         assert!(!run_manifest(&["--report", protected.to_str().unwrap()])
             .status

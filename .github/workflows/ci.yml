@@ -62,6 +62,21 @@ jobs:
       - run: cargo run --locked -p mtab-export --example midi_bend_fixture -- "$RUNNER_TEMP/bend.mid"
       - run: python tools/check_midi_bend_mido.py "$RUNNER_TEMP/bend.mid"
 
+  independent-guitarset-frame-metrics:
+    name: Independent framewise GuitarSet metric checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: guitarset-frame-metrics
+      - run: cargo build --locked -p mtab-cli
+      - run: python tools/test_guitarset_frame_score.py target/debug/mtab
+
   independent-gp5-roundtrip:
     name: Independent GP5 round-trip
     runs-on: ubuntu-latest

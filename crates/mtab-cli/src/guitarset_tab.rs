@@ -124,6 +124,17 @@ fn percent(n: u64, d: u64) -> String {
         format!("{:.2}%", n as f64 * 100.0 / d as f64)
     }
 }
+// Wiggins–Kim Eq. 8: summed correct string/fret activations divided by
+// summed correctly detected *unique* pitches, without clipping. Simultaneous
+// unisons can make the numerator exceed the denominator.
+fn tdr(counts: &Counts) -> String {
+    format!(
+        "{} / {} = {}",
+        counts.tab_tp,
+        counts.pitch_tp,
+        percent(counts.tab_tp, counts.pitch_tp)
+    )
+}
 fn row(name: &str, tp: u64, reference: u64, predicted: u64) -> String {
     format!(
         "| {name} | {tp} | {} | {} | {} | {} | {} |",
@@ -214,7 +225,7 @@ pub fn evaluate(annotation: &Path, ir: &Path, duration: f64, report: Option<&Pat
     let scored = score_document(&refs, &doc, duration)?;
     let frames = scored.frames;
     let c = scored.counts;
-    let output = format!("# GuitarSet framewise IR evaluation\n\nA user-supplied TabDocument and JAMS file must describe the same recording. Both use standard tuning and no capo. The evaluator uses fixed MIDI note pitches, not continuous F0 annotations; pitch bends, technique, velocity and instrument labels are ignored. Multiple predicted tracks are combined.\n\n- Window: first {duration:.6} seconds; frame centers at 5 ms + 10 ms × k, strictly before the window end\n- Frame count: {frames}\n- Reference notes: {}\n- Predicted notes: {}\n\n| Metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n\nWrong-string among pitch-matched string instances: {} / {} = {}. Per frame, identical pitch/string duplicates are collapsed; matching same-pitch instances maximizes same-string matches first. The multi-pitch row collapses unisons to pitch sets. The tablature row uses (string, MIDI pitch), equivalent to (string, fret) in standard tuning.\n\nThis is a single-example fixed-grid note-frame metric, not the published TabCNN TDR, a held-out corpus result, or a tab-labeler-v3 comparison. GuitarSet 1.1.0, Xi et al., CC BY 4.0; known annotation errors may affect scores.\n", scored.reference_notes, scored.predicted_notes, row("Multi-pitch frames",c.pitch_tp,c.pitch_ref,c.pitch_pred), row("Tab position frames",c.tab_tp,c.tab_ref,c.tab_pred), c.wrong_string,c.pitch_string_matches,percent(c.wrong_string,c.pitch_string_matches));
+    let output = format!("# GuitarSet framewise IR evaluation\n\nA user-supplied TabDocument and JAMS file must describe the same recording. Both use standard tuning and no capo. The evaluator uses fixed MIDI note pitches, not continuous F0 annotations; pitch bends, technique, velocity and instrument labels are ignored. Multiple predicted tracks are combined.\n\n- Window: first {duration:.6} seconds; frame centers at 5 ms + 10 ms × k, strictly before the window end\n- Frame count: {frames}\n- Reference notes: {}\n- Predicted notes: {}\n\n| Metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n\nTDR-style ratio (correct tab positions / correct unique pitches): {}. Simultaneous unisons can produce a ratio above 100%; it is not the complement of wrong-string rate.\n\nWrong-string among pitch-matched string instances: {} / {} = {}. Per frame, identical pitch/string duplicates are collapsed; matching same-pitch instances maximizes same-string matches first. The multi-pitch row collapses unisons to pitch sets. The tablature row uses (string, MIDI pitch), equivalent to (string, fret) in standard tuning.\n\nThe TDR ratio follows Wiggins and Kim (2019), Eq. 8, but our note-derived reference and frame grid are not the original TabCNN evaluation protocol. This is not a held-out corpus result or a tab-labeler-v3 comparison. GuitarSet 1.1.0, Xi et al., CC BY 4.0; known annotation errors may affect scores.\n", scored.reference_notes, scored.predicted_notes, row("Multi-pitch frames",c.pitch_tp,c.pitch_ref,c.pitch_pred), row("Tab position frames",c.tab_tp,c.tab_ref,c.tab_pred), tdr(&c), c.wrong_string,c.pitch_string_matches,percent(c.wrong_string,c.pitch_string_matches));
     if let Some(path) = report {
         std::fs::write(path, output)?;
     } else {
@@ -298,7 +309,7 @@ pub fn evaluate_manifest(manifest: &Path, report: Option<&Path>) -> Result<()> {
             percent(2 * c.tab_tp, c.tab_ref + c.tab_pred)
         ));
     }
-    let output = format!("# GuitarSet framewise IR manifest evaluation\n\n{} manifest entries were all scored; inputs are user-supplied precomputed IR, not inference run by this command. Relative paths resolve against the manifest directory. Each duration is user-provided.\n\n- Total frames: {total_frames}\n\n| Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n\nWrong-string among pitch-matched string instances: {} / {} = {}.\n\n| Manifest entry | Frames | Reference notes | Predicted notes | Multi-pitch F1 | Tab-position F1 |\n| ---: | ---: | ---: | ---: | ---: | ---: |\n{details}\n10 ms frame centers; standard tuning and no capo; half-open note intervals; fixed MIDI note pitches rather than F0 contours. Multi-pitch unisons collapse to pitch sets; tab-position duplicates collapse to string/pitch sets. Wrong-string pairs maximize same-string matches among equal-pitch instances. Multiple IR tracks are combined.\n\nNot published TabCNN TDR, a verified held-out split, or a tab-labeler-v3 comparison. Manifest selection and model/decoding provenance must be recorded separately. GuitarSet 1.1.0, Xi et al., CC BY 4.0; annotations may contain errors.\n", entries.len(), row("Multi-pitch frames",total.pitch_tp,total.pitch_ref,total.pitch_pred), row("Tab position frames",total.tab_tp,total.tab_ref,total.tab_pred), total.wrong_string,total.pitch_string_matches,percent(total.wrong_string,total.pitch_string_matches));
+    let output = format!("# GuitarSet framewise IR manifest evaluation\n\n{} manifest entries were all scored; inputs are user-supplied precomputed IR, not inference run by this command. Relative paths resolve against the manifest directory. Each duration is user-provided.\n\n- Total frames: {total_frames}\n\n| Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n\nTDR-style ratio (correct tab positions / correct unique pitches): {}. Simultaneous unisons can produce a ratio above 100%; it is not the complement of wrong-string rate.\n\nWrong-string among pitch-matched string instances: {} / {} = {}.\n\n| Manifest entry | Frames | Reference notes | Predicted notes | Multi-pitch F1 | Tab-position F1 |\n| ---: | ---: | ---: | ---: | ---: | ---: |\n{details}\n10 ms frame centers; standard tuning and no capo; half-open note intervals; fixed MIDI note pitches rather than F0 contours. Multi-pitch unisons collapse to pitch sets; tab-position duplicates collapse to string/pitch sets. Wrong-string pairs maximize same-string matches among equal-pitch instances. Multiple IR tracks are combined.\n\nTDR-style ratio follows Wiggins and Kim (2019), Eq. 8, but the note-derived reference and frame grid differ from their evaluation protocol. Not a verified held-out split or tab-labeler-v3 comparison. Manifest selection and model/decoding provenance must be recorded separately. GuitarSet 1.1.0, Xi et al., CC BY 4.0; annotations may contain errors.\n", entries.len(), row("Multi-pitch frames",total.pitch_tp,total.pitch_ref,total.pitch_pred), row("Tab position frames",total.tab_tp,total.tab_ref,total.tab_pred), tdr(&total), total.wrong_string,total.pitch_string_matches,percent(total.wrong_string,total.pitch_string_matches));
     if let Some(path) = report {
         std::fs::write(path, output)?;
     } else {
@@ -507,7 +518,7 @@ where
             status
         ));
     }
-    Ok((format!("# GuitarSet end-to-end audio evaluation\n\nEntries: {}; failed entries: {failures}; total frames: {frames}. Model architecture: {model_label}; greedy decoding, seed 0, guitar-family mask, strict EOS, token limit {max_tokens}, standard tuning, capo 0, 22 frets, default bounded fingering (no wide-stretch retry). The model is loaded once. Each manifest duration is rounded down to 16 kHz sample boundaries; only that prefix is transcribed and scored. No source separation, technique inference, or dynamics estimation.\n\n| Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n\nWrong-string among pitch-matched string instances: {} / {} = {}.\n\n| Manifest entry | Frames | Reference notes | Predicted notes | Multi-pitch F1 | Tab-position F1 | Status |\n| ---: | ---: | ---: | ---: | ---: | ---: | --- |\n{details}\nFailures (including strict-EOS, decoding, assignment or short audio) count as empty predictions, never excluded; thus failures contribute reference false negatives but cannot estimate their hypothetical false positives. Pitch and tab metrics are 10 ms note-derived fixed-pitch frame sets, not continuous F0 or TabCNN TDR. No held-out split, tab-labeler-v3 baseline, or independent ground-truth pairing is established by the manifest. Record the weights hash, manifest and data selection separately. GuitarSet 1.1.0, Xi et al., CC BY 4.0; annotations can contain errors.\n", entries.len(), row("Multi-pitch frames", total.pitch_tp,total.pitch_ref,total.pitch_pred), row("Tab position frames", total.tab_tp,total.tab_ref,total.tab_pred), total.wrong_string,total.pitch_string_matches,percent(total.wrong_string,total.pitch_string_matches)), failures))
+    Ok((format!("# GuitarSet end-to-end audio evaluation\n\nEntries: {}; failed entries: {failures}; total frames: {frames}. Model architecture: {model_label}; greedy decoding, seed 0, guitar-family mask, strict EOS, token limit {max_tokens}, standard tuning, capo 0, 22 frets, default bounded fingering (no wide-stretch retry). The model is loaded once. Each manifest duration is rounded down to 16 kHz sample boundaries; only that prefix is transcribed and scored. No source separation, technique inference, or dynamics estimation.\n\n| Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n\nTDR-style ratio (correct tab positions / correct unique pitches): {}. Simultaneous unisons can produce a ratio above 100%; it is not the complement of wrong-string rate.\n\nWrong-string among pitch-matched string instances: {} / {} = {}.\n\n| Manifest entry | Frames | Reference notes | Predicted notes | Multi-pitch F1 | Tab-position F1 | Status |\n| ---: | ---: | ---: | ---: | ---: | ---: | --- |\n{details}\nFailures (including strict-EOS, decoding, assignment or short audio) count as empty predictions, never excluded; thus failures contribute reference false negatives but cannot estimate their hypothetical false positives. Pitch and tab metrics are 10 ms note-derived fixed-pitch frame sets, not continuous F0. The TDR-style ratio follows Wiggins and Kim (2019), Eq. 8, but the reference and frame grid differ from their protocol. No held-out split, tab-labeler-v3 baseline, or independent ground-truth pairing is established by the manifest. Record the weights hash, manifest and data selection separately. GuitarSet 1.1.0, Xi et al., CC BY 4.0; annotations can contain errors.\n", entries.len(), row("Multi-pitch frames", total.pitch_tp,total.pitch_ref,total.pitch_pred), row("Tab position frames", total.tab_tp,total.tab_ref,total.tab_pred), tdr(&total), total.wrong_string,total.pitch_string_matches,percent(total.wrong_string,total.pitch_string_matches)), failures))
 }
 
 pub fn evaluate_audio_manifest(
@@ -632,6 +643,18 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("shorter"));
+    }
+    #[test]
+    fn tdr_is_unclamped_and_undefined_without_pitch_matches() {
+        let mut events = Vec::new();
+        for reference in [true, false] {
+            for string in [0, 1] {
+                add_event(&mut events, reference, string, 50, 0.0, 0.02, 2);
+            }
+        }
+        let counts = score(events, 2);
+        assert_eq!(tdr(&counts), "4 / 2 = 200.00%");
+        assert_eq!(tdr(&Counts::default()), "0 / 0 = n/a");
     }
     #[test]
     fn half_open_boundaries_and_unison_wrong_string() {

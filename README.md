@@ -228,8 +228,13 @@ split, model, and decoding settings separately.
 
 The IR score uses 10 ms frame centers and fixed MIDI notes (not continuous
 pitch contours), reports multi-pitch and tab-position precision/recall/F1,
-and gives a pitch-matched wrong-string rate. It does not implement TabCNN TDR,
-establish corpus quality, or compare to tab-labeler-v3.
+and gives a pitch-matched wrong-string rate plus a TDR-style ratio: correct
+string/fret activations divided by correctly detected unique-pitch activations
+([Wiggins and Kim 2019, Eq. 8](https://archives.ismir.net/ismir2019/paper/000033.pdf)).
+The ratio can exceed 100% for simultaneous unisons, so it is not the complement
+of the wrong-string rate. Note-event-derived references and our frame grid do
+not reproduce the original TabCNN protocol; these scores do not establish
+corpus quality or a tab-labeler-v3 comparison.
 The specified duration must match the audio being evaluated. Note-event JSONL
 and IR frame metrics use different matching definitions. The Nightly `run_real_small` option performs the fixture check using an
 accepted Hugging Face account's `HF_TOKEN` repository secret; no model

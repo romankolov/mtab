@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Framewise reports include the Wiggins–Kim TDR-style ratio, with explicit
+  unison and protocol caveats, checked against an independent brute-force
+  Python frame-set oracle in CI.
 - Added local-weight audio-manifest end-to-end GuitarSet evaluation, reusing
   one loaded model with deterministic guitar-masked strict-EOS inference and
   default standard-tuning fingering. Failed recordings remain false negatives,
