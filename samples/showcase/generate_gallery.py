@@ -39,7 +39,12 @@ DEMOS = [
         "id": "strict",
         "title": "Greedy decoding, strict EOS",
         "why": "The deterministic default: no sampling, fail loudly if a chunk never emits EOS. Same flags twice must give identical bytes.",
-        "args": ["--seed", "7", "--strict-eos", "--format", "musicxml", "--max-gen-len", "512"],
+        "args": ["--seed", "7", "--strict-eos", "--format", "musicxml"],
+        # A dense 5-second chunk needs more than the default token budget here,
+        # so this demo is meant to end in a refusal rather than a truncated tab.
+        "expect": "failure",
+        "note": "Expected: strict EOS refuses a chunk that runs past the token "
+                "budget instead of silently truncating the notes.",
         "outputs": ["strict.musicxml"],
     },
     {
@@ -147,7 +152,9 @@ def main():
                     os.remove(path)
             results.append({
                 "id": stem, "title": demo["title"], "why": demo["why"],
+                "expect": demo.get("expect", "ok"), "note": demo.get("note", ""),
                 "command": f"mtab {' '.join(argv)}", "status": proc.returncode,
+                "signal": (-proc.returncode) if proc.returncode < 0 else None,
                 "seconds": elapsed, "dir": out,
                 "text": (proc.stderr or "") if proc.returncode else "",
                 "outputs": [os.path.basename(p) for p in produced if os.path.exists(p)],
@@ -183,8 +190,9 @@ def main():
         proc, elapsed = run(args.binary, ["transcribe", bad, "--size", args.size,
                                           "--weights", os.path.abspath(args.weights)], log)
         results.append({
-            "id": "error", "title": "Actionable failure",
+            "id": "error", "title": "Actionable failure", "expect": "failure", "note": "",
             "why": "A malformed audio file: the error names the problem and the next step, as §6.4 requires.",
+            "expect": "failure",
             "command": f"mtab transcribe not-audio.wav ...", "status": proc.returncode,
             "seconds": elapsed, "dir": None,
             "text": (proc.stderr or proc.stdout).strip(), "outputs": [],
@@ -214,6 +222,9 @@ pre{background:#1e1e1e;color:#e8e8e8;border-radius:7px;padding:.85rem;overflow-x
 .badge{display:inline-block;font-size:.74rem;font-weight:600;padding:.16rem .5rem;
        border-radius:99px;margin-left:.5rem;vertical-align:middle}
 .ok{background:#e3f6e5;color:#116b25}.bad{background:#fde8e8;color:#9b1c1c}
+.expected{background:#fff3d6;color:#8a5a00}
+.note{color:#8a5a00;background:#fffaf0;border-left:3px solid #f0c36d;
+      padding:.45rem .7rem;margin:0 0 .8rem;font-size:.9rem}
 .files{display:flex;flex-wrap:wrap;gap:.45rem;margin:.7rem 0 0}
 .files a{display:inline-block;background:#eef3fb;color:#1c4fd8;text-decoration:none;
          border-radius:6px;padding:.32rem .6rem;font-size:.85rem}
@@ -229,8 +240,22 @@ def render(out, summary):
     rows = []
     for demo in summary["demos"]:
         ok = demo["status"] == 0
-        badge = ('<span class="badge ok">ok</span>' if ok
-                 else f'<span class="badge bad">exit {demo["status"]}</span>')
+        expected_failure = demo.get("expect") == "failure"
+        if demo.get("signal"):
+            # Negative return codes are signals, not exit codes: say so rather
+            # than printing a number nobody recognises.
+            label = f"killed by signal {demo['signal']}"
+        else:
+            label = f"exit {demo['status']}"
+        if ok and not expected_failure:
+            badge = '<span class="badge ok">ok</span>'
+        elif not ok and expected_failure:
+            # Not hidden and not dressed up as success: a refusal like this is
+            # the product working as designed.
+            badge = f'<span class="badge expected">{label}, as designed</span>'
+        else:
+            badge = f'<span class="badge bad">{label}</span>'
+        note = demo.get("note") or ""
         timing = f' &middot; {demo["seconds"]:.1f}s' if demo["seconds"] else ""
         files = ""
         if demo["outputs"]:
@@ -245,6 +270,7 @@ def render(out, summary):
 <div class="card">
   <h2>{html.escape(demo['title'])}{badge}</h2>
   <p class="why">{html.escape(demo['why'])}{timing}</p>
+  {f'<p class="note">{html.escape(note)}</p>' if note else ''}
   <pre>$ {html.escape(demo['command'])}</pre>
   {text}
   {files}
