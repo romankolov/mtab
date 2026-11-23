@@ -102,11 +102,14 @@ const CHORD_SUFFIXES: [(&str, ChordKind); 6] = [
 /// Parse one of the fixed symbolic chord labels. No other spelling is accepted,
 /// so an exporter never writes a chord it cannot name exactly.
 pub fn parse_chord_label(label: &str) -> Option<(u8, ChordKind)> {
+    // Prefer the longest matching root without subtracting lengths: a label
+    // longer than the root table must not underflow (that panics in debug and
+    // silently picks the wrong root in release).
     let (root, suffix) = CHORD_ROOTS
         .iter()
         .enumerate()
         .filter_map(|(index, name)| label.strip_prefix(name).map(|rest| (index, rest)))
-        .max_by_key(|(_, rest)| CHORD_ROOTS.len() - rest.len())?;
+        .min_by_key(|(_, rest)| rest.len())?;
     let kind = CHORD_SUFFIXES
         .iter()
         .find(|(name, _)| *name == suffix)
@@ -893,6 +896,39 @@ mod tests {
             (3, 5, 7)
         )
         .is_err());
+    }
+
+    #[test]
+    fn overlong_chord_labels_are_rejected_without_underflow() {
+        // A label whose remainder is longer than the root table would
+        // underflow "roots - rest" and, in release, wrap into the wrong root.
+        for label in [
+            "Em7G".repeat(40),
+            format!("C{}", "m".repeat(64)),
+            format!("B{}", "7".repeat(200)),
+        ] {
+            assert_eq!(parse_chord_label(&label), None, "{label:?}");
+            let mut doc = document(vec![note(0.0, 1.0, 0, 0)]);
+            doc.chord_symbols = vec![mtab_guitar::ChordSymbol {
+                start: 0.0,
+                end: 1.0,
+                label,
+            }];
+            assert!(plan(&doc).is_err());
+        }
+        // The longest root still wins over a shorter prefix of it.
+        assert_eq!(
+            parse_chord_label("C#m7").unwrap(),
+            (1, ChordKind::MinorSeventh)
+        );
+        assert_eq!(
+            parse_chord_label("Cm7").unwrap(),
+            (0, ChordKind::MinorSeventh)
+        );
+        assert_eq!(
+            parse_chord_label("Ebmaj7").unwrap(),
+            (3, ChordKind::MajorSeventh)
+        );
     }
 
     #[test]

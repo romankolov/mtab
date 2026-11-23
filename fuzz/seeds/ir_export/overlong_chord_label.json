@@ -1,0 +1,70 @@
+{
+  "meta": {
+    "title": "overlong chord label",
+    "tempo_map": {
+      "changes": [
+        {
+          "time": 0.0,
+          "bpm": 120.0
+        }
+      ]
+    },
+    "time_signatures": [
+      [
+        0,
+        4,
+        4
+      ]
+    ],
+    "frets": 22,
+    "source_hash": null
+  },
+  "tracks": [
+    {
+      "tuning": {
+        "strings": [
+          40,
+          45,
+          50,
+          55,
+          59,
+          64
+        ],
+        "name": "standard"
+      },
+      "capo": 0,
+      "notes": [
+        {
+          "start": 0.0,
+          "end": 2.5,
+          "midi": 45,
+          "string": 0,
+          "fret": 5,
+          "velocity": 90,
+          "ben-d": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 1.5,
+          "end": 2.0,
+          "midi": 45,
+          "string": 0,
+          "fret": 5,
+          "velocity": 90,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        }
+      ],
+      "instrument": "clean_electric_guitar"
+    }
+  ],
+  "chord_symbols": [
+    {
+      "start": 0.0,
+      "end": 1.0,
+      "label": "Em7GGGGGGGGGGGGGGGGGGGG"
+    }
+  ]
+}

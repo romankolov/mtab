@@ -1,1 +1,58 @@
-{"meta": {"title": "seed", "tempo_map": {"changes": [{"time": 0.0, "bpm": 120.0}]}, "time_signatures": [[0, 4, 4]], "frets": 22, "source_hash": null}, "tracks": [{"tuning": {"strings": [40, 45, 50, 55, 59, 64], "name": "standard"}, "capo": {"position": 0}, "instrument": "clean_electric_guitar", "notes": [{"start": 0.0, "end": 1.0, "midi": 45, "string": 0, "fret": 5, "velocity": 90, "bend": {"start": 0.0, "peak": 0.5, "depth_cents": 100.0, "kind": "Bend"}, "technique": [], "tie_from_prev": false}]}], "chord_symbols": []}
+{
+  "meta": {
+    "title": "seed",
+    "tempo_map": {
+      "changes": [
+        {
+          "time": 0.0,
+          "bpm": 120.0
+        }
+      ]
+    },
+    "time_signatures": [
+      [
+        0,
+        4,
+        4
+      ]
+    ],
+    "frets": 22,
+    "source_hash": null
+  },
+  "tracks": [
+    {
+      "tuning": {
+        "strings": [
+          40,
+          45,
+          50,
+          55,
+          59,
+          64
+        ],
+        "name": "standard"
+      },
+      "capo": 0,
+      "notes": [
+        {
+          "start": 0.0,
+          "end": 1.0,
+          "midi": 45,
+          "string": 0,
+          "fret": 5,
+          "velocity": 90,
+          "bend": {
+            "start": 0.0,
+            "peak": 0.5,
+            "depth_cents": 100.0,
+            "kind": "Bend"
+          },
+          "technique": [],
+          "tie_from_prev": false
+        }
+      ],
+      "instrument": "clean_electric_guitar"
+    }
+  ],
+  "chord_symbols": []
+}

@@ -48,6 +48,12 @@ versioning: [SemVer](https://semver.org/).
   `notations/slide` start/stop. Independent checker scripts cover the flags and
   the MusicXML XSD order. Nothing infers these techniques from audio.
 
+### Fixed
+- An overlong chord label crashed the notation planner in debug builds and
+  produced a silently wrong root/quality in release builds, because root
+  scoring subtracted string lengths (`roots - remainder`) and underflowed.
+  Found by the new `ir_export` fuzz target; see `fuzz/README.md`.
+
 ### Security
 - Audio decoding now rejects hostile containers instead of aborting. Bounded
   libFuzzer campaigns against the safetensors loader and the Symphonia decode

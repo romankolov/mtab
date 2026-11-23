@@ -15,7 +15,19 @@ cargo +nightly fuzz run audio_decode -- -max_total_time=60 -max_len=1048576
 cargo +nightly fuzz run ir_export -- -max_total_time=60 -max_len=524288
 ```
 
-The `ir_export` target is the one path where user-supplied data (the IR JSON
+A 420-second campaign with 2.1 million executions and 11,130 coverage-distinct
+inputs found one defect in mtab's own code. `gp5_plan::parse_chord_label`
+scored candidate roots with `CHORD_ROOTS.len() - rest.len()`; a chord label
+whose remainder is longer than the 12-entry root table underflowed, which
+panics in a debug build and, in a release build, wraps to a huge value so the
+*shortest* matching root wins (a silently wrong root/quality rather than a
+crash). It now compares remainders directly. The regression seed is
+`fuzz/seeds/ir_export/overlong_chord_label.json`, and `mtab-export` has a unit
+test for overlong labels and root-prefix precedence.
+
+Build the targets with `cargo +nightly fuzz build <target>`; a plain
+`cargo build --release` in `fuzz/` produces a binary without sanitizer coverage,
+which libFuzzer then reports as "no interesting inputs were found". The `ir_export` target is the one path where user-supplied data (the IR JSON
 written by `--emit-ir`, also read back by `mtab eval`) reaches three different
 writers. It asserts that any document the plan accepts yields non-empty output
 with a finite, non-negative quantization displacement and an in-range tempo;
