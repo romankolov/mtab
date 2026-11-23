@@ -551,11 +551,42 @@ fn empty_document() -> TabDocument {
     }
 }
 
+#[derive(Debug, PartialEq)]
+struct AudioPrediction {
+    document: TabDocument,
+    omitted_notes: usize,
+}
+
+// Mirrors CLI strict-then-partial policy; omitted predictions are counted
+// separately, not silently hidden inside the scored document.
+fn assign_for_evaluation(
+    notes: &[mtab_core::NoteEvent],
+    partial: bool,
+) -> Result<(Vec<mtab_guitar::TabNote>, usize)> {
+    let tuning = Tuning::standard();
+    let options = mtab_guitar::FingeringOptions::default();
+    match mtab_guitar::assign_notes(notes, &tuning, mtab_guitar::Capo::NONE, options) {
+        Ok(assigned) => Ok((assigned, 0)),
+        Err(mtab_core::MtabError::UnplayableNote { .. }) if partial => {
+            let result = mtab_guitar::assign_notes_partial(
+                notes,
+                &tuning,
+                mtab_guitar::Capo::NONE,
+                options,
+            )?;
+            let omitted = result.unassigned_indices.len();
+            Ok((result.notes.into_iter().flatten().collect(), omitted))
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn transcribe_for_evaluation(
     model: &mtab_core::lm::LmModel,
     entry: &AudioEntry,
     max_tokens: usize,
-) -> Result<TabDocument> {
+    partial: bool,
+) -> Result<AudioPrediction> {
     let mut audio = mtab_audio::load_model_input(&entry.audio)?;
     // Do not pad missing audio or claim a larger evaluation window.
     let samples = (entry.duration * f64::from(mtab_audio::MODEL_SAMPLE_RATE)).floor() as usize;
@@ -582,13 +613,10 @@ fn transcribe_for_evaluation(
     }
     let mut doc = empty_document();
     let tuning = Tuning::standard();
+    let mut omitted_notes = 0;
     for notes in groups.values() {
-        let assigned = mtab_guitar::assign_notes(
-            notes,
-            &tuning,
-            mtab_guitar::Capo::NONE,
-            mtab_guitar::FingeringOptions::default(),
-        )?;
+        let (assigned, omitted) = assign_for_evaluation(notes, partial)?;
+        omitted_notes += omitted;
         doc.tracks.push(mtab_guitar::GuitarTrack {
             tuning: tuning.clone(),
             capo: mtab_guitar::Capo::NONE,
@@ -596,22 +624,27 @@ fn transcribe_for_evaluation(
             instrument: None,
         });
     }
-    Ok(doc)
+    Ok(AudioPrediction {
+        document: doc,
+        omitted_notes,
+    })
 }
 
 fn run_audio_entries<F>(
     entries: &[AudioEntry],
     model_label: &str,
     max_tokens: usize,
+    partial: bool,
     mut infer: F,
 ) -> Result<(String, usize)>
 where
-    F: FnMut(&AudioEntry) -> Result<TabDocument>,
+    F: FnMut(&AudioEntry) -> Result<AudioPrediction>,
 {
     let mut total = Counts::default();
     let hashes_verified = entries.iter().filter(|e| e.hashes_verified).count();
     let mut frames = 0usize;
     let mut failures = 0usize;
+    let mut omitted_total = 0usize;
     let mut details = String::new();
     for (i, entry) in entries.iter().enumerate() {
         eprintln!(
@@ -621,19 +654,24 @@ where
             entry.audio.display()
         );
         let effective = (entry.duration * 16000.0).floor() / 16000.0;
-        let result = infer(entry).and_then(|doc| score_document(&entry.reference, &doc, effective));
-        let (scored, status) = match result {
-            Ok(score) => (score, "ok".to_owned()),
+        let result = infer(entry).and_then(|prediction| {
+            let score = score_document(&entry.reference, &prediction.document, effective)?;
+            Ok((score, prediction.omitted_notes))
+        });
+        let (scored, omitted, status) = match result {
+            Ok((score, omitted)) => (score, Some(omitted), "ok".to_owned()),
             Err(error) => {
                 failures += 1;
                 // Failed files count as an empty transcription, never dropped.
                 let reason = error.to_string().replace(['|', '\n', '\r'], " ");
                 (
                     score_document(&entry.reference, &empty_document(), effective)?,
+                    None,
                     format!("failed: {reason}"),
                 )
             }
         };
+        omitted_total += omitted.unwrap_or(0);
         let c = scored.counts;
         frames += scored.frames;
         total.pitch_tp += c.pitch_tp;
@@ -651,17 +689,23 @@ where
         total.tab_onset_tp += c.tab_onset_tp;
         total.tab_onset_offset_tp += c.tab_onset_offset_tp;
         details.push_str(&format!(
-            "| {} | {} | {} | {} | {} | {} | {} |\n",
+            "| {} | {} | {} | {} | {} | {} | {} | {} |\n",
             i + 1,
             scored.frames,
             scored.reference_notes,
             scored.predicted_notes,
+            omitted.map_or_else(|| "n/a".to_owned(), |value| value.to_string()),
             percent(2 * c.pitch_tp, c.pitch_ref + c.pitch_pred),
             percent(2 * c.tab_tp, c.tab_ref + c.tab_pred),
             status
         ));
     }
-    Ok((format!("# GuitarSet end-to-end audio evaluation\n\nEntries: {}; failed entries: {failures}; total frames: {frames}; pairs with both supplied SHA-256 hashes verified: {hashes_verified}. Model architecture: {model_label}; greedy decoding, seed 0, guitar-family mask, strict EOS, token limit {max_tokens}, standard tuning, capo 0, 22 frets, default bounded fingering (no wide-stretch retry). The model is loaded once. Each manifest duration is rounded down to 16 kHz sample boundaries; only that prefix is transcribed and scored. No source separation, technique inference, or dynamics estimation.\n\n| Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n{}\n{}\n{}\n{}\n\nNote-event rows use same MIDI pitch and onset within 50 ms; the offset row also requires offset within max(50 ms, 20% of reference duration). Tab note rows additionally require the same string (and therefore the same fret in standard tuning). Each uses independent maximum-cardinality matching. Notes crossing the window end are clipped.\n\nTDR-style ratio (correct tab positions / correct unique pitches): {}. Simultaneous unisons can produce a ratio above 100%; it is not the complement of wrong-string rate.\n\nWrong-string among pitch-matched string instances: {} / {} = {}.\n\n| Manifest entry | Frames | Reference notes | Predicted notes | Multi-pitch F1 | Tab-position F1 | Status |\n| ---: | ---: | ---: | ---: | ---: | ---: | --- |\n{details}\nFailures (including strict-EOS, decoding, assignment or short audio) count as empty predictions, never excluded; thus failures contribute reference false negatives but cannot estimate their hypothetical false positives. Pitch and tab metrics are 10 ms note-derived fixed-pitch frame sets, not continuous F0. The TDR-style ratio follows Wiggins and Kim (2019), Eq. 8, but the reference and frame grid differ from their protocol. No held-out split, tab-labeler-v3 baseline, or independent ground-truth pairing is established by the manifest. Keep the manifest and document data selection separately; supplied hashes verify identity against the manifest, not provenance or license. GuitarSet 1.1.0, Xi et al., CC BY 4.0; annotations can contain errors.\n", entries.len(), row("Multi-pitch frames", total.pitch_tp,total.pitch_ref,total.pitch_pred), row("Tab position frames", total.tab_tp,total.tab_ref,total.tab_pred), row("Pitch + onset notes", total.onset_tp,total.note_ref,total.note_pred), row("Pitch + onset + offset notes",total.onset_offset_tp,total.note_ref,total.note_pred), row("Tab + onset notes",total.tab_onset_tp,total.note_ref,total.note_pred), row("Tab + onset + offset notes",total.tab_onset_offset_tp,total.note_ref,total.note_pred), tdr(&total), total.wrong_string,total.pitch_string_matches,percent(total.wrong_string,total.pitch_string_matches)), failures))
+    let fingering_policy = if partial {
+        "strict, then span-four partial retry (outputs can omit notes)"
+    } else {
+        "strict bounded beam (no retry)"
+    };
+    Ok((format!("# GuitarSet end-to-end audio evaluation\n\nEntries: {}; failed entries: {failures}; total frames: {frames}; pairs with both supplied SHA-256 hashes verified: {hashes_verified}. Model architecture: {model_label}; greedy decoding, seed 0, guitar-family mask, strict EOS, token limit {max_tokens}, standard tuning, capo 0, 22 frets, fingering: {fingering_policy}; omitted generated notes in successful entries: {omitted_total}. The model is loaded once. Each manifest duration is rounded down to 16 kHz sample boundaries; only that prefix is transcribed and scored. No source separation, technique inference, or dynamics estimation.\n\n| Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n{}\n{}\n{}\n{}\n\nNote-event rows use same MIDI pitch and onset within 50 ms; the offset row also requires offset within max(50 ms, 20% of reference duration). Tab note rows additionally require the same string (and therefore the same fret in standard tuning). Each uses independent maximum-cardinality matching. Notes crossing the window end are clipped.\n\nTDR-style ratio (correct tab positions / correct unique pitches): {}. Simultaneous unisons can produce a ratio above 100%; it is not the complement of wrong-string rate.\n\nWrong-string among pitch-matched string instances: {} / {} = {}.\n\n| Manifest entry | Frames | Reference notes | Scored predicted notes | Omitted generated notes | Multi-pitch F1 | Tab-position F1 | Status |\n| ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n{details}\nOmitted generated notes are counted before clipping and excluded from scoring; they may have been true or false positives, so omission can change both precision and recall. Omission counts are unknown for failed entries and shown as n/a. Failures (including strict-EOS, decoding, assignment or short audio) count as empty predictions, never excluded; thus failures contribute reference false negatives but cannot estimate their hypothetical false positives. Pitch and tab metrics are 10 ms note-derived fixed-pitch frame sets, not continuous F0. The TDR-style ratio follows Wiggins and Kim (2019), Eq. 8, but the reference and frame grid differ from their protocol. No held-out split, tab-labeler-v3 baseline, or independent ground-truth pairing is established by the manifest. Keep the manifest and document data selection separately; supplied hashes verify identity against the manifest, not provenance or license. GuitarSet 1.1.0, Xi et al., CC BY 4.0; annotations can contain errors.\n", entries.len(), row("Multi-pitch frames", total.pitch_tp,total.pitch_ref,total.pitch_pred), row("Tab position frames", total.tab_tp,total.tab_ref,total.tab_pred), row("Pitch + onset notes", total.onset_tp,total.note_ref,total.note_pred), row("Pitch + onset + offset notes",total.onset_offset_tp,total.note_ref,total.note_pred), row("Tab + onset notes",total.tab_onset_tp,total.note_ref,total.note_pred), row("Tab + onset + offset notes",total.tab_onset_offset_tp,total.note_ref,total.note_pred), tdr(&total), total.wrong_string,total.pitch_string_matches,percent(total.wrong_string,total.pitch_string_matches)), failures))
 }
 
 pub fn evaluate_audio_manifest(
@@ -669,6 +713,7 @@ pub fn evaluate_audio_manifest(
     weights: &Path,
     size: mtab_core::ModelSize,
     max_tokens: usize,
+    partial: bool,
     report: Option<&Path>,
 ) -> Result<()> {
     if max_tokens == 0 || max_tokens > 2000 {
@@ -679,8 +724,8 @@ pub fn evaluate_audio_manifest(
     let weights_hash = sha256(weights)?;
     let model = mtab_core::lm::LmModel::load(mtab_core::lm::LmConfig::from_size(size), weights)?;
     let (mut result, failures) =
-        run_audio_entries(&entries, &size.to_string(), max_tokens, |entry| {
-            transcribe_for_evaluation(&model, entry, max_tokens)
+        run_audio_entries(&entries, &size.to_string(), max_tokens, partial, |entry| {
+            transcribe_for_evaluation(&model, entry, max_tokens, partial)
         })?;
     result.push_str(&format!("\n## Reproducibility identifiers\n\n- Audio manifest SHA-256: `{manifest_hash}`\n- Model weights SHA-256: `{weights_hash}`\n\nHashes identify bytes, not authorization, license, dataset completeness, or split independence.\n"));
     if let Some(path) = report {
@@ -743,10 +788,13 @@ mod tests {
             }],
         });
         let mut n = 0;
-        let (report, failures) = run_audio_entries(&entries, "fixture", 512, |_| {
+        let (report, failures) = run_audio_entries(&entries, "fixture", 512, false, |_| {
             n += 1;
             if n == 1 {
-                Ok(document.clone())
+                Ok(AudioPrediction {
+                    document: document.clone(),
+                    omitted_notes: 0,
+                })
             } else {
                 Err(fail("synthetic | failure"))
             }
@@ -767,10 +815,67 @@ mod tests {
             "{report}"
         );
         assert!(
-            report.contains("failed: ") && report.contains("synthetic   failure"),
+            report.contains("failed: ")
+                && report.contains("synthetic   failure")
+                && report.contains("| n/a |"),
             "{report}"
         );
     }
+    #[test]
+    fn partial_audio_evaluation_reports_omitted_predictions_and_scores_remaining() {
+        let event = mtab_core::NoteEvent {
+            start: 0.0,
+            end: 1.0,
+            midi: 40,
+            velocity: 100,
+            instrument: 24,
+        };
+        assert!(assign_for_evaluation(&[event, event], false).is_err());
+        let (assigned, omitted) = assign_for_evaluation(&[event, event], true).unwrap();
+        assert_eq!(omitted, 1);
+        assert_eq!(assigned.len(), 1);
+        let mut doc = empty_document();
+        doc.tracks.push(mtab_guitar::GuitarTrack {
+            tuning: Tuning::standard(),
+            capo: mtab_guitar::Capo::NONE,
+            instrument: None,
+            notes: assigned,
+        });
+        let entry = AudioEntry {
+            audio: "synthetic.wav".into(),
+            reference: vec![Reference {
+                note: event,
+                string: 0,
+            }],
+            duration: 1.0,
+            hashes_verified: false,
+        };
+        let (report, failures) = run_audio_entries(&[entry], "fixture", 512, true, |_| {
+            Ok(AudioPrediction {
+                document: doc.clone(),
+                omitted_notes: omitted,
+            })
+        })
+        .unwrap();
+        assert_eq!(failures, 0);
+        assert!(
+            report.contains("omitted generated notes in successful entries: 1"),
+            "{report}"
+        );
+        assert!(
+            report.contains("strict, then span-four partial retry"),
+            "{report}"
+        );
+        assert!(
+            report.contains("| 1 | 100 | 1 | 1 | 1 | 100.00% | 100.00% | ok |"),
+            "{report}"
+        );
+        assert!(
+            report.contains("they may have been true or false positives"),
+            "{report}"
+        );
+    }
+
     #[test]
     fn checked_in_audio_manifest_hashes_verify_before_loading_model() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -798,24 +903,27 @@ mod tests {
             duration: 0.5,
             hashes_verified: false,
         };
-        let first = transcribe_for_evaluation(&model, &entry, 2);
-        let second = transcribe_for_evaluation(&model, &entry, 2);
+        let first = transcribe_for_evaluation(&model, &entry, 2, false);
+        let second = transcribe_for_evaluation(&model, &entry, 2, false);
         match (first, second) {
             (Ok(a), Ok(b)) => assert_eq!(a, b),
             (Err(a), Err(b)) => assert_eq!(a.to_string(), b.to_string()),
             _ => panic!("synthetic-model inference must be deterministic"),
         }
-        let (report, failures) =
-            run_audio_entries(std::slice::from_ref(&entry), "tiny-test-only", 2, |e| {
-                transcribe_for_evaluation(&model, e, 2)
-            })
-            .unwrap();
+        let (report, failures) = run_audio_entries(
+            std::slice::from_ref(&entry),
+            "tiny-test-only",
+            2,
+            false,
+            |e| transcribe_for_evaluation(&model, e, 2, false),
+        )
+        .unwrap();
         assert!(report.contains("Entries: 1;") && report.contains("| Pitch + onset notes |"));
         if failures > 0 {
             assert!(report.contains("failed:"));
         }
         entry.duration = 6.0;
-        assert!(transcribe_for_evaluation(&model, &entry, 2)
+        assert!(transcribe_for_evaluation(&model, &entry, 2, false)
             .unwrap_err()
             .to_string()
             .contains("shorter"));

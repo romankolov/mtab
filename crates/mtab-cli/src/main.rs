@@ -100,6 +100,9 @@ struct EvalArgs {
     /// Model architecture for end-to-end evaluation
     #[arg(long, default_value = "small")]
     size: ModelSize,
+    /// Retry failed fingering with partial assignments in audio-manifest evaluation
+    #[arg(long, requires = "audio_manifest")]
+    partial_fingering: bool,
     /// Maximum generated tokens per chunk for end-to-end evaluation
     #[arg(long, default_value_t = 2000)]
     max_gen_len: usize,
@@ -342,6 +345,7 @@ fn eval(args: EvalArgs) -> Result<()> {
             args.weights.as_deref().expect("clap requires weights"),
             args.size,
             args.max_gen_len,
+            args.partial_fingering,
             args.report.as_deref(),
         );
     }
@@ -856,6 +860,29 @@ fn write_notes(writer: impl Write, notes: &[mtab_core::NoteEvent]) -> Result<()>
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    #[test]
+    fn partial_evaluation_requires_audio_manifest() {
+        assert!(Cli::try_parse_from([
+            "mtab",
+            "eval",
+            "--partial-fingering",
+            "--oracle-notes",
+            "--annotations",
+            "a.jams"
+        ])
+        .is_err());
+        assert!(Cli::try_parse_from([
+            "mtab",
+            "eval",
+            "--partial-fingering",
+            "--audio-manifest",
+            "manifest.json",
+            "--weights",
+            "w.safetensors"
+        ])
+        .is_ok());
+    }
 
     #[test]
     fn clap_definition_is_valid() {

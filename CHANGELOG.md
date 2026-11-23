@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Added `--partial-fingering` to audio-manifest evaluation with per-recording
+  omission counts and explicit scoring caveats. Official-weight evaluation of
+  this mode is still pending.
 - Reran the 360-file GuitarSet oracle-note evaluation with partial recovery;
   this measures reference-note fingering, not audio transcription or v3.
 - Add opt-in `--partial-report` recovery: omitted notes are listed in a JSON

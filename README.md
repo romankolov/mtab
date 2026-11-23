@@ -240,7 +240,13 @@ test dependency only, not an mtab runtime dependency.
 
 The model is loaded once. The evaluator uses only each audio prefix specified
 by its duration, greedy guitar-masked decoding with strict EOS, and standard
-tuning/capo zero/default fingering. If inference or fingering fails, that entry
+tuning/capo zero/default fingering. Pass `--partial-fingering` to evaluate the
+opt-in strict-then-partial policy instead. The report lists omitted generated
+notes for each successful entry (before window clipping); omitted notes may have
+been true or false positives, so their exclusion changes precision and recall.
+Omission counts for failed entries are unknown. This evaluation mode is tested
+with synthetic notes but has not yet been run with an official checkpoint.
+If inference or fingering fails, that entry
 is scored as an empty prediction, marked failed in the report, and the command
 returns an error after writing the report; such failures contribute false
 negatives but have unknown hypothetical false positives. It validates that
