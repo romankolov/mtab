@@ -291,6 +291,58 @@ fn scores_emitted_ir_framewise_and_rejects_misleading_inputs() {
             .status
             .success()
     );
+    let second_jams = scratch.0.join("reference2.jams");
+    let second_ir = scratch.0.join("prediction2.json");
+    std::fs::copy(&jams, &second_jams).unwrap();
+    std::fs::copy(&ir, &second_ir).unwrap();
+    let manifest = scratch.0.join("manifest.json");
+    let entry =
+        serde_json::json!({"annotation":"reference.jams", "ir":"prediction.json", "duration":2.0});
+    let entry2 = serde_json::json!({"annotation":"reference2.jams", "ir":"prediction2.json", "duration":2.0});
+    let write_manifest = |entries: Vec<serde_json::Value>| {
+        std::fs::write(&manifest, serde_json::to_vec(&entries).unwrap()).unwrap()
+    };
+    let run_manifest = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_mtab"))
+            .args(["eval", "--tab-manifest"])
+            .arg(&manifest)
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    write_manifest(vec![entry.clone(), entry2.clone()]);
+    let result = run_manifest(&[]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let text = String::from_utf8(result.stdout).unwrap();
+    assert!(
+        text.contains("| Multi-pitch frames | 400 | 0 | 0 | 100.00% | 100.00% | 100.00% |"),
+        "{text}"
+    );
+    assert!(
+        text.contains("| Tab position frames | 200 | 200 | 200 | 50.00% | 50.00% | 50.00% |"),
+        "{text}"
+    );
+    assert!(text.contains("200 / 400 = 50.00%"), "{text}");
+    for protected in [&manifest, &jams, &ir, &second_jams, &second_ir] {
+        assert!(!run_manifest(&["--report", protected.to_str().unwrap()])
+            .status
+            .success());
+    }
+    assert!(!run_manifest(&["--clip-duration", "2"]).status.success());
+    write_manifest(vec![entry.clone(), entry.clone()]);
+    assert!(!run_manifest(&[]).status.success());
+    write_manifest(vec![
+        entry.clone(),
+        serde_json::json!({"annotation":"reference2.jams", "ir":"prediction.json", "duration":2.0}),
+    ]);
+    assert!(!run_manifest(&[]).status.success());
+    write_manifest(vec![entry, entry2]);
+    std::fs::remove_file(&second_ir).unwrap();
+    assert!(!run_manifest(&[]).status.success());
     doc.tracks[0].tuning = Tuning::drop_d();
     save(&doc);
     assert!(!run(&["--clip-duration", "2"]).status.success());

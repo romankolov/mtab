@@ -68,29 +68,35 @@ enum Cmd {
         list: bool,
     },
     /// Run the evaluation harness (GuitarSet etc., PROMPT.md §6.14)
-    Eval {
-        /// Corpus to evaluate against
-        #[arg(long, default_value = "guitarset")]
-        corpus: String,
-        /// Path to a local GuitarSet .jams file or directory of .jams files
-        #[arg(long)]
-        annotations: Option<PathBuf>,
-        /// Evaluate string assignment on ground-truth notes (not audio transcription)
-        #[arg(long, conflicts_with_all = ["predictions", "tab_ir"])]
-        oracle_notes: bool,
-        /// Score a JSONL note transcription against one matching GuitarSet JAMS file
-        #[arg(long, conflicts_with_all = ["oracle_notes", "tab_ir"])]
-        predictions: Option<PathBuf>,
-        /// Score one emitted TabDocument IR against matching GuitarSet JAMS
-        #[arg(long, conflicts_with_all = ["oracle_notes", "predictions"], requires = "clip_duration")]
-        tab_ir: Option<PathBuf>,
-        /// Evaluation duration in seconds (required for tab-IR frame evaluation)
-        #[arg(long)]
-        clip_duration: Option<f64>,
-        /// Write a markdown report to this path (default: stdout)
-        #[arg(long)]
-        report: Option<PathBuf>,
-    },
+    Eval(EvalArgs),
+}
+
+#[derive(Args, Debug)]
+struct EvalArgs {
+    /// Corpus to evaluate against
+    #[arg(long, default_value = "guitarset")]
+    corpus: String,
+    /// Path to a local GuitarSet .jams file or directory of .jams files
+    #[arg(long)]
+    annotations: Option<PathBuf>,
+    /// Evaluate string assignment on ground-truth notes (not audio transcription)
+    #[arg(long, conflicts_with_all = ["predictions", "tab_ir", "tab_manifest"])]
+    oracle_notes: bool,
+    /// Score a JSONL note transcription against one matching GuitarSet JAMS file
+    #[arg(long, conflicts_with_all = ["oracle_notes", "tab_ir", "tab_manifest"])]
+    predictions: Option<PathBuf>,
+    /// Score one emitted TabDocument IR against matching GuitarSet JAMS
+    #[arg(long, conflicts_with_all = ["oracle_notes", "predictions", "tab_manifest"], requires = "clip_duration")]
+    tab_ir: Option<PathBuf>,
+    /// Score an explicit JSON manifest of annotation, IR, and duration entries
+    #[arg(long, conflicts_with_all = ["oracle_notes", "predictions", "tab_ir", "annotations", "clip_duration"])]
+    tab_manifest: Option<PathBuf>,
+    /// Evaluation duration in seconds (required for tab-IR frame evaluation)
+    #[arg(long)]
+    clip_duration: Option<f64>,
+    /// Write a markdown report to this path (default: stdout)
+    #[arg(long)]
+    report: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -201,23 +207,7 @@ fn run(cli: Cli) -> Result<()> {
         Some(Cmd::InspectWeights { path }) => inspect_weights(&path),
         Some(Cmd::DetectTuning { list, input }) => detect_tuning(list, input.as_deref()),
         Some(Cmd::Download { size, token_env }) => download(size, &token_env),
-        Some(Cmd::Eval {
-            corpus,
-            annotations,
-            oracle_notes,
-            predictions,
-            tab_ir,
-            clip_duration,
-            report,
-        }) => eval(
-            &corpus,
-            annotations.as_deref(),
-            oracle_notes,
-            predictions.as_deref(),
-            tab_ir.as_deref(),
-            clip_duration,
-            report.as_deref(),
-        ),
+        Some(Cmd::Eval(args)) => eval(args),
         Some(Cmd::Transcribe(args)) => transcribe(args),
     }
 }
@@ -324,44 +314,44 @@ fn download(size: ModelSize, token_env: &str) -> Result<()> {
     ))
 }
 
-fn eval(
-    corpus: &str,
-    annotations: Option<&std::path::Path>,
-    oracle_notes: bool,
-    predictions: Option<&std::path::Path>,
-    tab_ir: Option<&std::path::Path>,
-    clip_duration: Option<f64>,
-    report: Option<&std::path::Path>,
-) -> Result<()> {
-    if corpus != "guitarset" {
+fn eval(args: EvalArgs) -> Result<()> {
+    if args.corpus != "guitarset" {
         return Err(MtabError::NotImplemented(
             "only GuitarSet evaluation is supported",
         ));
     }
-    if !oracle_notes && predictions.is_none() && tab_ir.is_none() {
-        return Err(MtabError::NotImplemented("automatic end-to-end corpus evaluation; provide --predictions <JSONL> or use --oracle-notes"));
+    if let Some(manifest) = args.tab_manifest.as_deref() {
+        return guitarset_tab::evaluate_manifest(manifest, args.report.as_deref());
     }
-    let path = annotations.ok_or_else(|| {
+    if !args.oracle_notes && args.predictions.is_none() && args.tab_ir.is_none() {
+        return Err(MtabError::NotImplemented("automatic end-to-end corpus evaluation; provide --predictions <JSONL>, --tab-ir, --tab-manifest, or use --oracle-notes"));
+    }
+    let path = args.annotations.as_deref().ok_or_else(|| {
         MtabError::InvalidModelSource(
             "provide --annotations <local GuitarSet .jams file or directory>".into(),
         )
     })?;
-    if let Some(tab_ir) = tab_ir {
+    if let Some(tab_ir) = args.tab_ir.as_deref() {
         guitarset_tab::evaluate(
             path,
             tab_ir,
-            clip_duration.expect("clap requires duration"),
-            report,
+            args.clip_duration.expect("clap requires duration"),
+            args.report.as_deref(),
         )
-    } else if let Some(predictions) = predictions {
-        guitarset_notes::evaluate(path, predictions, clip_duration, report)
+    } else if let Some(predictions) = args.predictions.as_deref() {
+        guitarset_notes::evaluate(
+            path,
+            predictions,
+            args.clip_duration,
+            args.report.as_deref(),
+        )
     } else {
-        if clip_duration.is_some() {
+        if args.clip_duration.is_some() {
             return Err(MtabError::InvalidModelSource(
                 "--clip-duration requires --predictions or --tab-ir".into(),
             ));
         }
-        guitarset::evaluate(path, report)
+        guitarset::evaluate(path, args.report.as_deref())
     }
 }
 

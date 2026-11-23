@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Added strict JSON-manifest aggregation for multiple precomputed GuitarSet IR
+  evaluations, including per-recording rows and micro-aggregated frame counts.
+  It does not run inference and refuses missing, malformed or duplicate inputs.
 - Score one emitted standard-tuning/capo-zero TabDocument against matching
   GuitarSet JAMS using fixed-pitch 10 ms framewise multi-pitch and tab-position
   precision/recall/F1 and a pitch-matched wrong-string rate. Requires an

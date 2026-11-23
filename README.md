@@ -182,6 +182,22 @@ mtab eval --annotations recording.jams --tab-ir recording.json \
   --clip-duration 5 --report recording-eval.md
 ```
 
+For several precomputed recordings, make a JSON manifest (paths are relative
+to the manifest) and pass `--tab-manifest manifest.json --report eval.md`:
+
+```json
+[
+  {"annotation": "a.jams", "ir": "a.ir.json", "duration": 30.0},
+  {"annotation": "b.jams", "ir": "b.ir.json", "duration": 27.0}
+]
+```
+
+The manifest scorer micro-aggregates frame counts and includes a per-recording
+summary. It requires every listed input, rejects duplicate annotations or IR
+files, and fails instead of silently dropping a bad entry. It does not perform
+inference or prove that the selection is representative. Record the corpus
+split, model, and decoding settings separately.
+
 The IR score uses 10 ms frame centers and fixed MIDI notes (not continuous
 pitch contours), reports multi-pitch and tab-position precision/recall/F1,
 and gives a pitch-matched wrong-string rate. It does not implement TabCNN TDR,
