@@ -36,3 +36,4 @@ __pycache__/
 # Sample gallery: weights and run outputs are never committed (§10.1).
 samples/showcase/weights/
 samples/showcase/output/
+samples/showcase/audio/excerpt.wav
