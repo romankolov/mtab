@@ -1,0 +1,124 @@
+
+=== mtab --models  (0.0s, exit 0)
+MuScriptor model variants (weights are CC BY-NC 4.0, gated on Hugging Face):
+  small  ~103 M params, 14 layers, dim  768  MuScriptor/muscriptor-small
+  medium ~307 M params, 24 layers, dim 1024  MuScriptor/muscriptor-medium
+  large  ~1400M params, 48 layers, dim 1536  MuScriptor/muscriptor-large
+
+=== mtab detect-tuning --list  (0.0s, exit 0)
+supported tunings (open-string MIDI pitches, low string first):
+  standard [40 45 50 55 59 64]
+  half-step-down [39 44 49 54 58 63]
+  drop-d [38 45 50 55 59 64]
+  drop-c [36 43 48 53 57 62]
+  dadgad [38 45 50 55 57 62]
+  open-g [38 43 50 55 59 62]
+  open-d [38 45 50 54 57 62]
+  open-e [40 47 52 56 59 64]
+  7-string [35 40 45 50 55 59 64]
+  8-string [30 35 40 45 50 55 59 64]
+
+=== mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/full.gp5,/home/runner/work/mtab/mtab/samples/showcase/output/full.musicxml,/home/runner/work/mtab/mtab/samples/showcase/output/full.mid,/home/runner/work/mtab/mtab/samples/showcase/output/full.txt --tuning auto --capo auto --dynamics --techniques --chords --emit-ir /home/runner/work/mtab/mtab/samples/showcase/output/full.ir.json  (394.3s, exit 0)
+--- stderr ---
+transcribing chunks: 0/3
+transcribing chunks: 1/3
+transcribing chunks: 2/3
+transcribing chunks: 3/3
+warning: experimental dynamics estimate uses mixed audio; overlapping notes and other instruments can bias velocities
+warning: tuning/capo evidence is insufficient or ambiguous; using standard capo 0
+warning: no automatic beat tracking selected; MIDI uses raw timing and a fixed 120 BPM, 4/4 tempo map
+warning: experimental dead-note/palm-mute suggestions use fixed thresholds on a mix; review every mark before trusting it
+experimental techniques: 0 dead-note and 0 palm-mute suggestions attached to 54 input notes; absence is not proof of an open note
+chords: 0 symbols from detected notes (limited vocabulary; a symbol spans at least 0.25 s)
+warning: experimental GP5 uses fixed 120 BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift 30.0 ms; review the score
+warning: experimental MusicXML uses fixed 120 BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift 30.0 ms; velocities omitted, staves may double playback; MuseScore may change fingerings and lose capo or palm mutes
+warning: experimental ASCII tab uses fixed 120 BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift 30.0 ms; velocities omitted
+
+=== mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/strict.musicxml --seed 7 --strict-eos --format musicxml  (397.2s, exit 0)
+--- stderr ---
+transcribing chunks: 0/3
+transcribing chunks: 1/3
+transcribing chunks: 2/3
+transcribing chunks: 3/3
+warning: tuning/capo evidence is insufficient or ambiguous; using standard capo 0
+warning: no automatic beat tracking selected; MIDI uses raw timing and a fixed 120 BPM, 4/4 tempo map
+warning: experimental MusicXML uses fixed 120 BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift 30.0 ms; velocities omitted, staves may double playback; MuseScore may change fingerings and lose capo or palm mutes
+
+=== mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/beam.mid --beam-size 4 --format midi  (1561.8s, exit 0)
+--- stderr ---
+transcribing chunks: 0/3
+transcribing chunks: 1/3
+transcribing chunks: 2/3
+transcribing chunks: 3/3
+warning: tuning/capo evidence is insufficient or ambiguous; using standard capo 0
+warning: no automatic beat tracking selected; MIDI uses raw timing and a fixed 120 BPM, 4/4 tempo map
+
+=== mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/sampled.mid --temperature 0.9 --seed 42 --format midi  (395.9s, exit 0)
+--- stderr ---
+transcribing chunks: 0/3
+transcribing chunks: 1/3
+transcribing chunks: 2/3
+transcribing chunks: 3/3
+warning: tuning/capo evidence is insufficient or ambiguous; using standard capo 0
+warning: no automatic beat tracking selected; MIDI uses raw timing and a fixed 120 BPM, 4/4 tempo map
+
+=== mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/tuning.gp5 --tuning drop-d --capo 2 --format gp5  (395.1s, exit 0)
+--- stderr ---
+transcribing chunks: 0/3
+transcribing chunks: 1/3
+transcribing chunks: 2/3
+transcribing chunks: 3/3
+warning: no automatic beat tracking selected; MIDI uses raw timing and a fixed 120 BPM, 4/4 tempo map
+warning: experimental GP5 uses fixed 120 BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift 30.0 ms; review the score
+
+=== mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/raw.mid --grid off --format midi  (392.5s, exit 0)
+--- stderr ---
+transcribing chunks: 0/3
+transcribing chunks: 1/3
+transcribing chunks: 2/3
+transcribing chunks: 3/3
+warning: tuning/capo evidence is insufficient or ambiguous; using standard capo 0
+warning: no automatic beat tracking selected; MIDI uses raw timing and a fixed 120 BPM, 4/4 tempo map
+
+=== mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/dynamic.mid --experimental-beat-tracking --format midi  (392.8s, exit 0)
+--- stderr ---
+warning: experimental beat tracking is inaccurate, can lock to offbeats or subdivisions, has no confidence or downbeat detection, and requires review; meter is assumed 4/4
+experimental beat hypothesis: 46.88 BPM, 10 beats (not a confidence score)
+transcribing chunks: 0/3
+transcribing chunks: 1/3
+transcribing chunks: 2/3
+transcribing chunks: 3/3
+warning: tuning/capo evidence is insufficient or ambiguous; using standard capo 0
+warning: MIDI uses raw note timing with an experimental beat hypothesis and assumed 4/4 meter; inspect the result
+
+=== mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/jsonl.jsonl --format jsonl  (392.9s, exit 0)
+--- stderr ---
+transcribing chunks: 0/3
+transcribing chunks: 1/3
+transcribing chunks: 2/3
+transcribing chunks: 3/3
+
+=== mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --seed 11 --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/det_a.musicxml  (402.9s, exit 0)
+--- stderr ---
+transcribing chunks: 0/3
+transcribing chunks: 1/3
+transcribing chunks: 2/3
+transcribing chunks: 3/3
+warning: tuning/capo evidence is insufficient or ambiguous; using standard capo 0
+warning: no automatic beat tracking selected; MIDI uses raw timing and a fixed 120 BPM, 4/4 tempo map
+warning: experimental MusicXML uses fixed 120 BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift 30.0 ms; velocities omitted, staves may double playback; MuseScore may change fingerings and lose capo or palm mutes
+
+=== mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --seed 11 --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/det_b.musicxml  (404.4s, exit 0)
+--- stderr ---
+transcribing chunks: 0/3
+transcribing chunks: 1/3
+transcribing chunks: 2/3
+transcribing chunks: 3/3
+warning: tuning/capo evidence is insufficient or ambiguous; using standard capo 0
+warning: no automatic beat tracking selected; MIDI uses raw timing and a fixed 120 BPM, 4/4 tempo map
+warning: experimental MusicXML uses fixed 120 BPM, 4/4 and 1/32 quantization regardless of --grid; maximum timing shift 30.0 ms; velocities omitted, staves may double playback; MuseScore may change fingerings and lose capo or palm mutes
+
+=== mtab transcribe /home/runner/work/mtab/mtab/samples/showcase/output/not-audio.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors  (5.6s, exit 1)
+--- stderr ---
+error: unsupported audio: /home/runner/work/mtab/mtab/samples/showcase/output/not-audio.wav: unsupported feature: core (probe): no suitable format reader found
+  hint: mtab decodes wav/mp3/flac/ogg/m4a; convert with ffmpeg if needed

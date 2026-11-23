@@ -1,0 +1,184 @@
+{
+  "size": "large",
+  "audio": "excerpt.wav",
+  "weights": "muscriptor-large.safetensors",
+  "demos": [
+    {
+      "id": "models",
+      "title": "Model variants",
+      "why": "Built-in catalogue, no weights needed.",
+      "command": "mtab --models",
+      "status": 0,
+      "seconds": 0.0012466907501220703,
+      "dir": null,
+      "text": "MuScriptor model variants (weights are CC BY-NC 4.0, gated on Hugging Face):\n  small  ~103 M params, 14 layers, dim  768  MuScriptor/muscriptor-small\n  medium ~307 M params, 24 layers, dim 1024  MuScriptor/muscriptor-medium\n  large  ~1400M params, 48 layers, dim 1536  MuScriptor/muscriptor-large\n",
+      "outputs": []
+    },
+    {
+      "id": "tunings",
+      "title": "Known tunings",
+      "why": "Built-in catalogue, no weights needed.",
+      "command": "mtab detect-tuning --list",
+      "status": 0,
+      "seconds": 0.0008025169372558594,
+      "dir": null,
+      "text": "supported tunings (open-string MIDI pitches, low string first):\n  standard [40 45 50 55 59 64]\n  half-step-down [39 44 49 54 58 63]\n  drop-d [38 45 50 55 59 64]\n  drop-c [36 43 48 53 57 62]\n  dadgad [38 45 50 55 57 62]\n  open-g [38 43 50 55 59 62]\n  open-d [38 45 50 54 57 62]\n  open-e [40 47 52 56 59 64]\n  7-string [35 40 45 50 55 59 64]\n  8-string [30 35 40 45 50 55 59 64]\n",
+      "outputs": []
+    },
+    {
+      "id": "full",
+      "title": "Everything at once",
+      "why": "The happy path from the acceptance criteria: one command, MIDI + Guitar Pro + MusicXML + ASCII tab + the intermediate IR.",
+      "expect": "ok",
+      "note": "",
+      "command": "mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/full.gp5,/home/runner/work/mtab/mtab/samples/showcase/output/full.musicxml,/home/runner/work/mtab/mtab/samples/showcase/output/full.mid,/home/runner/work/mtab/mtab/samples/showcase/output/full.txt --tuning auto --capo auto --dynamics --techniques --chords --emit-ir /home/runner/work/mtab/mtab/samples/showcase/output/full.ir.json",
+      "status": 0,
+      "signal": null,
+      "seconds": 394.30128931999207,
+      "dir": "/home/runner/work/mtab/mtab/samples/showcase/output",
+      "text": "",
+      "outputs": [
+        "full.gp5",
+        "full.musicxml",
+        "full.mid",
+        "full.txt"
+      ]
+    },
+    {
+      "id": "strict",
+      "title": "Greedy decoding, strict EOS",
+      "why": "The deterministic default: no sampling, fail loudly if a chunk never emits EOS. Same flags twice must give identical bytes.",
+      "expect": "failure",
+      "note": "Expected: strict EOS refuses a chunk that runs past the token budget instead of silently truncating the notes.",
+      "command": "mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/strict.musicxml --seed 7 --strict-eos --format musicxml",
+      "status": 0,
+      "signal": null,
+      "seconds": 397.18647170066833,
+      "dir": "/home/runner/work/mtab/mtab/samples/showcase/output",
+      "text": "",
+      "outputs": [
+        "strict.musicxml"
+      ]
+    },
+    {
+      "id": "beam",
+      "title": "Beam search",
+      "why": "Wider search over the same chunk, at a multiple of the decode cost.",
+      "expect": "ok",
+      "note": "",
+      "command": "mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/beam.mid --beam-size 4 --format midi",
+      "status": 0,
+      "signal": null,
+      "seconds": 1561.809838294983,
+      "dir": "/home/runner/work/mtab/mtab/samples/showcase/output",
+      "text": "",
+      "outputs": [
+        "beam.mid"
+      ]
+    },
+    {
+      "id": "sampled",
+      "title": "Seeded sampling",
+      "why": "Temperature sampling is deterministic given --seed, so a sample is reproducible without being greedy.",
+      "expect": "ok",
+      "note": "",
+      "command": "mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/sampled.mid --temperature 0.9 --seed 42 --format midi",
+      "status": 0,
+      "signal": null,
+      "seconds": 395.9497067928314,
+      "dir": "/home/runner/work/mtab/mtab/samples/showcase/output",
+      "text": "",
+      "outputs": [
+        "sampled.mid"
+      ]
+    },
+    {
+      "id": "tuning",
+      "title": "Fixed tuning and capo",
+      "why": "Skip detection and fretting for a drop-D guitar with a capo at fret 2.",
+      "expect": "ok",
+      "note": "",
+      "command": "mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/tuning.gp5 --tuning drop-d --capo 2 --format gp5",
+      "status": 0,
+      "signal": null,
+      "seconds": 395.13257479667664,
+      "dir": "/home/runner/work/mtab/mtab/samples/showcase/output",
+      "text": "",
+      "outputs": [
+        "tuning.gp5"
+      ]
+    },
+    {
+      "id": "raw",
+      "title": "Unquantized timing",
+      "why": "Raw model timing with no grid at all, for rubato passages that a fixed grid would flatten.",
+      "expect": "ok",
+      "note": "",
+      "command": "mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/raw.mid --grid off --format midi",
+      "status": 0,
+      "signal": null,
+      "seconds": 392.4960677623749,
+      "dir": "/home/runner/work/mtab/mtab/samples/showcase/output",
+      "text": "",
+      "outputs": [
+        "raw.mid"
+      ]
+    },
+    {
+      "id": "dynamic",
+      "title": "Detected tempo, not a fixed grid",
+      "why": "Beat tracking instead of a constant BPM: MIDI keeps the rubato rather than snapping to a grid.",
+      "expect": "ok",
+      "note": "",
+      "command": "mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/dynamic.mid --experimental-beat-tracking --format midi",
+      "status": 0,
+      "signal": null,
+      "seconds": 392.80011796951294,
+      "dir": "/home/runner/work/mtab/mtab/samples/showcase/output",
+      "text": "",
+      "outputs": [
+        "dynamic.mid"
+      ]
+    },
+    {
+      "id": "jsonl",
+      "title": "Machine-readable notes",
+      "why": "The same decode as JSON Lines, one NoteEvent per line, for downstream tooling.",
+      "expect": "ok",
+      "note": "",
+      "command": "mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/jsonl.jsonl --format jsonl",
+      "status": 0,
+      "signal": null,
+      "seconds": 392.88728952407837,
+      "dir": "/home/runner/work/mtab/mtab/samples/showcase/output",
+      "text": "",
+      "outputs": [
+        "jsonl.jsonl"
+      ]
+    },
+    {
+      "id": "determinism",
+      "title": "Determinism",
+      "why": "Same audio, weights and --seed, run twice: byte-identical output is required by \u00a76.14.6.",
+      "command": "mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --seed 11 --max-gen-len 2000 -o <a>  (twice)",
+      "status": 0,
+      "seconds": null,
+      "dir": null,
+      "text": "identical",
+      "outputs": []
+    },
+    {
+      "id": "error",
+      "title": "Actionable failure",
+      "expect": "failure",
+      "note": "",
+      "why": "A malformed audio file: the error names the problem and the next step, as \u00a76.4 requires.",
+      "command": "mtab transcribe not-audio.wav ...",
+      "status": 1,
+      "seconds": 5.598859786987305,
+      "dir": null,
+      "text": "error: unsupported audio: /home/runner/work/mtab/mtab/samples/showcase/output/not-audio.wav: unsupported feature: core (probe): no suitable format reader found\n  hint: mtab decodes wav/mp3/flac/ogg/m4a; convert with ffmpeg if needed",
+      "outputs": []
+    }
+  ]
+}

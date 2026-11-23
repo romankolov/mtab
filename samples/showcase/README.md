@@ -77,6 +77,38 @@ It is still real audio, real weights and a real decode; it just finishes. The
 timeout is 350 minutes and the job runs on `workflow_dispatch` rather than on
 every push. Dispatch with `size: small` for the fastest sample.
 
+## Real CI run
+
+`ci-run-large/` is the unedited output of the workflow at `large` on the
+12-second excerpt — the gallery page plus every artifact it links. It is checked
+in as evidence that the pipeline works on real weights, not as a golden; the
+numbers below are from that run.
+
+| Demo | Exit | Time |
+| --- | --- | --- |
+| Everything at once (4 files) | 0 | 394 s |
+| Greedy, strict EOS | 0 | 397 s |
+| Beam search (beam 4) | 0 | 1562 s |
+| Seeded sampling | 0 | 396 s |
+| Fixed tuning and capo | 0 | 395 s |
+| Unquantized timing | 0 | 393 s |
+| Detected tempo | 0 | 393 s |
+| Machine-readable notes | 0 | 393 s |
+| Determinism | 0 | — |
+| Actionable failure | 1 (by design) | 6 s |
+
+The `large` model found 54 notes across strings 1, 3, 4, 5 and 6, frets 0–7, in
+standard tuning with no capo: MIDI 43–69, all on the clean-electric guitar
+program. `full.musicxml` and `strict.musicxml` came out byte-identical (50 484
+bytes each) from two independent invocations, which is the determinism
+requirement (§6.14.6) checked by a second route.
+
+Two honest caveats. The input is a full mix, so the guitar is competing with
+everything else — `--separate` exists for exactly this and was not used. And the
+strict-EOS demo did *not* refuse here as it does on the `small` weights: it
+finished within the token budget, so its card reports "expected a refusal, got
+success" rather than quietly relabelling itself as fine.
+
 ## Audio
 
 `audio/sample.wav` is the supplied 87-second clip, converted to mono 16 kHz WAV

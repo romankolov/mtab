@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>mtab sample gallery</title><style>
+body{font:15px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+     margin:0;padding:2.5rem 1.5rem;max-width:60rem;color:#1a1a1a;background:#fafafa}
+h1{margin:0 0 .3rem;font-size:1.9rem;letter-spacing:-.02em}
+.sub{color:#666;margin:0 0 2rem}
+.card{background:#fff;border:1px solid #e3e3e3;border-radius:10px;padding:1.2rem 1.35rem;
+      margin:0 0 1.1rem;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.card h2{margin:0 0 .35rem;font-size:1.1rem}
+.why{color:#555;margin:0 0 .8rem}
+code{background:#f3f3f3;border-radius:4px;padding:.15rem .35rem;font-size:.86em}
+pre{background:#1e1e1e;color:#e8e8e8;border-radius:7px;padding:.85rem;overflow-x:auto;
+    font-size:.82rem;margin:.6rem 0}
+.badge{display:inline-block;font-size:.74rem;font-weight:600;padding:.16rem .5rem;
+       border-radius:99px;margin-left:.5rem;vertical-align:middle}
+.ok{background:#e3f6e5;color:#116b25}.bad{background:#fde8e8;color:#9b1c1c}
+.expected{background:#fff3d6;color:#8a5a00}
+.note{color:#8a5a00;background:#fffaf0;border-left:3px solid #f0c36d;
+      padding:.45rem .7rem;margin:0 0 .8rem;font-size:.9rem}
+.files{display:flex;flex-wrap:wrap;gap:.45rem;margin:.7rem 0 0}
+.files a{display:inline-block;background:#eef3fb;color:#1c4fd8;text-decoration:none;
+         border-radius:6px;padding:.32rem .6rem;font-size:.85rem}
+.files a:hover{background:#dde7fa}
+table{border-collapse:collapse;font-size:.88rem}
+td{padding:.15rem .8rem .15rem 0;vertical-align:top}
+.k{color:#777}
+audio{width:100%;margin:.5rem 0 0}
+</style></head><body>
+<h1>mtab &mdash; what the CLI can do</h1>
+<p class="sub">Every artifact below was produced by the command shown above it,
+using the <strong>large</strong> MuScriptor checkpoint on
+<code>excerpt.wav</code>. Weights are CC BY-NC 4.0 and are
+never bundled; the workflow downloads them with a repository secret.</p>
+<table>
+<tr><td class="k">model</td><td>large</td></tr>
+<tr><td class="k">weights</td><td>muscriptor-large.safetensors</td></tr>
+<tr><td class="k">input</td><td>excerpt.wav</td></tr>
+</table>
+
+<div class="card">
+  <h2>Model variants<span class="badge ok">ok</span></h2>
+  <p class="why">Built-in catalogue, no weights needed. &middot; 0.0s</p>
+  
+  <pre>$ mtab --models</pre>
+  <pre>MuScriptor model variants (weights are CC BY-NC 4.0, gated on Hugging Face):
+  small  ~103 M params, 14 layers, dim  768  MuScriptor/muscriptor-small
+  medium ~307 M params, 24 layers, dim 1024  MuScriptor/muscriptor-medium
+  large  ~1400M params, 48 layers, dim 1536  MuScriptor/muscriptor-large</pre>
+  
+</div>
+<div class="card">
+  <h2>Known tunings<span class="badge ok">ok</span></h2>
+  <p class="why">Built-in catalogue, no weights needed. &middot; 0.0s</p>
+  
+  <pre>$ mtab detect-tuning --list</pre>
+  <pre>supported tunings (open-string MIDI pitches, low string first):
+  standard [40 45 50 55 59 64]
+  half-step-down [39 44 49 54 58 63]
+  drop-d [38 45 50 55 59 64]
+  drop-c [36 43 48 53 57 62]
+  dadgad [38 45 50 55 57 62]
+  open-g [38 43 50 55 59 62]
+  open-d [38 45 50 54 57 62]
+  open-e [40 47 52 56 59 64]
+  7-string [35 40 45 50 55 59 64]
+  8-string [30 35 40 45 50 55 59 64]</pre>
+  
+</div>
+<div class="card">
+  <h2>Everything at once<span class="badge ok">ok</span></h2>
+  <p class="why">The happy path from the acceptance criteria: one command, MIDI + Guitar Pro + MusicXML + ASCII tab + the intermediate IR. &middot; 394.3s</p>
+  
+  <pre>$ mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/full.gp5,/home/runner/work/mtab/mtab/samples/showcase/output/full.musicxml,/home/runner/work/mtab/mtab/samples/showcase/output/full.mid,/home/runner/work/mtab/mtab/samples/showcase/output/full.txt --tuning auto --capo auto --dynamics --techniques --chords --emit-ir /home/runner/work/mtab/mtab/samples/showcase/output/full.ir.json</pre>
+  
+  <div class="files"><a href="full.gp5">full.gp5</a><a href="full.musicxml">full.musicxml</a><a href="full.mid">full.mid</a><a href="full.txt">full.txt</a></div>
+</div>
+<div class="card">
+  <h2>Greedy decoding, strict EOS<span class="badge bad">expected a refusal, got success</span></h2>
+  <p class="why">The deterministic default: no sampling, fail loudly if a chunk never emits EOS. Same flags twice must give identical bytes. &middot; 397.2s</p>
+  <p class="note">This run did not exercise the refusal path.</p>
+  <pre>$ mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/strict.musicxml --seed 7 --strict-eos --format musicxml</pre>
+  
+  <div class="files"><a href="strict.musicxml">strict.musicxml</a></div>
+</div>
+<div class="card">
+  <h2>Beam search<span class="badge ok">ok</span></h2>
+  <p class="why">Wider search over the same chunk, at a multiple of the decode cost. &middot; 1561.8s</p>
+  
+  <pre>$ mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/beam.mid --beam-size 4 --format midi</pre>
+  
+  <div class="files"><a href="beam.mid">beam.mid</a></div>
+</div>
+<div class="card">
+  <h2>Seeded sampling<span class="badge ok">ok</span></h2>
+  <p class="why">Temperature sampling is deterministic given --seed, so a sample is reproducible without being greedy. &middot; 395.9s</p>
+  
+  <pre>$ mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/sampled.mid --temperature 0.9 --seed 42 --format midi</pre>
+  
+  <div class="files"><a href="sampled.mid">sampled.mid</a></div>
+</div>
+<div class="card">
+  <h2>Fixed tuning and capo<span class="badge ok">ok</span></h2>
+  <p class="why">Skip detection and fretting for a drop-D guitar with a capo at fret 2. &middot; 395.1s</p>
+  
+  <pre>$ mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/tuning.gp5 --tuning drop-d --capo 2 --format gp5</pre>
+  
+  <div class="files"><a href="tuning.gp5">tuning.gp5</a></div>
+</div>
+<div class="card">
+  <h2>Unquantized timing<span class="badge ok">ok</span></h2>
+  <p class="why">Raw model timing with no grid at all, for rubato passages that a fixed grid would flatten. &middot; 392.5s</p>
+  
+  <pre>$ mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/raw.mid --grid off --format midi</pre>
+  
+  <div class="files"><a href="raw.mid">raw.mid</a></div>
+</div>
+<div class="card">
+  <h2>Detected tempo, not a fixed grid<span class="badge ok">ok</span></h2>
+  <p class="why">Beat tracking instead of a constant BPM: MIDI keeps the rubato rather than snapping to a grid. &middot; 392.8s</p>
+  
+  <pre>$ mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/dynamic.mid --experimental-beat-tracking --format midi</pre>
+  
+  <div class="files"><a href="dynamic.mid">dynamic.mid</a></div>
+</div>
+<div class="card">
+  <h2>Machine-readable notes<span class="badge ok">ok</span></h2>
+  <p class="why">The same decode as JSON Lines, one NoteEvent per line, for downstream tooling. &middot; 392.9s</p>
+  
+  <pre>$ mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --max-gen-len 2000 -o /home/runner/work/mtab/mtab/samples/showcase/output/jsonl.jsonl --format jsonl</pre>
+  
+  <div class="files"><a href="jsonl.jsonl">jsonl.jsonl</a></div>
+</div>
+<div class="card">
+  <h2>Determinism<span class="badge ok">ok</span></h2>
+  <p class="why">Same audio, weights and --seed, run twice: byte-identical output is required by §6.14.6.</p>
+  
+  <pre>$ mtab transcribe samples/showcase/audio/excerpt.wav --size large --weights /home/runner/work/_temp/weights/muscriptor-large.safetensors --seed 11 --max-gen-len 2000 -o &lt;a&gt;  (twice)</pre>
+  <pre>identical</pre>
+  
+</div>
+<div class="card">
+  <h2>Actionable failure<span class="badge expected">exit 1, as designed</span></h2>
+  <p class="why">A malformed audio file: the error names the problem and the next step, as §6.4 requires. &middot; 5.6s</p>
+  
+  <pre>$ mtab transcribe not-audio.wav ...</pre>
+  <pre>error: unsupported audio: /home/runner/work/mtab/mtab/samples/showcase/output/not-audio.wav: unsupported feature: core (probe): no suitable format reader found
+  hint: mtab decodes wav/mp3/flac/ogg/m4a; convert with ffmpeg if needed</pre>
+  
+</div>
+</body></html>

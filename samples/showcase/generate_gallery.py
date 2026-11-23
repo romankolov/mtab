@@ -249,13 +249,20 @@ def render(out, summary):
             label = f"exit {demo['status']}"
         if ok and not expected_failure:
             badge = '<span class="badge ok">ok</span>'
+            note = demo.get("note") or ""
         elif not ok and expected_failure:
             # Not hidden and not dressed up as success: a refusal like this is
             # the product working as designed.
             badge = f'<span class="badge expected">{label}, as designed</span>'
+            note = demo.get("note") or ""
+        elif ok and expected_failure:
+            # The demo was meant to be refused and was not. Say that plainly:
+            # the label would otherwise read "exit 0" on a red card.
+            badge = '<span class="badge bad">expected a refusal, got success</span>'
+            note = "This run did not exercise the refusal path."
         else:
             badge = f'<span class="badge bad">{label}</span>'
-        note = demo.get("note") or ""
+            note = demo.get("note") or ""
         timing = f' &middot; {demo["seconds"]:.1f}s' if demo["seconds"] else ""
         files = ""
         if demo["outputs"]:
