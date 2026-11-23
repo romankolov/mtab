@@ -6,7 +6,23 @@ versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+- Audio decoding now rejects hostile containers instead of aborting. Bounded
+  libFuzzer campaigns against the safetensors loader and the Symphonia decode
+  path found five upstream defects: a zero-sample-rate `TimeBase` assert, an
+  ADTS frame-count subtraction underflow, up-front multi-gigabyte allocations
+  from forged FLAC picture/Vorbis-comment lengths, an FLAC application-block
+  underflow, and an out-of-bounds AAC scalefactor-band index. Four Symphonia
+  0.5.5 crates are vendored under `vendor/` with minimal hardening patches
+  (MPL-2.0, edits documented per crate) and `mtab-audio` enforces absolute
+  decoded-sample and duration limits. Regression seeds are tracked in
+  `fuzz/seeds/` and two decode tests cover zero-rate and truncated headers.
+  A single-core, time-boxed campaign is not proof of memory safety.
+
 ### Added
+- Opt-in `cargo-fuzz` targets for the safetensors loader and audio decoding,
+  with synthetic tracked seeds, a seeding helper, ignored corpora, and a
+  findings log. They require a nightly toolchain and are not part of CI.
 - A predeclared beat-path tightness grid and separate 50-take validation,
   including all per-recording results and input hashes. Automatic tracking
   remains experimental and is not enabled in the CLI.

@@ -1,5 +1,11 @@
 //! Audio file decoding via `symphonia` (PROMPT.md §6.1): wav/mp3/flac/ogg/m4a
 //! → interleaved [`AudioBuffer`].
+//!
+//! Absolute output limits bound what a hostile header can make the decoder
+//! allocate: expanded samples may not exceed [`MAX_DECODED_SAMPLES`] and the
+//! declared stream duration may not exceed [`MAX_DECODED_SECONDS`]. Both are
+//! checked before or while decoding, so a forged FLAC/WAV length fails with an
+//! error instead of exhausting memory.
 
 use std::fs::File;
 use std::path::Path;
@@ -15,6 +21,14 @@ use symphonia::core::probe::Hint;
 use mtab_core::{MtabError, Result};
 
 use crate::AudioBuffer as MtabBuffer;
+
+/// Maximum interleaved f32 samples retained from one file (about 1.5 GiB at
+/// 4 bytes per sample, i.e. roughly 2 hours of 44.1 kHz stereo).
+pub const MAX_DECODED_SAMPLES: usize = 400_000_000;
+
+/// Maximum declared or decoded stream duration in seconds (24 hours). Longer
+/// files are rejected rather than silently truncated.
+pub const MAX_DECODED_SECONDS: f64 = 86_400.0;
 
 /// Decode an audio file to interleaved f32 samples at the file's native rate.
 pub fn load(path: &Path) -> Result<MtabBuffer> {
@@ -52,6 +66,29 @@ pub fn load(path: &Path) -> Result<MtabBuffer> {
         .channels
         .map(|c| c.count() as u16)
         .unwrap_or(1);
+
+    if sample_rate == 0 || channels == 0 {
+        return Err(MtabError::UnsupportedAudio(format!(
+            "{}: invalid stream parameters",
+            path.display()
+        )));
+    }
+
+    // Reject an impossible declared duration before allocating anything, and
+    // reject a declared frame count that cannot fit in the sample budget.
+    if let Some(frames) = track.codec_params.n_frames {
+        let seconds = frames as f64 / f64::from(sample_rate);
+        let worst_case: usize = frames
+            .saturating_mul(u64::from(channels))
+            .try_into()
+            .unwrap_or(usize::MAX);
+        if !(0.0..=MAX_DECODED_SECONDS).contains(&seconds) || worst_case > MAX_DECODED_SAMPLES {
+            return Err(MtabError::UnsupportedAudio(format!(
+                "{}: declared stream exceeds decode limits",
+                path.display()
+            )));
+        }
+    }
 
     let mut decoder = symphonia::default::get_codecs()
         .make(&track.codec_params, &DecoderOptions::default())
@@ -107,13 +144,30 @@ pub fn load(path: &Path) -> Result<MtabBuffer> {
         let planes = buf.planes();
         let planes = planes.planes();
         let frames = buf.frames();
-        samples.reserve(frames * channels as usize);
+        let new_len = samples
+            .len()
+            .checked_add(frames.saturating_mul(channels as usize))
+            .filter(|n| *n <= MAX_DECODED_SAMPLES)
+            .ok_or_else(|| MtabError::DecodeFailure {
+                chunk_index,
+                reason: format!("decoded audio exceeds {MAX_DECODED_SAMPLES} samples"),
+            })?;
+        samples.reserve(new_len - samples.len());
         for f in 0..frames {
             for plane in planes {
                 samples.push(plane[f]);
             }
         }
         chunk_index += 1;
+    }
+
+    if samples.len() / channels as usize
+        > (MAX_DECODED_SECONDS * f64::from(sample_rate)) as u64 as usize
+    {
+        return Err(MtabError::DecodeFailure {
+            chunk_index,
+            reason: "decoded audio exceeds duration limit".to_owned(),
+        });
     }
 
     if samples.is_empty() {

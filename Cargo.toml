@@ -21,3 +21,9 @@ rust-version = "1.75"
 lto = "thin"
 codegen-units = 1
 strip = "debuginfo"
+
+[patch.crates-io]
+symphonia-format-riff = { path = "vendor/symphonia-format-riff" }
+symphonia-codec-aac = { path = "vendor/symphonia-codec-aac" }
+symphonia-metadata = { path = "vendor/symphonia-metadata" }
+symphonia-utils-xiph = { path = "vendor/symphonia-utils-xiph" }

@@ -1,0 +1,36 @@
+[package]
+name = "mtab-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+mtab-core = { path = "../crates/mtab-core" }
+mtab-audio = { path = "../crates/mtab-audio" }
+
+[[bin]]
+name = "safetensors"
+path = "fuzz_targets/safetensors.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "audio_decode"
+path = "fuzz_targets/audio_decode.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]
+
+[patch.crates-io]
+symphonia-format-riff = { path = "../vendor/symphonia-format-riff" }
+symphonia-codec-aac = { path = "../vendor/symphonia-codec-aac" }
+symphonia-metadata = { path = "../vendor/symphonia-metadata" }
+symphonia-utils-xiph = { path = "../vendor/symphonia-utils-xiph" }
