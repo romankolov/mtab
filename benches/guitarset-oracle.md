@@ -33,8 +33,9 @@ cargo run --locked --release -p mtab-cli -- eval --corpus guitarset \
 ```
 
 On GitHub Actions, manually run `Nightly` with `run_oracle=true` for this
-annotation-only evaluation. The separate end-to-end `run_eval` is not
-implemented. Evaluation uses the annotation's string index (low E = 0), rounds
+annotation-only evaluation. The separate end-to-end `run_eval` covers only the
+checked-in five-second development excerpt and requires authorized small-model
+weights; it has not been run on GitHub. Evaluation uses the annotation's string index (low E = 0), rounds
 reference MIDI pitch to the nearest semitone, preserves annotation times, and
 assumes standard tuning, capo 0. The adaptive mode first tries a 4-fret span,
 then retries with a 7-fret limit; every recovered excerpt actually used a span
