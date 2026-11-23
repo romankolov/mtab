@@ -1,0 +1,3 @@
+# This licensed fixture is referenced by SHA-256 in the audio evaluation
+# manifest. Keep its checked-out bytes stable on Windows as well as Unix.
+crates/mtab-cli/tests/fixtures/guitarset/guitarset_solo_5s.jams text eol=lf
