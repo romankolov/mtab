@@ -68,12 +68,14 @@ generated tokens, which grows with audio length. Measured on a 2-vCPU container:
   per 5-second chunk at typical density.
 - `large` (5.47 GB): needs ~5.5 GB resident for the fp32 weights plus the KV
   cache. Beam 4 multiplies the KV cache by four.
-- The 87-second clip is 18 chunks. At ~200 tokens/chunk that is a few thousand
-  tokens, i.e. **hours**, not minutes, on a hosted runner.
+- Measured in CI at `small`: 236 s per pass over the whole 87-second clip, and
+  beam 4 costs 1041 s — the gallery decodes once per demo, so the full clip is
+  hours of runner time at `large`.
 
-That is why the job has a 350-minute timeout and runs on `workflow_dispatch`
-rather than on every push. If you want a fast sample, dispatch it with
-`size: small`, which is roughly 3.5x fewer parameters and far cheaper per token.
+For that reason the workflow decodes a **12-second excerpt** of the same clip.
+It is still real audio, real weights and a real decode; it just finishes. The
+timeout is 350 minutes and the job runs on `workflow_dispatch` rather than on
+every push. Dispatch with `size: small` for the fastest sample.
 
 ## Audio
 

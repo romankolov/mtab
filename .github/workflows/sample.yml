@@ -97,7 +97,7 @@ jobs:
           import struct, wave
           src = "samples/showcase/audio/sample.wav"
           dst = "samples/showcase/audio/excerpt.wav"
-          seconds = 20
+          seconds = 12
           with wave.open(src) as reader:
               frames = min(int(seconds * reader.getframerate()), reader.getnframes())
               data = reader.readframes(frames)
