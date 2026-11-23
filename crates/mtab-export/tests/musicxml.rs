@@ -230,6 +230,38 @@ fn independent_chord_symbols_schema_and_semantics() {
 
 #[test]
 #[ignore = "requires lxml and the bundled MusicXML 3.1 schema"]
+fn independent_pull_off_schema_and_semantics() {
+    let mut doc = fixture();
+    // Capo 2, string 2 (D3 = 50, sounding 52): A3 at fret 5 down to G3 at fret 3.
+    doc.tracks[0].notes = vec![note(0.0, 0.5, 57, 2, 5), note(0.5, 1.0, 55, 2, 3)];
+    doc.tracks[0].notes[0].technique = vec![Technique::PullOff];
+    let (text, _) = musicxml::musicxml(&doc).unwrap();
+    assert!(text.contains("<pull-off type=\"start\"/>"));
+    assert!(!text.contains("<hammer-on"));
+    let path =
+        std::env::temp_dir().join(format!("mtab-xml-pull-off-{}.musicxml", std::process::id()));
+    std::fs::write(&path, text).unwrap();
+    let python =
+        std::env::var_os("MTAB_XML_PYTHON").expect("set MTAB_XML_PYTHON to a Python with lxml");
+    let output = std::process::Command::new(python)
+        .arg(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tools/check_musicxml_pull_off.py"),
+        )
+        .arg(&path)
+        .output()
+        .unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+#[ignore = "requires lxml and the bundled MusicXML 3.1 schema"]
 fn independent_let_ring_schema_and_semantics() {
     let mut doc = fixture();
     doc.tracks[0].notes[0].technique.push(Technique::LetRing);

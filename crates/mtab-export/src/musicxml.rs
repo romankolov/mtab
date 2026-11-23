@@ -171,6 +171,7 @@ fn note_xml(
             || staff == 2
             || note.palm_mute
             || note.hammer
+            || note.pull_off
             || note.slide.is_some()
             || vibrato_stage != VibratoStage::None
             || (note.let_ring && !tie_start);
@@ -201,7 +202,8 @@ fn note_xml(
                 }
                 out.push_str("</ornaments>");
             }
-            if staff == 2 || note.palm_mute || note.hammer || note.slide.is_some() {
+            if staff == 2 || note.palm_mute || note.hammer || note.pull_off || note.slide.is_some()
+            {
                 out.push_str("<technical>");
                 if staff == 2 {
                     write!(
@@ -215,10 +217,14 @@ fn note_xml(
                 if note.palm_mute {
                     out.push_str("<other-technical>palm mute</other-technical>");
                 }
+                // MusicXML separates the two directions: a hammer-on starts on
+                // the note being hammered *to*, and a pull-off starts on the
+                // note that is pulled *off*.
                 if note.hammer {
-                    // MusicXML has no combined hammer/pull marker; an
-                    // unspecified hammer-on covers both directions.
                     out.push_str("<hammer-on type=\"start\"/>");
+                }
+                if note.pull_off {
+                    out.push_str("<pull-off type=\"start\"/>");
                 }
                 out.push_str("</technical>");
             }

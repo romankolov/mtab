@@ -137,8 +137,10 @@ pub struct PlannedNote {
     pub let_ring: bool,
     /// The source marks vibrato; GP5 stores only a yes/no flag.
     pub vibrato: bool,
-    /// The source marks hammer-on or pull-off onto the next note on this string.
+    /// The source marks a hammer-on onto the next note on this string.
     pub hammer: bool,
+    /// The source marks a pull-off onto the next note on this string.
+    pub pull_off: bool,
     /// An adjacent-note slide marker, if supplied and validated.
     pub slide: Option<PlannedSlide>,
 }
@@ -181,6 +183,7 @@ struct QuantizedNote {
     let_ring: bool,
     vibrato: bool,
     hammer: bool,
+    pull_off: bool,
     slide: Option<PlannedSlide>,
     techniques: Vec<Technique>,
 }
@@ -365,10 +368,8 @@ fn quantize_track(
                 .technique
                 .iter()
                 .any(|t| matches!(t, Technique::Vibrato { .. })),
-            hammer: note
-                .technique
-                .iter()
-                .any(|t| matches!(t, Technique::HammerOn | Technique::PullOff)),
+            hammer: note.technique.contains(&Technique::HammerOn),
+            pull_off: note.technique.contains(&Technique::PullOff),
             slide: None,
             techniques: note.technique.clone(),
         });
@@ -401,11 +402,23 @@ fn validate_legato(notes: &mut [QuantizedNote], frets: u8) -> Result<()> {
                     && notes[previous].end <= notes[index].start
             });
         let mut slide: Option<PlannedSlide> = None;
-        let is_hammer = notes[index]
+        // GP5 stores a single legato flag; the direction (hammer-on vs
+        // pull-off) is implied by the fret movement, so a mark that
+        // contradicts it would be silently rewritten.
+        let hammer_on = notes[index]
             .techniques
             .iter()
-            .any(|technique| matches!(technique, Technique::HammerOn | Technique::PullOff));
-        if is_hammer {
+            .any(|technique| matches!(technique, Technique::HammerOn));
+        let pull_off = notes[index]
+            .techniques
+            .iter()
+            .any(|technique| matches!(technique, Technique::PullOff));
+        if hammer_on || pull_off {
+            if hammer_on && pull_off {
+                return Err(invalid(
+                    "one note cannot be both a hammer-on and a pull-off",
+                ));
+            }
             let Some(next) = next else {
                 return Err(invalid(
                     "a hammer-on or pull-off needs a following attack on the same string",
@@ -417,6 +430,17 @@ fn validate_legato(notes: &mut [QuantizedNote], frets: u8) -> Result<()> {
             {
                 return Err(invalid(
                     "a hammer-on or pull-off must connect directly adjacent attacks at different frets",
+                ));
+            }
+            let rises = notes[next].fret > notes[index].fret;
+            if hammer_on && !rises {
+                return Err(invalid(
+                    "a hammer-on must move to a higher fret than the note it starts on",
+                ));
+            }
+            if pull_off && rises {
+                return Err(invalid(
+                    "a pull-off must move to a lower fret than the note it starts on",
                 ));
             }
         }
@@ -613,6 +637,7 @@ fn plan_track(notes: &[QuantizedNote], bars: u64, beat_count: &mut usize) -> Res
                         let_ring: n.let_ring,
                         vibrato: n.vibrato,
                         hammer: n.hammer,
+                        pull_off: n.pull_off,
                         slide: n.slide,
                     }
                 })
@@ -834,6 +859,40 @@ mod tests {
         trailing.chord_symbols = vec![symbol(5.0, 6.0, "G")];
         let beats = &plan(&trailing).unwrap().tracks[0].bars[0];
         assert_eq!(beats.last().unwrap().chord.as_ref().unwrap().name, "G");
+    }
+
+    #[test]
+    fn legato_direction_must_match_the_fret_movement() {
+        // GP5 writes only one legato flag, so the direction a mark implies has
+        // to agree with the frets on either side of it.
+        let legato = |first: Vec<Technique>, second: Vec<Technique>, frets: (u8, u8, u8)| {
+            let mut notes = vec![
+                note(0.0, 0.5, 0, frets.0),
+                note(0.5, 1.0, 0, frets.1),
+                note(1.0, 1.5, 0, frets.2),
+            ];
+            notes[0].technique = first;
+            notes[1].technique = second;
+            plan(&document(notes))
+        };
+        // Rises then falls: the middle note is a pull-off, the first a hammer-on.
+        legato(
+            vec![Technique::HammerOn],
+            vec![Technique::PullOff],
+            (3, 5, 2),
+        )
+        .unwrap();
+        // A hammer-on that goes down is a contradiction, and so is a pull-off
+        // that goes up.
+        assert!(legato(vec![Technique::HammerOn], vec![], (5, 3, 2)).is_err());
+        assert!(legato(vec![Technique::PullOff], vec![], (3, 5, 7)).is_err());
+        // One note cannot claim both directions.
+        assert!(legato(
+            vec![Technique::HammerOn, Technique::PullOff],
+            vec![],
+            (3, 5, 7)
+        )
+        .is_err());
     }
 
     #[test]

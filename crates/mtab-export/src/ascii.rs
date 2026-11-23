@@ -30,6 +30,9 @@ fn note_cell(note: &crate::gp5_plan::PlannedNote) -> String {
     if note.hammer {
         cell.push('h');
     }
+    if note.pull_off {
+        cell.push('o');
+    }
     if let Some(slide) = note.slide {
         let kind = match (slide.into, slide.kind) {
             (true, _) => "S^",
@@ -56,7 +59,7 @@ pub fn ascii_tab(doc: &TabDocument) -> Result<(String, ScorePlan)> {
     let plan = gp5_plan::plan(doc)?;
     let mut out = String::new();
     writeln!(out, "mtab ASCII tab | {} BPM | 4/4 | 1/32 grid", plan.bpm).unwrap();
-    writeln!(out, "Legend: ~ continuation; x dead note; p palm mute; l let ring; v vibrato; h legato (hammer/pull); s<fret>/S<fret> legato/shift slide to fret, S^<fret> picked slide in; b/r/br bend/release/bend-release; @ peak in twelfths").unwrap();
+    writeln!(out, "Legend: ~ continuation; x dead note; p palm mute; l let ring; v vibrato; h hammer-on, o pull-off; s<fret>/S<fret> legato/shift slide to fret, S^<fret> picked slide in; b/r/br bend/release/bend-release; @ peak in twelfths").unwrap();
     writeln!(
         out,
         "Durations: denominator, optional dot; velocities omitted; fret is relative to capo."

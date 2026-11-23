@@ -15,8 +15,10 @@ expected = [
     # bar 1: A3 on the third string, 5 -> 7 legato slide out
     (0, 4, 5, False, ['legatoSlideTo'], 'normal'),
     (960, 4, 7, True, [], 'normal'),
-    (1920, 4, 10, True, [], 'normal'),
-    (2400, 4, 12, False, [], 'normal'),
+    # the pull-off starts here; GP5's single legato flag covers both
+    # directions, so a descending pair is encoded exactly like a rising one
+    (1920, 4, 10, False, [], 'normal'),
+    (2400, 4, 8, False, [], 'normal'),
     # bar 2: picked slide in from fret 5 (previous note) to 7
     (3840, 4, 5, False, [], 'normal'),
     (4800, 4, 7, False, ['intoFromBelow'], 'normal'),

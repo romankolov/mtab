@@ -449,8 +449,8 @@ The CLI supports `.txt` and `.tab` outputs, alone or alongside other formats.
 notation plan; `ExportFormat::MusicXml` writes `.musicxml` or `.xml`. It emits
 standard concert-pitch and tablature staves, tuning, capo, bars, durations,
 ties, string/fret, dead-note heads, palm-mute, let-ring, vibrato
-(wavy-line start/continue/stop), hammer-on and slide (`notations/slide`
-start/stop) annotations, and supplied chord symbols as `<harmony>` root/kind
+(wavy-line start/continue/stop), hammer-on, pull-off and slide
+(`notations/slide` start/stop) annotations, and supplied chord symbols as `<harmony>` root/kind
 on the first staff. It uses
 the restricted GP5 planner and rejects timed bends rather than discarding
 them. Velocities are not encoded; the two notation staves duplicate notes and
@@ -467,7 +467,8 @@ or alongside other formats.
 constant integer tempo, 4/4, six or seven strings, and a 1/32-note grid. It
 preserves explicit dead-note, palm-mute, let-ring and vibrato marks (GP5 stores
 vibrato as a boolean, not rate/depth), hammer-on/pull-off and adjacent-note
-slide markers, supplied chord symbols as beat chord diagrams (name plus
+slide markers (GP5 has one legato flag, so the marked direction must match the
+fret movement), supplied chord symbols as beat chord diagrams (name plus
 root/quality; no fretboard diagram is invented), and a restricted set of bends,
 but rejects unsupported contours, other techniques, explicit source ties,
 variable tempo/meter and quantization collisions rather than silently

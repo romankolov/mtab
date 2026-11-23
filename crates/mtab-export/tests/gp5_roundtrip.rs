@@ -287,7 +287,8 @@ fn pyguitarpro_reads_tracks_ties_and_dynamics() {
         note(0.0, 0.5, 57, 2, 5, 90),
         note(0.5, 1.0, 59, 2, 7, 90),
         note(1.0, 1.25, 62, 2, 10, 90),
-        note(1.25, 1.5, 64, 2, 12, 90),
+        // A pull-off must descend: 12 -> 10 on the same string.
+        note(1.25, 1.5, 60, 2, 8, 90),
         note(2.0, 2.5, 57, 2, 5, 90),
         note(2.5, 3.0, 59, 2, 7, 90),
         note(4.0, 4.5, 59, 2, 7, 90),

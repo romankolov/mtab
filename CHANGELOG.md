@@ -14,6 +14,12 @@ versioning: [SemVer](https://semver.org/).
 - Independent checks: `tools/check_gp5_vibrato.py` (PyGuitarPro) and
   `tools/check_musicxml_vibrato.py` (W3C XSD plus exact per-staff ornament
   positions) run in the same gated CI jobs as the existing let-ring checks.
+- Hammer-ons and pull-offs are now distinct. The notation plan rejects a
+  hammer-on that moves to a lower fret, a pull-off that moves to a higher fret,
+  and a note marked as both; previously both marks collapsed into GP5's single
+  legato flag and a contradicting direction was silently rewritten. MusicXML
+  writes `<pull-off>`, which it previously omitted, and ASCII prints `o` for a
+  pull-off instead of reusing `h` for both.
 - `--techniques` now suggests dead notes and palm mutes from audio
   (`mtab_audio::articulation`), and `--chords` now derives chord symbols from
   the detected notes (`mtab_guitar::suggest_chords`) instead of both being

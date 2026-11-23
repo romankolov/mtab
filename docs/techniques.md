@@ -34,7 +34,8 @@ confuse them:
 | Palm mute | note flag | `p` | text/technical annotation | not represented |
 | Let ring | note flag | `l` | tied/let-ring notation | note length |
 | Vibrato | boolean flag (no rate/depth) | `v` | `wavy-line` start/continue/stop | not represented |
-| Hammer-on / pull-off | note flag | `h` | `technical/hammer-on` | no separate event |
+| Hammer-on | note flag (direction implied by fret rise) | `h` | `technical/hammer-on` | no separate event |
+| Pull-off | same legato flag (direction implied by fret fall) | `o` | `technical/pull-off` | no separate event |
 | Slide | direction and type flags | `s<fret>`, `S<fret>`, `S^<fret>` | `notations/slide` start/stop | pitch bend in MIDI exporter |
 | Bend | one of three supported contours | `b`/`r`/`br` with semitones and peak | rejected (no timed bends yet) | pitch wheel |
 | Harmonic | rejected by the notation plan | rejected | rejected | pitch only |
@@ -43,12 +44,14 @@ GP5 has no field for vibrato rate or depth, only a per-note boolean. MusicXML
 writes every note on both the standard and the tab staff, so any count of an
 element is twice the note count — tests assert per-staff positions instead.
 
-Because GP5 stores slides as a flag with no target and hammer-ons as a flag on
-the second note, the planner validates them against the **adjacent attack on
-the same string**: a hammer/pull-off needs a following attack at a different
-fret, a slide's `to_fret` must equal the next note's fret, and a dead-note
-target is rejected. A technique that cannot be verified is an error, never a
-dropped mark.
+Because GP5 stores slides as a flag with no target and has a single legato flag
+for both hammer-ons and pull-offs, the planner validates them against the
+**adjacent attack on the same string**: a hammer-on needs a following attack at
+a *higher* fret, a pull-off one at a *lower* fret, one note cannot be both, a
+slide's `to_fret` must equal the next note's fret, and a dead-note target is
+rejected. A technique that cannot be verified is an error, never a dropped
+mark. MusicXML keeps the two directions separate: `hammer-on` is written on the
+note hammered *to*, `pull-off` on the note pulled *off*.
 
 ## Chord symbols
 
