@@ -7,6 +7,10 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Release workflow now tests and smoke-runs each target, uses the supported
+  macOS Intel runner, validates archive contents and produces checksums for
+  both manual dry runs and tagged releases. Cross-platform results must still
+  be verified on GitHub Actions.
 - IR and end-to-end GuitarSet reports now also include note-level pitch/onset
   and pitch/onset/offset precision, recall and F1 with one-to-one matching.
 - End-to-end evaluation reports include SHA-256 identifiers for the manifest

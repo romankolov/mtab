@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Offline adversarial packaging tests for release archive whitelist."""
+import io
+import stat
+from pathlib import Path
+import tarfile
+import tempfile
+import unittest
+import zipfile
+
+from verify_release_archive import verify
+
+
+class ReleaseArchiveTest(unittest.TestCase):
+    def test_tar_and_zip_whitelist_rejects_extra_assets(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tar = root/'mtab-test-x86_64-unknown-linux-gnu.tar.gz'
+            stem = tar.name[:-7]
+            names = [f'{stem}/{x}' for x in ['mtab', 'README.md', 'LICENSE', 'NOTICE', 'PROMPT.md']]
+            def make_tar(extra=None):
+                with tarfile.open(tar, 'w:gz') as out:
+                    for name in names + ([extra] if extra else []):
+                        entry = tarfile.TarInfo(name)
+                        entry.size = 1
+                        out.addfile(entry, io.BytesIO(b'x'))
+            make_tar()
+            verify(tar)
+            make_tar(f'{stem}/model.safetensors')
+            with self.assertRaises(ValueError):
+                verify(tar)
+            make_tar(names[0])
+            with self.assertRaises(ValueError):
+                verify(tar)
+            with tarfile.open(tar, 'w:gz') as out:
+                for name in names:
+                    entry = tarfile.TarInfo(name)
+                    entry.type = tarfile.SYMTYPE
+                    entry.linkname = '/tmp/elsewhere'
+                    out.addfile(entry)
+            with self.assertRaises(ValueError):
+                verify(tar)
+            zip_path = root/'mtab-test-x86_64-pc-windows-msvc.zip'
+            stem = zip_path.stem
+            with zipfile.ZipFile(zip_path, 'w') as out:
+                for name in ['mtab.exe', 'README.md', 'LICENSE', 'NOTICE', 'PROMPT.md']:
+                    out.writestr(f'{stem}/{name}', b'x')
+            verify(zip_path)
+            symlink = root/'mtab-link.zip'
+            with zipfile.ZipFile(symlink, 'w') as out:
+                for name in ['mtab.exe', 'README.md', 'LICENSE', 'NOTICE', 'PROMPT.md']:
+                    info = zipfile.ZipInfo('mtab-link/' + name)
+                    if name == 'mtab.exe':
+                        info.create_system = 3
+                        info.external_attr = (stat.S_IFLNK | 0o777) << 16
+                    out.writestr(info, b'x')
+            with self.assertRaises(ValueError):
+                verify(symlink)
+            with zipfile.ZipFile(zip_path, 'a') as out:
+                out.writestr(f'{stem}/model.onnx', b'x')
+            with self.assertRaises(ValueError):
+                verify(zip_path)
+
+
+if __name__ == '__main__':
+    unittest.main()

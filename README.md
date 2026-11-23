@@ -112,9 +112,11 @@ $ cargo test --workspace      # tests (see .github/workflows/ci.yml)
 $ cargo run -p mtab-cli -- --models
 ```
 
-CI runs lint + tests on Linux/macOS/Windows for every push; version tags
+CI runs lint + tests on Linux/macOS/Windows for every push. Version tags
 (`v*`) trigger cross-platform release builds ([release.yml](.github/workflows/release.yml));
-weekly [nightly.yml](.github/workflows/nightly.yml) runs extended tests,
+manual dispatch runs the same builds, release-mode tests, binary smoke checks,
+archive checks and checksums without publishing a release. No weights are
+packaged. Weekly [nightly.yml](.github/workflows/nightly.yml) runs extended tests,
 `cargo audit`, and an optional GuitarSet eval.
 
 The build agent commits and pushes after **every** step — see

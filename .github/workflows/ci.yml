@@ -63,7 +63,7 @@ jobs:
       - run: python tools/check_midi_bend_mido.py "$RUNNER_TEMP/bend.mid"
 
   independent-guitarset-frame-metrics:
-    name: Independent framewise GuitarSet metric checks
+    name: Independent evaluation and release-package checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,6 +77,7 @@ jobs:
       - run: cargo build --locked -p mtab-cli
       - run: python tools/test_guitarset_frame_score.py target/debug/mtab
       - run: python tools/test_make_guitarset_manifest.py
+      - run: python tools/test_release_archive.py
 
   independent-gp5-roundtrip:
     name: Independent GP5 round-trip

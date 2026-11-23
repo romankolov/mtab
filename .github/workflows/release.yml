@@ -34,7 +34,7 @@ jobs:
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             archive: tar.gz
-          - os: macos-13
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             archive: tar.gz
           - os: macos-latest
@@ -54,8 +54,27 @@ jobs:
         with:
           key: release-${{ matrix.target }}
 
+      - name: Test workspace in release mode on target
+        run: cargo test --release --workspace --locked --target ${{ matrix.target }}
+
       - name: cargo build --release
         run: cargo build --release --locked --target ${{ matrix.target }} -p mtab-cli
+
+      - name: Smoke-test release binary (unix)
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          "target/${{ matrix.target }}/release/mtab" --version
+          "target/${{ matrix.target }}/release/mtab" --models
+
+      - name: Smoke-test release binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "target/${{ matrix.target }}/release/mtab.exe" --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "target/${{ matrix.target }}/release/mtab.exe" --models
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Package (unix)
         if: runner.os != 'Windows'
@@ -64,7 +83,7 @@ jobs:
           STAGE="mtab-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir -p "dist/$STAGE"
           cp "target/${{ matrix.target }}/release/mtab" "dist/$STAGE/"
-          cp README.md LICENSE NOTICE PROMPT.md "dist/$STAGE/" 2>/dev/null || cp README.md LICENSE NOTICE "dist/$STAGE/"
+          cp README.md LICENSE NOTICE PROMPT.md "dist/$STAGE/"
           tar -C dist -czf "dist/$STAGE.tar.gz" "$STAGE"
           rm -rf "dist/$STAGE"
 
@@ -77,6 +96,7 @@ jobs:
           Copy-Item "target/${{ matrix.target }}/release/mtab.exe" "dist/$stage/"
           Copy-Item README.md, LICENSE, NOTICE, PROMPT.md "dist/$stage/"
           Compress-Archive -Path "dist/$stage" -DestinationPath "dist/$stage.zip"
+          Remove-Item -Recurse -Force "dist/$stage"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -85,27 +105,43 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  release:
-    name: Publish GitHub Release
+  checksums:
+    name: Verify build artifacts and generate checksums
     needs: build
-    # Only real tags publish; manual dispatch is a dry-run of the builds.
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
-
+      - name: Verify release archives contain only expected files
+        run: python3 tools/verify_release_archive.py dist/mtab-*.tar.gz dist/mtab-*.zip
       - name: SHA256SUMS
         run: |
           set -euo pipefail
           cd dist
+          test "$(find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) | wc -l)" -eq 5
           sha256sum mtab-* > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+          sha256sum --check SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-checksums
+          path: dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: checksums
+    # Only real tags publish; manual dispatch is a dry-run of builds and tests.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts and checksums
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
