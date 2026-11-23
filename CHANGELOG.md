@@ -7,6 +7,10 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- End-to-end evaluation reports include SHA-256 identifiers for the manifest
+  and local weights. Audio manifests can provide hashes for each audio/JAMS
+  pair, verified before inference; the preparation helper supplies both.
+  Hashes do not establish dataset authenticity or license authorization.
 - Added an offline GuitarSet manifest preparation utility that pairs local
   annotations and mono-mic WAVs, defaults to requiring 360 files, and rejects
   missing audio and accidental input overwrites. Subsets require an explicit

@@ -207,9 +207,9 @@ python tools/make_guitarset_audio_manifest.py --annotations /data/guitarset/anno
 
 It expects 360 annotations unless `--allow-subset` is explicitly passed,
 checks that every matching WAV exists, and uses a duration just below the WAV
-end. It writes absolute paths and does not download or verify the dataset,
-prove that 360 files are the official set, establish a held-out split, or
-replace recording selection and provenance review. Python is a preparation and
+end. It writes absolute paths and SHA-256 hashes for each pair. It does not
+download the dataset, prove that 360 files are the official set, establish a
+held-out split, or replace recording selection and provenance review. Python is a preparation and
 test dependency only, not an mtab runtime dependency.
 
 The model is loaded once. The evaluator uses only each audio prefix specified
@@ -219,8 +219,11 @@ is scored as an empty prediction, marked failed in the report, and the command
 returns an error after writing the report; such failures contribute false
 negatives but have unknown hypothetical false positives. It validates that
 all listed paths exist, but cannot verify that audio and annotations are paired
-correctly. List the intended complete split explicitly, preserve the manifest,
-and record model-weight hash and setup before drawing any conclusions. The
+correctly. When both `audio_sha256` and `annotation_sha256` are supplied for an
+entry, they are verified before inference; supplying just one is an error.
+Hashes identify bytes, not dataset authenticity. The report records manifest
+and model-weight hashes. List the intended complete split explicitly and
+preserve the manifest and setup before drawing any conclusions. The
 Nightly `run_eval` option currently runs only the checked-in five-second
 **development** excerpt, not the full corpus. It requires an authorized
 `HF_TOKEN` repository secret and has not been run in the current environment.

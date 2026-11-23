@@ -410,6 +410,21 @@ fn audio_manifest_preflights_files_and_protects_inputs() {
     }
     assert!(!run(&["--max-gen-len", "0"]).status.success());
     assert!(!run(&["--max-gen-len", "2001"]).status.success());
+    save(vec![
+        serde_json::json!({"audio":"audio.wav", "annotation":"reference.jams", "duration":5.0,
+        "audio_sha256":"0000000000000000000000000000000000000000000000000000000000000000",
+        "annotation_sha256":"0000000000000000000000000000000000000000000000000000000000000000"}),
+    ]);
+    let output = run(&[]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("SHA-256 mismatch"));
+    save(vec![
+        serde_json::json!({"audio":"audio.wav", "annotation":"reference.jams", "duration":5.0,
+        "audio_sha256":"0000000000000000000000000000000000000000000000000000000000000000"}),
+    ]);
+    let output = run(&[]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("both hashes or neither"));
     save(vec![entry.clone(), entry]);
     let output = run(&[]);
     assert!(!output.status.success());

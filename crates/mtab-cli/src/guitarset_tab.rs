@@ -318,11 +318,29 @@ pub fn evaluate_manifest(manifest: &Path, report: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
+/// Stream a hash without retaining audio or weights in memory.
+fn sha256(path: &Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut reader = std::io::BufReader::new(std::fs::File::open(path)?);
+    let mut digest = Sha256::new();
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        digest.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
 #[derive(Debug)]
 struct AudioEntry {
     audio: std::path::PathBuf,
     reference: Vec<Reference>,
     duration: f64,
+    hashes_verified: bool,
 }
 
 fn load_audio_manifest(
@@ -388,6 +406,38 @@ fn load_audio_manifest(
         {
             return Err(fail("report must not overwrite audio or annotation input"));
         }
+        let expected_audio = entry.get("audio_sha256");
+        let expected_annotation = entry.get("annotation_sha256");
+        let hashes_verified = match (expected_audio, expected_annotation) {
+            (None, None) => false,
+            (Some(audio_hash), Some(annotation_hash)) => {
+                for (path, hash) in [(&audio, audio_hash), (&annotation, annotation_hash)] {
+                    let expected = hash
+                        .as_str()
+                        .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+                        .ok_or_else(|| {
+                            fail(format!(
+                                "audio manifest entry {} has invalid SHA-256",
+                                i + 1
+                            ))
+                        })?;
+                    if !sha256(path)?.eq_ignore_ascii_case(expected) {
+                        return Err(fail(format!(
+                            "SHA-256 mismatch for manifest entry {}: {}",
+                            i + 1,
+                            path.display()
+                        )));
+                    }
+                }
+                true
+            }
+            _ => {
+                return Err(fail(format!(
+                    "audio manifest entry {} must supply both hashes or neither",
+                    i + 1
+                )))
+            }
+        };
         let reference = parse_jams(&annotation)?;
         if reference.len() > MAX_NOTES {
             return Err(fail("reference exceeds 4096 notes"));
@@ -396,6 +446,7 @@ fn load_audio_manifest(
             audio,
             reference,
             duration,
+            hashes_verified,
         });
     }
     Ok(loaded)
@@ -473,6 +524,7 @@ where
     F: FnMut(&AudioEntry) -> Result<TabDocument>,
 {
     let mut total = Counts::default();
+    let hashes_verified = entries.iter().filter(|e| e.hashes_verified).count();
     let mut frames = 0usize;
     let mut failures = 0usize;
     let mut details = String::new();
@@ -518,7 +570,7 @@ where
             status
         ));
     }
-    Ok((format!("# GuitarSet end-to-end audio evaluation\n\nEntries: {}; failed entries: {failures}; total frames: {frames}. Model architecture: {model_label}; greedy decoding, seed 0, guitar-family mask, strict EOS, token limit {max_tokens}, standard tuning, capo 0, 22 frets, default bounded fingering (no wide-stretch retry). The model is loaded once. Each manifest duration is rounded down to 16 kHz sample boundaries; only that prefix is transcribed and scored. No source separation, technique inference, or dynamics estimation.\n\n| Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n\nTDR-style ratio (correct tab positions / correct unique pitches): {}. Simultaneous unisons can produce a ratio above 100%; it is not the complement of wrong-string rate.\n\nWrong-string among pitch-matched string instances: {} / {} = {}.\n\n| Manifest entry | Frames | Reference notes | Predicted notes | Multi-pitch F1 | Tab-position F1 | Status |\n| ---: | ---: | ---: | ---: | ---: | ---: | --- |\n{details}\nFailures (including strict-EOS, decoding, assignment or short audio) count as empty predictions, never excluded; thus failures contribute reference false negatives but cannot estimate their hypothetical false positives. Pitch and tab metrics are 10 ms note-derived fixed-pitch frame sets, not continuous F0. The TDR-style ratio follows Wiggins and Kim (2019), Eq. 8, but the reference and frame grid differ from their protocol. No held-out split, tab-labeler-v3 baseline, or independent ground-truth pairing is established by the manifest. Record the weights hash, manifest and data selection separately. GuitarSet 1.1.0, Xi et al., CC BY 4.0; annotations can contain errors.\n", entries.len(), row("Multi-pitch frames", total.pitch_tp,total.pitch_ref,total.pitch_pred), row("Tab position frames", total.tab_tp,total.tab_ref,total.tab_pred), tdr(&total), total.wrong_string,total.pitch_string_matches,percent(total.wrong_string,total.pitch_string_matches)), failures))
+    Ok((format!("# GuitarSet end-to-end audio evaluation\n\nEntries: {}; failed entries: {failures}; total frames: {frames}; pairs with both supplied SHA-256 hashes verified: {hashes_verified}. Model architecture: {model_label}; greedy decoding, seed 0, guitar-family mask, strict EOS, token limit {max_tokens}, standard tuning, capo 0, 22 frets, default bounded fingering (no wide-stretch retry). The model is loaded once. Each manifest duration is rounded down to 16 kHz sample boundaries; only that prefix is transcribed and scored. No source separation, technique inference, or dynamics estimation.\n\n| Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n\nTDR-style ratio (correct tab positions / correct unique pitches): {}. Simultaneous unisons can produce a ratio above 100%; it is not the complement of wrong-string rate.\n\nWrong-string among pitch-matched string instances: {} / {} = {}.\n\n| Manifest entry | Frames | Reference notes | Predicted notes | Multi-pitch F1 | Tab-position F1 | Status |\n| ---: | ---: | ---: | ---: | ---: | ---: | --- |\n{details}\nFailures (including strict-EOS, decoding, assignment or short audio) count as empty predictions, never excluded; thus failures contribute reference false negatives but cannot estimate their hypothetical false positives. Pitch and tab metrics are 10 ms note-derived fixed-pitch frame sets, not continuous F0. The TDR-style ratio follows Wiggins and Kim (2019), Eq. 8, but the reference and frame grid differ from their protocol. No held-out split, tab-labeler-v3 baseline, or independent ground-truth pairing is established by the manifest. Keep the manifest and document data selection separately; supplied hashes verify identity against the manifest, not provenance or license. GuitarSet 1.1.0, Xi et al., CC BY 4.0; annotations can contain errors.\n", entries.len(), row("Multi-pitch frames", total.pitch_tp,total.pitch_ref,total.pitch_pred), row("Tab position frames", total.tab_tp,total.tab_ref,total.tab_pred), tdr(&total), total.wrong_string,total.pitch_string_matches,percent(total.wrong_string,total.pitch_string_matches)), failures))
 }
 
 pub fn evaluate_audio_manifest(
@@ -532,10 +584,14 @@ pub fn evaluate_audio_manifest(
         return Err(fail("--max-gen-len must be in 1–2000"));
     }
     let entries = load_audio_manifest(manifest, weights, report)?;
+    let manifest_hash = sha256(manifest)?;
+    let weights_hash = sha256(weights)?;
     let model = mtab_core::lm::LmModel::load(mtab_core::lm::LmConfig::from_size(size), weights)?;
-    let (result, failures) = run_audio_entries(&entries, &size.to_string(), max_tokens, |entry| {
-        transcribe_for_evaluation(&model, entry, max_tokens)
-    })?;
+    let (mut result, failures) =
+        run_audio_entries(&entries, &size.to_string(), max_tokens, |entry| {
+            transcribe_for_evaluation(&model, entry, max_tokens)
+        })?;
+    result.push_str(&format!("\n## Reproducibility identifiers\n\n- Audio manifest SHA-256: `{manifest_hash}`\n- Model weights SHA-256: `{weights_hash}`\n\nHashes identify bytes, not authorization, license, dataset completeness, or split independence.\n"));
     if let Some(path) = report {
         std::fs::write(path, result)?;
     } else {
@@ -569,11 +625,13 @@ mod tests {
                 audio: "one.wav".into(),
                 reference: reference.clone(),
                 duration: 1.0,
+                hashes_verified: false,
             },
             AudioEntry {
                 audio: "two.wav".into(),
                 reference,
                 duration: 1.0,
+                hashes_verified: false,
             },
         ];
         let mut document = empty_document();
@@ -619,6 +677,19 @@ mod tests {
         );
     }
     #[test]
+    fn checked_in_audio_manifest_hashes_verify_before_loading_model() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let manifest = root.join("tests/fixtures/guitarset/guitarset_audio_manifest.json");
+        let weights = root.join("../mtab-core/tests/fixtures/model/tiny.fixture");
+        let entries = load_audio_manifest(&manifest, &weights, None).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].hashes_verified);
+        assert_eq!(
+            sha256(&entries[0].audio).unwrap(),
+            "2308bb2dff9e2e332a9e9eb53e6a2e9915519a0388ef7e42a9b1102259f3f60a"
+        );
+    }
+    #[test]
     fn actual_tiny_model_executes_audio_path_and_short_audio_fails() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let audio = root.join("tests/fixtures/guitarset/guitarset_solo_5s.wav");
@@ -630,6 +701,7 @@ mod tests {
             audio,
             reference: parse_jams(&annotation).unwrap(),
             duration: 0.5,
+            hashes_verified: false,
         };
         let first = transcribe_for_evaluation(&model, &entry, 2);
         let second = transcribe_for_evaluation(&model, &entry, 2);

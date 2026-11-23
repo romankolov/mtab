@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline tests for the GuitarSet manifest preparation helper."""
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -40,6 +41,8 @@ class ManifestTest(unittest.TestCase):
             self.assertEqual(Path(pairs[0]['audio']), wav.resolve())
             self.assertEqual(Path(pairs[0]['annotation']), jams.resolve())
             self.assertEqual(pairs[0]['duration'], 15999/16000)
+            self.assertEqual(pairs[0]['audio_sha256'], hashlib.sha256(wav.read_bytes()).hexdigest())
+            self.assertEqual(pairs[0]['annotation_sha256'], hashlib.sha256(jams.read_bytes()).hexdigest())
             protected = [sys.executable, str(SCRIPT), '--annotations', str(annotations),
                          '--audio', str(audio), '--output', str(jams), '--allow-subset']
             original = jams.read_bytes()

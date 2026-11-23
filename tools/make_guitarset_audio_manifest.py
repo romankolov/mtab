@@ -8,9 +8,18 @@ annotation directory. The user is responsible for documenting selection,
 checking dataset provenance, licenses, model settings and held-out splits.
 """
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import wave
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(65536), b''):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def main():
@@ -54,7 +63,8 @@ def main():
         seen_annotations.add(annotation)
         seen_audio.add(audio)
         protected.update([annotation, audio])
-        manifest.append({'audio': str(audio), 'annotation': str(annotation), 'duration': samples / 16000})
+        manifest.append({'audio': str(audio), 'annotation': str(annotation), 'duration': samples / 16000,
+                         'audio_sha256': sha256(audio), 'annotation_sha256': sha256(annotation)})
     if output in protected:
         parser.error('output must not overwrite an input audio or annotation')
     args.output.write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
