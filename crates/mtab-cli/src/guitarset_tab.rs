@@ -748,6 +748,15 @@ mod tests {
             (Err(a), Err(b)) => assert_eq!(a.to_string(), b.to_string()),
             _ => panic!("synthetic-model inference must be deterministic"),
         }
+        let (report, failures) =
+            run_audio_entries(std::slice::from_ref(&entry), "tiny-test-only", 2, |e| {
+                transcribe_for_evaluation(&model, e, 2)
+            })
+            .unwrap();
+        assert!(report.contains("Entries: 1;") && report.contains("| Pitch + onset notes |"));
+        if failures > 0 {
+            assert!(report.contains("failed:"));
+        }
         entry.duration = 6.0;
         assert!(transcribe_for_evaluation(&model, &entry, 2)
             .unwrap_err()
