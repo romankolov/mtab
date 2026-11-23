@@ -22,7 +22,7 @@ use midly::{
 };
 
 use mtab_core::{MtabError, Result};
-use mtab_guitar::{BendKind, TabDocument, TabNote};
+use mtab_guitar::{BendKind, TabDocument, TabNote, TempoTimeline};
 
 /// Ticks per quarter note (upstream default 480).
 pub const PPQ: u16 = 480;
@@ -53,41 +53,34 @@ struct AbsEvent<'a> {
     kind: TrackEventKind<'a>,
 }
 
+/// Convert a validated timeline position to a rounded SMF tick.
+fn time_to_tick(timeline: &TempoTimeline, ppq: u16, time: f64) -> Result<u64> {
+    let rounded = (timeline.seconds_to_beats(time)? * f64::from(ppq)).round();
+    // u64::MAX rounds up to 2^64 in f64, so reject the boundary too.
+    if !rounded.is_finite() || rounded < 0.0 || rounded >= u64::MAX as f64 {
+        return Err(MtabError::InvalidTempo(
+            "MIDI tick position exceeds u64 range".into(),
+        ));
+    }
+    Ok(rounded as u64)
+}
+
 /// Tempo map → (tick, microseconds per beat) list.
 fn build_tempo_tick_map(
     tempo: &mtab_guitar::TempoMap,
+    timeline: &TempoTimeline,
     ppq: u16,
-) -> Vec<(u64 /*tick*/, u32 /*us per beat*/)> {
-    let mut out = Vec::new();
-    let mut tick_acc = 0.0f64;
-    let mut last_time = 0.0f64;
-    for (i, change) in tempo.changes.iter().enumerate() {
-        if i > 0 {
-            tick_acc += (change.time - last_time) * (tempo.changes[i - 1].bpm / 60.0) * ppq as f64;
-        }
-        last_time = change.time;
-        out.push((
-            tick_acc.round() as u64,
-            (60_000_000.0 / change.bpm).round() as u32,
-        ));
-    }
-    out
-}
-
-fn time_to_tick(tempo: &mtab_guitar::TempoMap, ppq: u16, t: f64) -> u64 {
-    let mut tick_acc = 0.0f64;
-    let mut last_time = 0.0f64;
-    let mut last_bpm = tempo.changes.first().map(|c| c.bpm).unwrap_or(120.0);
-    for change in &tempo.changes {
-        if change.time >= t {
-            break;
-        }
-        tick_acc += (change.time - last_time) * (last_bpm / 60.0) * ppq as f64;
-        last_time = change.time;
-        last_bpm = change.bpm;
-    }
-    tick_acc += (t - last_time) * (last_bpm / 60.0) * ppq as f64;
-    tick_acc.round() as u64
+) -> Result<Vec<(u64, u32)>> {
+    tempo
+        .changes
+        .iter()
+        .map(|change| {
+            Ok((
+                time_to_tick(timeline, ppq, change.time)?,
+                (60_000_000.0 / change.bpm).round() as u32,
+            ))
+        })
+        .collect()
 }
 
 /// Bar boundaries in ticks are determined by meter, not elapsed seconds;
@@ -113,9 +106,9 @@ fn time_sig_ticks(doc: &TabDocument, ppq: u16) -> Vec<(u64, u8, u8)> {
 /// Pitch-bend control points (tick, wheel value) for a note.
 /// Wheel: 8192 = neutral, ±8191 max; default sensitivity 2 semitones →
 /// value = 8192 + cents / 200 * 8192.
-fn bend_events(note: &TabNote, ppq: u16, tempo: &mtab_guitar::TempoMap) -> Vec<(u64, i16)> {
+fn bend_events(note: &TabNote, ppq: u16, timeline: &TempoTimeline) -> Result<Vec<(u64, i16)>> {
     let Some(bend) = note.bend else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let wheel = |cents: f32| -> i16 {
         let v = 8192.0 + cents / 200.0 * 8192.0;
@@ -128,20 +121,21 @@ fn bend_events(note: &TabNote, ppq: u16, tempo: &mtab_guitar::TempoMap) -> Vec<(
         BendKind::BendRelease => [(bend.start, 8192), (bend.peak, depth), (note.end, 8192)],
     };
     let mut result: Vec<(u64, i16)> = Vec::new();
-    let mut append = |time: f64, value: i16| {
-        let tick = time_to_tick(tempo, ppq, time);
+    let mut append = |time: f64, value: i16| -> Result<()> {
+        let tick = time_to_tick(timeline, ppq, time)?;
         if let Some(last) = result.last_mut() {
             if last.0 == tick {
                 last.1 = value;
-                return;
+                return Ok(());
             }
             if last.1 == value {
-                return;
+                return Ok(());
             }
         }
         result.push((tick, value));
+        Ok(())
     };
-    append(pts[0].0, pts[0].1);
+    append(pts[0].0, pts[0].1)?;
     for pair in pts.windows(2) {
         let (start, from) = pair[0];
         let (end, to) = pair[1];
@@ -155,10 +149,10 @@ fn bend_events(note: &TabNote, ppq: u16, tempo: &mtab_guitar::TempoMap) -> Vec<(
             let fraction = step as f64 / steps as f64;
             let time = start + (end - start) * fraction;
             let value = (f64::from(from) + f64::from(to - from) * fraction).round() as i16;
-            append(time, value);
+            append(time, value)?;
         }
     }
-    result
+    Ok(result)
 }
 
 fn midi_event(channel: u4, message: MidiMessage) -> TrackEventKind<'static> {
@@ -178,6 +172,9 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
         return Err(invalid(
             "at most 15 independent melodic MIDI channels are available",
         ));
+    }
+    if tempo.changes.len() > 100_000 {
+        return Err(invalid("tempo map exceeds 100000 changes"));
     }
     if tempo.changes.is_empty()
         || tempo.changes[0].time != 0.0
@@ -221,6 +218,8 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
         ));
     }
 
+    let timeline = TempoTimeline::new(tempo)?;
+
     // --- Meta track: time signatures + tempo changes ---
     let mut meta_events: Vec<AbsEvent> = Vec::new();
     let mut order = 0u32;
@@ -233,7 +232,13 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
         });
         order += 1;
     }
-    for (tick, us) in build_tempo_tick_map(tempo, ppq) {
+    let tempo_events = build_tempo_tick_map(tempo, &timeline, ppq)?;
+    if tempo_events.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
+        return Err(invalid(
+            "distinct tempo changes must occupy distinct MIDI ticks",
+        ));
+    }
+    for (tick, us) in tempo_events {
         meta_events.push(AbsEvent {
             tick,
             prio: 0,
@@ -270,15 +275,23 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
         }
         let mut channels: Vec<AllocChannel> = Vec::new();
         let mut assignments = vec![0u8; track.notes.len()];
+        let timings: Vec<(u64, u64)> = track
+            .notes
+            .iter()
+            .map(|note| {
+                let on = time_to_tick(&timeline, ppq, note.start)?;
+                let off = time_to_tick(&timeline, ppq, note.end)?.max(
+                    on.checked_add(1)
+                        .ok_or_else(|| invalid("note tick overflow"))?,
+                );
+                Ok((on, off))
+            })
+            .collect::<Result<_>>()?;
         let mut note_order: Vec<usize> = (0..track.notes.len()).collect();
-        note_order.sort_by_key(|&i| (time_to_tick(tempo, ppq, track.notes[i].start), i));
+        note_order.sort_by_key(|&i| (timings[i].0, i));
         for i in note_order {
             let note = &track.notes[i];
-            let on = time_to_tick(tempo, ppq, note.start);
-            let off = time_to_tick(tempo, ppq, note.end).max(
-                on.checked_add(1)
-                    .ok_or_else(|| invalid("note tick overflow"))?,
-            );
+            let (on, off) = timings[i];
             for ch in &mut channels {
                 ch.active.retain(|&(end, _, _)| end > on);
             }
@@ -374,15 +387,12 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
             }
         }
 
-        for (note, &channel) in track.notes.iter().zip(&assignments) {
+        for ((note, &channel), &(on_tick, off_tick)) in
+            track.notes.iter().zip(&assignments).zip(&timings)
+        {
             let channel = u4::from(channel);
-            let on_tick = time_to_tick(tempo, ppq, note.start);
-            let min_off_tick = on_tick
-                .checked_add(1)
-                .ok_or_else(|| invalid("note tick overflow"))?;
-            let off_tick = time_to_tick(tempo, ppq, note.end).max(min_off_tick);
             let vel = note.velocity;
-            let bends = bend_events(note, ppq, tempo);
+            let bends = bend_events(note, ppq, &timeline)?;
             if events.len().saturating_add(bends.len()).saturating_add(3) > 1_000_000 {
                 return Err(invalid(
                     "MIDI track exceeds one million events; split the score",
@@ -566,11 +576,62 @@ mod tests {
     #[test]
     fn time_to_tick_math() {
         let tm = TempoMap::constant(120.0);
-        assert_eq!(time_to_tick(&tm, 480, 1.0), 960); // 120 bpm -> 960 ticks/s
+        let timeline = TempoTimeline::new(&tm).unwrap();
+        assert_eq!(time_to_tick(&timeline, 480, 1.0).unwrap(), 960); // 120 bpm -> 960 ticks/s
         let doc = doc_with_tempo_change();
         // 0..2s @120: 1920 ticks; 0.25s @140: 0.25*140/60*480 = 280.
-        assert_eq!(time_to_tick(&doc.meta.tempo_map, 480, 2.25), 2200);
-        assert_eq!(build_tempo_tick_map(&doc.meta.tempo_map, 480)[1].0, 1920);
+        let timeline = TempoTimeline::new(&doc.meta.tempo_map).unwrap();
+        assert_eq!(time_to_tick(&timeline, 480, 2.25).unwrap(), 2200);
+        assert_eq!(
+            build_tempo_tick_map(&doc.meta.tempo_map, &timeline, 480).unwrap()[1].0,
+            1920
+        );
+    }
+
+    #[test]
+    fn indexed_timeline_matches_direct_integration_on_random_maps() {
+        let mut seed = 0x9f75_41bcu64;
+        let mut next = |limit: u64| {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 32) % limit
+        };
+        for _ in 0..100 {
+            let mut changes = vec![TempoChange {
+                time: 0.0,
+                bpm: 60.0 + next(151) as f64,
+            }];
+            for _ in 0..25 {
+                let time = changes.last().unwrap().time + (1 + next(200)) as f64 / 100.0;
+                changes.push(TempoChange {
+                    time,
+                    bpm: 60.0 + next(151) as f64,
+                });
+            }
+            let map = TempoMap { changes };
+            let timeline = TempoTimeline::new(&map).unwrap();
+            for _ in 0..50 {
+                let time = next(5000) as f64 / 100.0;
+                let mut direct = 0.0;
+                let mut last_time = 0.0;
+                let mut bpm = map.changes[0].bpm;
+                for change in &map.changes {
+                    if change.time >= time {
+                        break;
+                    }
+                    direct += (change.time - last_time) * bpm / 60.0 * f64::from(PPQ);
+                    last_time = change.time;
+                    bpm = change.bpm;
+                }
+                direct += (time - last_time) * bpm / 60.0 * f64::from(PPQ);
+                let actual = time_to_tick(&timeline, PPQ, time).unwrap();
+                assert!(
+                    actual.abs_diff(direct.round() as u64) <= 1,
+                    "time={time}, actual={actual}, direct={direct}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -662,7 +723,7 @@ mod tests {
     }
     #[test]
     fn interpolated_contours_include_endpoints_and_are_bounded() {
-        let tempo = TempoMap::constant(120.0);
+        let tempo = TempoTimeline::new(&TempoMap::constant(120.0)).unwrap();
         let mut note = test_note(60, 0.0, 1.0, true);
         for (kind, first, last) in [
             (BendKind::Bend, 8192, 12288),
@@ -670,7 +731,7 @@ mod tests {
             (BendKind::BendRelease, 8192, 8192),
         ] {
             note.bend.as_mut().unwrap().kind = kind;
-            let events = bend_events(&note, PPQ, &tempo);
+            let events = bend_events(&note, PPQ, &tempo).unwrap();
             assert_eq!(events[0], (0, first));
             assert_eq!(events.last().unwrap().1, last);
             assert!(events
@@ -686,7 +747,7 @@ mod tests {
         note.end = 1000.0;
         note.bend.as_mut().unwrap().peak = 500.0;
         note.bend.as_mut().unwrap().kind = BendKind::BendRelease;
-        assert!(bend_events(&note, PPQ, &tempo).len() <= 4097);
+        assert!(bend_events(&note, PPQ, &tempo).unwrap().len() <= 4097);
     }
     #[test]
     fn collapsed_tick_points_keep_last_value_before_next_note() {
@@ -741,6 +802,20 @@ mod tests {
         doc.tracks = vec![doc.tracks[0].clone(); 16];
         assert!(midi_bytes(&doc).is_err());
     }
+    #[test]
+    fn rejects_tempo_changes_collapsed_to_one_midi_tick_and_overflow() {
+        let mut doc = doc_with_tempo_change();
+        doc.meta.tempo_map.changes[1].time = 0.000_001;
+        assert!(midi_bytes(&doc)
+            .unwrap_err()
+            .to_string()
+            .contains("distinct MIDI ticks"));
+        doc.meta.tempo_map = TempoMap::constant(120.0);
+        doc.tracks[0].notes[0].start = f64::MAX / 2.0;
+        doc.tracks[0].notes[0].end = f64::MAX;
+        assert!(midi_bytes(&doc).is_err());
+    }
+
     #[test]
     fn resets_unreleased_bend_after_note_off() {
         let mut doc = doc_with_tempo_change();

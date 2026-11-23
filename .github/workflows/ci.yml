@@ -61,6 +61,8 @@ jobs:
       - run: python tools/test_check_midi_mido.py
       - run: cargo run --locked -p mtab-export --example midi_bend_fixture -- "$RUNNER_TEMP/bend.mid"
       - run: python tools/check_midi_bend_mido.py "$RUNNER_TEMP/bend.mid"
+      - run: cargo run --locked -p mtab-export --example midi_variable_tempo_fixture -- "$RUNNER_TEMP/variable.mid"
+      - run: python tools/check_midi_variable_tempo.py "$RUNNER_TEMP/variable.mid"
       - run: python tools/test_ardour_midi_import.py "$RUNNER_TEMP/bend.mid" crates/mtab-export/tests/fixtures/ardour-8.12.0/bend-import.mid
       - name: Install test-only FluidSynth and TimGM6mb soundfont
         run: |

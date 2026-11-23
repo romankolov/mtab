@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- MIDI now indexes validated tempo maps for logarithmic-time timestamp lookup;
+  collapsed tempo-change ticks and unrepresentable timestamps are rejected.
+  Added a synthetic variable-tempo fixture and independent Mido timing check.
 - Added validated piecewise tempo timelines and conversion from explicitly
   supplied quarter-beat timestamps; this utility does not detect beats.
 - Support an explicit constant `--bpm` (integer 4–255) for MIDI and notation

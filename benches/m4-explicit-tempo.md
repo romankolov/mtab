@@ -16,3 +16,21 @@ per quarter, GP5 reported 96 BPM with reconstructed ties/fingerings, MusicXML
 recorded 96 BPM, and the ASCII header matched. This checks one synthetic
 example, not upstream beat parity or notation in every application. The
 independent checks run on GitHub CI; no Python is needed by the application.
+
+## Library: supplied variable quarter beats
+
+`TempoMap::from_quarter_beat_times` accepts explicitly supplied, strictly
+increasing quarter-beat times starting at zero and makes one piecewise-constant
+tempo per interval; the final interval's tempo continues afterward. It does
+not detect beat phase, first downbeats or meter. MIDI uses an indexed timeline
+for timestamp-to-beat mapping and rejects tempo changes that collapse to one
+MIDI tick. GP5/MusicXML/ASCII currently reject changing tempos. The MIDI tick
+grid and integer-microsecond tempo events necessarily introduce rounding; the
+exactness of one carefully chosen fixture does not imply sample-accurate MIDI
+for arbitrary times or long maps.
+
+The synthetic `midi_variable_tempo_fixture` uses beats at 0, 0.5, 1.1, 1.8,
+and 2.3 s. Mido independently verified tempo events at ticks 0, 480, 960 and
+1440 (500,000; 600,000; 700,000; 500,000 µs/quarter), note ticks and velocities,
+and the reconstructed seconds. CI repeats this without a model checkpoint.
+No CLI beat-map input or automated beat tracking is implemented at this step.
