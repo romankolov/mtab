@@ -33,8 +33,9 @@ impl TempoMap {
         let mut changes = Vec::with_capacity(times.len() - 1);
         for pair in times.windows(2) {
             let delta = pair[1] - pair[0];
-            let micros = delta * 1_000_000.0;
-            if !(1.0..=16_777_215.0).contains(&micros) {
+            // Compare in seconds to avoid rejecting a decimal upper endpoint
+            // because multiplying its f64 approximation rounds upward.
+            if !(0.000_001..=16.777_215).contains(&delta) {
                 return Err(invalid(
                     "quarter beats must be strictly increasing with MIDI-representable intervals (1–16777215 microseconds)",
                 ));
@@ -162,6 +163,17 @@ mod tests {
             assert!((timeline.beats_to_seconds(beats).unwrap() - time).abs() < 1e-12);
         }
         assert!((timeline.seconds_to_beats(3.3).unwrap() - 6.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn interval_endpoints_are_inclusive() {
+        assert!(TempoMap::from_quarter_beat_times(&[0.0, 0.000_001]).is_ok());
+        assert!(TempoMap::from_quarter_beat_times(&[0.0, 16.777_215]).is_ok());
+        assert!(TempoMap::from_quarter_beat_times(&[
+            0.0,
+            f64::from_bits(16.777_215_f64.to_bits() + 1)
+        ])
+        .is_err());
     }
 
     #[test]

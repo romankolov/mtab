@@ -182,8 +182,8 @@ pub fn midi_bytes(doc: &TabDocument) -> Result<Vec<u8>> {
             !c.time.is_finite()
                 || !c.bpm.is_finite()
                 || c.bpm <= 0.0
-                || 60_000_000.0 / c.bpm > 16_777_215.0
-                || 60_000_000.0 / c.bpm < 1.0
+                || (60_000_000.0 / c.bpm).round() > 16_777_215.0
+                || (60_000_000.0 / c.bpm).round() < 1.0
         })
         || tempo.changes.windows(2).any(|p| p[0].time >= p[1].time)
     {
@@ -802,6 +802,18 @@ mod tests {
         doc.tracks = vec![doc.tracks[0].clone(); 16];
         assert!(midi_bytes(&doc).is_err());
     }
+    #[test]
+    fn supplied_interval_endpoints_encode_as_midi_tempos() {
+        let mut doc = doc_with_tempo_change();
+        doc.tracks.clear();
+        for (end, expected) in [(0.000_001, 1), (16.777_215, 16_777_215)] {
+            doc.meta.tempo_map = TempoMap::from_quarter_beat_times(&[0.0, end]).unwrap();
+            let bytes = midi_bytes(&doc).unwrap();
+            let smf = Smf::parse(&bytes).unwrap();
+            assert!(smf.tracks[0].iter().any(|e| matches!(e.kind, TrackEventKind::Meta(MetaMessage::Tempo(value)) if value.as_int() == expected)));
+        }
+    }
+
     #[test]
     fn rejects_tempo_changes_collapsed_to_one_midi_tick_and_overflow() {
         let mut doc = doc_with_tempo_change();
