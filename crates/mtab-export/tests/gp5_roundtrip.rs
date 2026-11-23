@@ -279,6 +279,50 @@ fn pyguitarpro_reads_tracks_ties_and_dynamics() {
         String::from_utf8_lossy(&output.stderr)
     );
 
+    // Legato and slide markers. GP5 stores no slide target, so the planner
+    // requires each marker to match a directly adjacent note on the string.
+    let mut legato = fixture();
+    legato.tracks.truncate(1);
+    let mut notes = vec![
+        note(0.0, 0.5, 57, 2, 5, 90),
+        note(0.5, 1.0, 59, 2, 7, 90),
+        note(1.0, 1.25, 62, 2, 10, 90),
+        note(1.25, 1.5, 64, 2, 12, 90),
+        note(2.0, 2.5, 57, 2, 5, 90),
+        note(2.5, 3.0, 59, 2, 7, 90),
+        note(4.0, 4.5, 59, 2, 7, 90),
+        note(4.5, 5.0, 57, 2, 5, 90),
+    ];
+    notes[0].technique = vec![mtab_guitar::Technique::Slide {
+        to_fret: 7,
+        kind: mtab_guitar::SlideKind::Legato,
+    }];
+    notes[1].technique = vec![mtab_guitar::Technique::HammerOn];
+    notes[2].technique = vec![mtab_guitar::Technique::PullOff];
+    notes[5].technique = vec![mtab_guitar::Technique::Slide {
+        to_fret: 7,
+        kind: mtab_guitar::SlideKind::Picked,
+    }];
+    notes[6].technique = vec![mtab_guitar::Technique::Slide {
+        to_fret: 5,
+        kind: mtab_guitar::SlideKind::Shift,
+    }];
+    legato.tracks[0].notes = notes;
+    let legato_file = dir.0.join("legato.gp5");
+    gp5::write_gp5(&legato, &legato_file).unwrap();
+    keep_fixture(&legato_file);
+    let output = Command::new(&python)
+        .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_legato.py"))
+        .arg(&legato_file)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
     let header_check =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_bar_headers.py");
     for (index, title) in ["Café — déjà vu".to_owned(), "é".repeat(255)]

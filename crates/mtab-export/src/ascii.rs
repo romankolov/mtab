@@ -15,7 +15,7 @@ pub fn ascii_tab(doc: &TabDocument) -> Result<(String, ScorePlan)> {
     let plan = gp5_plan::plan(doc)?;
     let mut out = String::new();
     writeln!(out, "mtab ASCII tab | {} BPM | 4/4 | 1/32 grid", plan.bpm).unwrap();
-    writeln!(out, "Legend: ~ continuation; x dead note; p palm mute; l let ring; v vibrato; b/r/br bend/release/bend-release; @ peak in twelfths").unwrap();
+    writeln!(out, "Legend: ~ continuation; x dead note; p palm mute; l let ring; v vibrato; h legato (hammer/pull); s<fret>/S<fret> legato/shift slide to fret, S^<fret> picked slide in; b/r/br bend/release/bend-release; @ peak in twelfths").unwrap();
     writeln!(
         out,
         "Durations: denominator, optional dot; velocities omitted; fret is relative to capo."
@@ -54,6 +54,17 @@ pub fn ascii_tab(doc: &TabDocument) -> Result<(String, ScorePlan)> {
                     }
                     if note.vibrato {
                         cell.push('v');
+                    }
+                    if note.hammer {
+                        cell.push('h');
+                    }
+                    if let Some(slide) = note.slide {
+                        let kind = match (slide.into, slide.kind) {
+                            (true, _) => "S^",
+                            (false, mtab_guitar::SlideKind::Shift) => "S",
+                            (false, _) => "s",
+                        };
+                        write!(cell, "{kind}{}", slide.to_fret).unwrap();
                     }
                     write!(cell, "{}", note.fret).unwrap();
                     if let Some(bend) = note.bend {

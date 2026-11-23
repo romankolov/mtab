@@ -4,8 +4,9 @@
 //! [`TabDocument`] to bar-contained beats with ties and rests. It intentionally
 //! rejects input it cannot yet preserve, including tempo/meter changes,
 //! eight-string tuning, chord symbols, unsupported bends and techniques; it
-//! never silently drops them. Dead-note, palm-mute, let-ring and vibrato flags
-//! are retained; vibrato depth and rate are not encodable in GP5. Timing is
+//! never silently drops them. Dead-note, palm-mute, let-ring and vibrato flags,
+//! hammer-ons, pull-offs and adjacent-note slides are retained; vibrato depth
+//! and rate are not encodable in GP5. Timing is
 //! quantized to 1/32 notes at an integer, constant BPM.
 //!
 //! GP5 uses two voices per measure. This initial planner uses a single voice,
@@ -84,6 +85,23 @@ pub struct PlannedNote {
     pub let_ring: bool,
     /// The source marks vibrato; GP5 stores only a yes/no flag.
     pub vibrato: bool,
+    /// The source marks hammer-on or pull-off onto the next note on this string.
+    pub hammer: bool,
+    /// An adjacent-note slide marker, if supplied and validated.
+    pub slide: Option<PlannedSlide>,
+}
+
+/// A slide encoded in GP5 as a one-byte marker; the target fret is not stored
+/// by the format, so the planner requires a directly adjacent target note.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlannedSlide {
+    /// The supplied slide kind.
+    pub kind: mtab_guitar::SlideKind,
+    /// Fret the slide moves to (out) or arrives at (in).
+    pub to_fret: u8,
+    /// True for a picked slide into this note; false for a slide out to the
+    /// next note.
+    pub into: bool,
 }
 
 /// A bend on a single unsplit beat. Positions are twelfths of its duration.
@@ -110,6 +128,9 @@ struct QuantizedNote {
     palm_mute: bool,
     let_ring: bool,
     vibrato: bool,
+    hammer: bool,
+    slide: Option<PlannedSlide>,
+    techniques: Vec<Technique>,
 }
 
 fn invalid(reason: &str) -> MtabError {
@@ -125,7 +146,8 @@ fn invalid(reason: &str) -> MtabError {
 /// onset/offset displacement is reported. Sequential notes that quantize to
 /// overlapping intervals on the same string are rejected rather than lost.
 /// Supported tunings contain six or seven strings; this planner does not
-/// support techniques other than dead notes, palm muting, let-ring and vibrato,
+/// support techniques other than dead notes, palm muting, let-ring, vibrato,
+/// hammer-on/pull-off onto the next attack and slides between adjacent notes,
 /// explicit source ties, chords, changing tempo/meter, or empty documents. Bends must start at
 /// the attack, peak on an interior twelfth of the original note, have a positive
 /// whole-semitone height of at most two semitones, and fit a single planned beat.
@@ -224,11 +246,14 @@ fn quantize_track(
                         | Technique::PalmMute
                         | Technique::LetRing
                         | Technique::Vibrato { .. }
+                        | Technique::HammerOn
+                        | Technique::PullOff
+                        | Technique::Slide { .. }
                 )
             })
         {
             return Err(invalid(
-                "techniques other than dead notes, palm muting, let-ring, vibrato and explicit source ties are not yet supported",
+                "techniques other than dead notes, palm muting, let-ring, vibrato, hammer-on, pull-off, slides and explicit source ties are not yet supported",
             ));
         }
         let Some(&open) = strings.get(note.string as usize) else {
@@ -270,9 +295,112 @@ fn quantize_track(
                 .technique
                 .iter()
                 .any(|t| matches!(t, Technique::Vibrato { .. })),
+            hammer: note
+                .technique
+                .iter()
+                .any(|t| matches!(t, Technique::HammerOn | Technique::PullOff)),
+            slide: None,
+            techniques: note.technique.clone(),
         });
     }
+    validate_legato(&mut out, frets)?;
     Ok(out)
+}
+
+/// Validate and attach hammer-on/pull-off and slide markers.
+///
+/// GP5 stores legato and slide flags on the note itself without an explicit
+/// target, so every such technique must describe a real, directly adjacent
+/// note on the same string: hammer-on/pull-off onto the next attack, a slide
+/// out to the next attack, or a picked slide in from the previous attack.
+/// Dead notes cannot be legato ends and a note may not both slide out and hold
+/// a picked slide-in marker in the opposite direction.
+fn validate_legato(notes: &mut [QuantizedNote], frets: u8) -> Result<()> {
+    let mut order: Vec<usize> = (0..notes.len()).collect();
+    order.sort_by_key(|&i| (notes[i].string, notes[i].start, i));
+    for position in 0..order.len() {
+        let index = order[position];
+        let next = order.get(position + 1).copied().filter(|&next| {
+            notes[next].string == notes[index].string && notes[next].start > notes[index].start
+        });
+        let previous = position
+            .checked_sub(1)
+            .and_then(|p| order.get(p).copied())
+            .filter(|&previous| {
+                notes[previous].string == notes[index].string
+                    && notes[previous].end <= notes[index].start
+            });
+        let mut slide: Option<PlannedSlide> = None;
+        let is_hammer = notes[index]
+            .techniques
+            .iter()
+            .any(|technique| matches!(technique, Technique::HammerOn | Technique::PullOff));
+        if is_hammer {
+            let Some(next) = next else {
+                return Err(invalid(
+                    "a hammer-on or pull-off needs a following attack on the same string",
+                ));
+            };
+            if notes[next].start != notes[index].end
+                || notes[next].dead_note
+                || notes[next].fret == notes[index].fret
+            {
+                return Err(invalid(
+                    "a hammer-on or pull-off must connect directly adjacent attacks at different frets",
+                ));
+            }
+        }
+        for technique in notes[index].techniques.clone() {
+            if let Technique::Slide { to_fret, kind } = technique {
+                if to_fret > frets {
+                    return Err(invalid("slide target fret exceeds the fretboard"));
+                }
+                let into = matches!(kind, mtab_guitar::SlideKind::Picked);
+                if into {
+                    // Picked slides into a note: `to_fret` is this note's own
+                    // fret and the previous note must end exactly at it with
+                    // a different fret to slide from.
+                    let Some(previous) = previous else {
+                        return Err(invalid(
+                            "a picked slide-in needs a preceding note on the same string",
+                        ));
+                    };
+                    if notes[previous].end != notes[index].start
+                        || to_fret != notes[index].fret
+                        || notes[previous].fret == to_fret
+                    {
+                        return Err(invalid(
+                            "a picked slide-in needs the previous note to end at this attack and move from its fret",
+                        ));
+                    }
+                } else {
+                    let Some(next) = next else {
+                        return Err(invalid(
+                            "a slide-out needs a following attack on the same string",
+                        ));
+                    };
+                    if notes[next].start != notes[index].end
+                        || notes[next].fret != to_fret
+                        || notes[next].dead_note
+                    {
+                        return Err(invalid(
+                            "a slide-out target must be a directly adjacent real note with the declared fret",
+                        ));
+                    }
+                }
+                if slide.is_some() {
+                    return Err(invalid("at most one slide marker per note is supported"));
+                }
+                slide = Some(PlannedSlide {
+                    kind,
+                    to_fret,
+                    into,
+                });
+            }
+        }
+        notes[index].slide = slide;
+    }
+    Ok(())
 }
 
 fn plan_bend(note: &TabNote) -> Result<Option<PlannedBend>> {
@@ -355,6 +483,8 @@ fn plan_track(notes: &[QuantizedNote], bars: u64, beat_count: &mut usize) -> Res
                         palm_mute: n.palm_mute,
                         let_ring: n.let_ring,
                         vibrato: n.vibrato,
+                        hammer: n.hammer,
+                        slide: n.slide,
                     }
                 })
                 .collect();
@@ -516,7 +646,16 @@ mod tests {
         doc.meta.time_signatures = vec![];
         doc.tracks[0].notes[0]
             .technique
-            .push(mtab_guitar::Technique::HammerOn);
+            .push(mtab_guitar::Technique::Harmonic);
+        assert!(plan(&doc).is_err());
+        // A hammer-on with no following attack on the string is rejected, and
+        // so is a slide whose target does not match the next note.
+        doc.tracks[0].notes[0].technique = vec![mtab_guitar::Technique::HammerOn];
+        assert!(plan(&doc).is_err());
+        doc.tracks[0].notes[0].technique = vec![mtab_guitar::Technique::Slide {
+            to_fret: 3,
+            kind: mtab_guitar::SlideKind::Legato,
+        }];
         assert!(plan(&doc).is_err());
         doc.tracks[0].notes[0].technique.clear();
         doc.tracks[0].notes[0].midi = 41;

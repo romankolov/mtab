@@ -121,6 +121,8 @@ fn note_xml(
             || tie_start
             || staff == 2
             || note.palm_mute
+            || note.hammer
+            || note.slide.is_some()
             || vibrato_stage != VibratoStage::None
             || (note.let_ring && !tie_start);
         if has_notation {
@@ -134,6 +136,15 @@ fn note_xml(
             if note.let_ring && !tie_start {
                 out.push_str("<tied type=\"let-ring\"/>");
             }
+            // MusicXML orders `slide` before `ornaments` and `technical` in
+            // `notations`, and it is not a `technical` child.
+            if let Some(slide) = note.slide {
+                if slide.into {
+                    out.push_str("<slide type=\"stop\" number=\"1\"/>");
+                } else {
+                    out.push_str("<slide type=\"start\" number=\"1\"/>");
+                }
+            }
             if let Some(types) = vibrato_stage.types() {
                 out.push_str("<ornaments>");
                 for kind in types {
@@ -141,7 +152,7 @@ fn note_xml(
                 }
                 out.push_str("</ornaments>");
             }
-            if staff == 2 || note.palm_mute {
+            if staff == 2 || note.palm_mute || note.hammer || note.slide.is_some() {
                 out.push_str("<technical>");
                 if staff == 2 {
                     write!(
@@ -154,6 +165,11 @@ fn note_xml(
                 }
                 if note.palm_mute {
                     out.push_str("<other-technical>palm mute</other-technical>");
+                }
+                if note.hammer {
+                    // MusicXML has no combined hammer/pull marker; an
+                    // unspecified hammer-on covers both directions.
+                    out.push_str("<hammer-on type=\"start\"/>");
                 }
                 out.push_str("</technical>");
             }

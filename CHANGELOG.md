@@ -14,6 +14,13 @@ versioning: [SemVer](https://semver.org/).
 - Independent checks: `tools/check_gp5_vibrato.py` (PyGuitarPro) and
   `tools/check_musicxml_vibrato.py` (W3C XSD plus exact per-staff ornament
   positions) run in the same gated CI jobs as the existing let-ring checks.
+- Supplied hammer-on/pull-off and slide techniques now reach all notation
+  exports. The planner validates them against the adjacent attack on the same
+  string (different fret, no dead-note target, exact adjacency) because GP5
+  stores only a flag with no target; GP5 gets hammer and legato/shift/picked
+  slide flags, ASCII a legend for the same, MusicXML `hammer-on` and
+  `notations/slide` start/stop. Independent checker scripts cover the flags and
+  the MusicXML XSD order. Nothing infers these techniques from audio.
 
 ### Security
 - Audio decoding now rejects hostile containers instead of aborting. Bounded

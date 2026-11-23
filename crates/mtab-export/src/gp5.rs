@@ -3,8 +3,9 @@
 //! This writer supports the documented subset of [`crate::gp5_plan`]. In
 //! particular, it rejects unsupported bends and techniques, source ties,
 //! variable tempo, non-4/4 meters, eight-string tracks and quantization
-//! collisions rather than losing them. Explicit dead-note and palm-mute marks
-//! and let-ring marks are supported. GP5 velocities are rounded to its eight dynamic levels.
+//! collisions rather than losing them. Dead-note, palm-mute, let-ring, vibrato,
+//! hammer-on/pull-off and adjacent-note slide marks are supported. GP5
+//! velocities are rounded to its eight dynamic levels.
 //! This is not a replacement for manual verification in a notation program.
 
 use std::path::Path;
@@ -12,7 +13,7 @@ use std::path::Path;
 use guitarpro::{
     beat::{Beat, Voice},
     effects::{BendEffect, BendPoint},
-    enums::{BeatStatus, BendType, NoteType},
+    enums::{BeatStatus, BendType, NoteType, SlideType},
     gp::Song,
     headers::MeasureHeader,
     key_signature::Duration,
@@ -132,6 +133,17 @@ pub fn gp5_bytes(doc: &TabDocument) -> Result<(Vec<u8>, ScorePlan)> {
                     target_note.effect.palm_mute = note.palm_mute;
                     target_note.effect.let_ring = note.let_ring;
                     target_note.effect.vibrato = note.vibrato;
+                    target_note.effect.hammer = note.hammer;
+                    if let Some(slide) = note.slide {
+                        target_note
+                            .effect
+                            .slides
+                            .push(match (slide.into, slide.kind) {
+                                (true, _) => SlideType::IntoFromBelow,
+                                (false, mtab_guitar::SlideKind::Shift) => SlideType::ShiftSlideTo,
+                                (false, _) => SlideType::LegatoSlideTo,
+                            });
+                    }
                     if let Some(bend) = note.bend {
                         // GP5 point values use quarter-tone units: two units
                         // per semitone. TuxGuitar renders a value of one as 1/4.

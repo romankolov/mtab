@@ -396,8 +396,9 @@ The CLI supports `.txt` and `.tab` outputs, alone or alongside other formats.
 `mtab_export::musicxml::musicxml` returns MusicXML 3.1 and the quantized
 notation plan; `ExportFormat::MusicXml` writes `.musicxml` or `.xml`. It emits
 standard concert-pitch and tablature staves, tuning, capo, bars, durations,
-chords, ties, string/fret, dead-note heads, palm-mute, let-ring and vibrato
-(wavy-line start/continue/stop) annotations. It uses
+chords, ties, string/fret, dead-note heads, palm-mute, let-ring, vibrato
+(wavy-line start/continue/stop), hammer-on and slide (`notations/slide`
+start/stop) annotations. It uses
 the restricted GP5 planner and rejects timed bends rather than discarding
 them. Velocities are not encoded; the two notation staves duplicate notes and
 may double playback in applications. MuseScore 3.2.3 imported a fixture but changed some string/fret assignments
@@ -412,7 +413,8 @@ or alongside other formats.
 `mtab_export::gp5::gp5_bytes` encodes the currently restricted GP5 5.00 subset:
 constant integer tempo, 4/4, six or seven strings, and a 1/32-note grid. It
 preserves explicit dead-note, palm-mute, let-ring and vibrato marks (GP5 stores
-vibrato as a boolean, not rate/depth) and a restricted set of bends,
+vibrato as a boolean, not rate/depth), hammer-on/pull-off and adjacent-note
+slide markers, and a restricted set of bends,
 but rejects unsupported contours, other techniques, explicit source ties, chord
 symbols, variable tempo/meter and quantization collisions rather than silently
 discarding them. A bend must start at the note attack, peak at an interior
