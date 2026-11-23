@@ -48,8 +48,9 @@ result or set `--tuning` and `--capo` explicitly. Run
 `mtab detect-tuning --list` for tunings.
 
 The audio library has experimental bounded spectral-flux onset and
-periodicity-evidence APIs ([details and independent checks](benches/m4-onset-envelope.md));
-they do not identify beats or change CLI output.
+periodicity-evidence APIs, plus an experimental beat-path search conditioned
+on a supplied tempo ([details and independent checks](benches/m4-onset-envelope.md)).
+These are not a complete automatic beat tracker and do not change CLI output.
 
 Beat tracking is not implemented: MIDI preserves note times with a fixed
 120 BPM / 4/4 map by default, apart from clipping sequential boundary

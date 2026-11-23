@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Experimental tempo-conditioned beat-path search with synthetic, exhaustive
+  and small real-audio evaluations. It is not a complete automatic tracker and
+  is not wired to CLI output.
 - An experimental autocorrelation evidence API for onset envelopes, returning
   competing 40–240 BPM lag peaks without claiming beat or tempo detection.
 - An experimental, bounded spectral-flux onset-envelope library API with an

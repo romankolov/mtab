@@ -1,0 +1,83 @@
+{
+  "source_jams_sha256": "2258ef6f5dc58437f2807dfc0c05416ad8498cd345f95d6563b13d19283e6d54",
+  "duration_seconds": 5,
+  "beats": [
+    {
+      "time": 0.0,
+      "position": 1,
+      "measure": 1,
+      "num_beats": 4,
+      "beat_units": 4
+    },
+    {
+      "time": 0.46511627906976744,
+      "position": 2,
+      "measure": 1,
+      "num_beats": 4,
+      "beat_units": 4
+    },
+    {
+      "time": 0.9302325581395349,
+      "position": 3,
+      "measure": 1,
+      "num_beats": 4,
+      "beat_units": 4
+    },
+    {
+      "time": 1.3953488372093024,
+      "position": 4,
+      "measure": 1,
+      "num_beats": 4,
+      "beat_units": 4
+    },
+    {
+      "time": 1.8604651162790697,
+      "position": 1,
+      "measure": 2,
+      "num_beats": 4,
+      "beat_units": 4
+    },
+    {
+      "time": 2.3255813953488373,
+      "position": 2,
+      "measure": 2,
+      "num_beats": 4,
+      "beat_units": 4
+    },
+    {
+      "time": 2.7906976744186047,
+      "position": 3,
+      "measure": 2,
+      "num_beats": 4,
+      "beat_units": 4
+    },
+    {
+      "time": 3.255813953488372,
+      "position": 4,
+      "measure": 2,
+      "num_beats": 4,
+      "beat_units": 4
+    },
+    {
+      "time": 3.7209302325581395,
+      "position": 1,
+      "measure": 3,
+      "num_beats": 4,
+      "beat_units": 4
+    },
+    {
+      "time": 4.186046511627907,
+      "position": 2,
+      "measure": 3,
+      "num_beats": 4,
+      "beat_units": 4
+    },
+    {
+      "time": 4.651162790697675,
+      "position": 3,
+      "measure": 3,
+      "num_beats": 4,
+      "beat_units": 4
+    }
+  ]
+}
