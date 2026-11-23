@@ -80,17 +80,29 @@ struct EvalArgs {
     #[arg(long)]
     annotations: Option<PathBuf>,
     /// Evaluate string assignment on ground-truth notes (not audio transcription)
-    #[arg(long, conflicts_with_all = ["predictions", "tab_ir", "tab_manifest"])]
+    #[arg(long, conflicts_with_all = ["predictions", "tab_ir", "tab_manifest", "audio_manifest"])]
     oracle_notes: bool,
     /// Score a JSONL note transcription against one matching GuitarSet JAMS file
-    #[arg(long, conflicts_with_all = ["oracle_notes", "tab_ir", "tab_manifest"])]
+    #[arg(long, conflicts_with_all = ["oracle_notes", "tab_ir", "tab_manifest", "audio_manifest"])]
     predictions: Option<PathBuf>,
     /// Score one emitted TabDocument IR against matching GuitarSet JAMS
-    #[arg(long, conflicts_with_all = ["oracle_notes", "predictions", "tab_manifest"], requires = "clip_duration")]
+    #[arg(long, conflicts_with_all = ["oracle_notes", "predictions", "tab_manifest", "audio_manifest"], requires = "clip_duration")]
     tab_ir: Option<PathBuf>,
     /// Score an explicit JSON manifest of annotation, IR, and duration entries
-    #[arg(long, conflicts_with_all = ["oracle_notes", "predictions", "tab_ir", "annotations", "clip_duration"])]
+    #[arg(long, conflicts_with_all = ["oracle_notes", "predictions", "tab_ir", "annotations", "clip_duration", "audio_manifest"])]
     tab_manifest: Option<PathBuf>,
+    /// Run end-to-end evaluation over an explicit JSON audio/annotation manifest
+    #[arg(long, conflicts_with_all = ["oracle_notes", "predictions", "tab_ir", "tab_manifest", "annotations", "clip_duration"], requires = "weights")]
+    audio_manifest: Option<PathBuf>,
+    /// Local safetensors weights for end-to-end evaluation (no downloads)
+    #[arg(long, requires = "audio_manifest")]
+    weights: Option<PathBuf>,
+    /// Model architecture for end-to-end evaluation
+    #[arg(long, default_value = "small")]
+    size: ModelSize,
+    /// Maximum generated tokens per chunk for end-to-end evaluation
+    #[arg(long, default_value_t = 2000)]
+    max_gen_len: usize,
     /// Evaluation duration in seconds (required for tab-IR frame evaluation)
     #[arg(long)]
     clip_duration: Option<f64>,
@@ -319,6 +331,15 @@ fn eval(args: EvalArgs) -> Result<()> {
         return Err(MtabError::NotImplemented(
             "only GuitarSet evaluation is supported",
         ));
+    }
+    if let Some(manifest) = args.audio_manifest.as_deref() {
+        return guitarset_tab::evaluate_audio_manifest(
+            manifest,
+            args.weights.as_deref().expect("clap requires weights"),
+            args.size,
+            args.max_gen_len,
+            args.report.as_deref(),
+        );
     }
     if let Some(manifest) = args.tab_manifest.as_deref() {
         return guitarset_tab::evaluate_manifest(manifest, args.report.as_deref());

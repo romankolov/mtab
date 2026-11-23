@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       run_eval:
-        description: "Run pending end-to-end GuitarSet eval (not implemented)"
+        description: "Run end-to-end evaluation of the 5s GuitarSet development excerpt (requires HF_TOKEN)"
         type: boolean
         default: false
       run_oracle:
@@ -66,20 +66,26 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: nightly-eval
-      - name: Check HF_TOKEN secret
+      - name: Download and verify gated small checkpoint
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           if [ -z "$HF_TOKEN" ]; then
-            echo "::error::HF_TOKEN repo secret is not set. Add it in Settings > Secrets > Actions (needed to accept the MuScriptor CC BY-NC license and fetch gated weights)."
+            echo '::error::Set the HF_TOKEN repository secret for an account with accepted model conditions.'
             exit 1
           fi
-      - name: Run eval harness
+          curl -fL --retry 3 -H "Authorization: Bearer $HF_TOKEN" \
+            -o "$RUNNER_TEMP/mtab-small.safetensors" \
+            'https://huggingface.co/MuScriptor/muscriptor-small/resolve/main/model.safetensors'
+          echo "bbd482c786b895cf7d8f44185073d951adae2ebb8a66f82ca84cd1f84569549c  $RUNNER_TEMP/mtab-small.safetensors" | sha256sum -c -
+      - name: Transcribe and evaluate one 5-second development excerpt
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        # Implemented in milestone M5 (PROMPT.md §6.14). Fails until then if
-        # triggered manually — that is intentional.
-        run: cargo run --release --locked -p mtab-cli -- eval --corpus guitarset --report eval.md
+          MATMUL_NUM_THREADS: '2'
+        run: |
+          cargo run --release --locked -p mtab-cli -- eval \
+            --audio-manifest crates/mtab-cli/tests/fixtures/guitarset/guitarset_audio_manifest.json \
+            --weights "$RUNNER_TEMP/mtab-small.safetensors" --size small \
+            --max-gen-len 512 --report eval.md
       - name: Upload eval report
         if: always()
         uses: actions/upload-artifact@v4

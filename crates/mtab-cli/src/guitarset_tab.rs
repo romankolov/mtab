@@ -307,9 +307,332 @@ pub fn evaluate_manifest(manifest: &Path, report: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug)]
+struct AudioEntry {
+    audio: std::path::PathBuf,
+    reference: Vec<Reference>,
+    duration: f64,
+}
+
+fn load_audio_manifest(
+    manifest: &Path,
+    weights: &Path,
+    report: Option<&Path>,
+) -> Result<Vec<AudioEntry>> {
+    use std::collections::HashSet;
+    let data: serde_json::Value = serde_json::from_reader(std::fs::File::open(manifest)?)?;
+    let entries = data
+        .as_array()
+        .ok_or_else(|| fail("audio manifest must be a JSON array"))?;
+    if entries.is_empty() || entries.len() > 10000 {
+        return Err(fail("audio manifest needs 1–10000 entries"));
+    }
+    let root = manifest.parent().unwrap_or_else(|| Path::new("."));
+    let destination = report.and_then(|p| std::fs::canonicalize(p).ok());
+    let protected = [
+        std::fs::canonicalize(manifest)?,
+        std::fs::canonicalize(weights)?,
+    ];
+    if destination.as_ref().is_some_and(|d| protected.contains(d)) {
+        return Err(fail("report must not overwrite manifest or weights"));
+    }
+    let mut annotations = HashSet::new();
+    let mut audios = HashSet::new();
+    let mut loaded = Vec::new();
+    for (i, entry) in entries.iter().enumerate() {
+        let path = |field| {
+            entry
+                .get(field)
+                .and_then(serde_json::Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(|s| root.join(s))
+                .ok_or_else(|| fail(format!("audio manifest entry {} needs {field} path", i + 1)))
+        };
+        let audio = path("audio")?;
+        let annotation = path("annotation")?;
+        let duration = entry
+            .get("duration")
+            .and_then(serde_json::Value::as_f64)
+            .ok_or_else(|| {
+                fail(format!(
+                    "audio manifest entry {} needs numeric duration",
+                    i + 1
+                ))
+            })?;
+        if !duration.is_finite() || duration < 1.0 / 16000.0 || duration > MAX_DURATION {
+            return Err(fail(
+                "manifest duration must be between one sample and 28800 seconds",
+            ));
+        }
+        let audio_id = std::fs::canonicalize(&audio)?;
+        let annotation_id = std::fs::canonicalize(&annotation)?;
+        if !audios.insert(audio_id.clone()) || !annotations.insert(annotation_id.clone()) {
+            return Err(fail(
+                "audio manifest must not repeat audio or annotation files",
+            ));
+        }
+        if destination
+            .as_ref()
+            .is_some_and(|d| *d == audio_id || *d == annotation_id)
+        {
+            return Err(fail("report must not overwrite audio or annotation input"));
+        }
+        let reference = parse_jams(&annotation)?;
+        if reference.len() > MAX_NOTES {
+            return Err(fail("reference exceeds 4096 notes"));
+        }
+        loaded.push(AudioEntry {
+            audio,
+            reference,
+            duration,
+        });
+    }
+    Ok(loaded)
+}
+
+fn empty_document() -> TabDocument {
+    TabDocument {
+        meta: mtab_guitar::TrackMeta {
+            title: None,
+            tempo_map: mtab_guitar::TempoMap::constant(120.0),
+            time_signatures: vec![(0, 4, 4)],
+            frets: 22,
+            source_hash: None,
+        },
+        tracks: vec![],
+        chord_symbols: vec![],
+    }
+}
+
+fn transcribe_for_evaluation(
+    model: &mtab_core::lm::LmModel,
+    entry: &AudioEntry,
+    max_tokens: usize,
+) -> Result<TabDocument> {
+    let mut audio = mtab_audio::load_model_input(&entry.audio)?;
+    // Do not pad missing audio or claim a larger evaluation window.
+    let samples = (entry.duration * f64::from(mtab_audio::MODEL_SAMPLE_RATE)).floor() as usize;
+    if samples > audio.samples.len() {
+        return Err(fail("audio is shorter than the manifest duration"));
+    }
+    audio.samples.truncate(samples);
+    let opts = mtab_core::lm::GenOptions {
+        max_gen_len: max_tokens,
+        seed: 0,
+        ..Default::default()
+    };
+    let generated = mtab_audio::transcribe::transcribe(
+        model,
+        &audio,
+        &["guitar".to_owned()],
+        &opts,
+        true,
+        |_| {},
+    )?;
+    let mut groups = std::collections::BTreeMap::<u16, Vec<mtab_core::NoteEvent>>::new();
+    for note in generated.notes {
+        groups.entry(note.instrument).or_default().push(note);
+    }
+    let mut doc = empty_document();
+    let tuning = Tuning::standard();
+    for notes in groups.values() {
+        let assigned = mtab_guitar::assign_notes(
+            notes,
+            &tuning,
+            mtab_guitar::Capo::NONE,
+            mtab_guitar::FingeringOptions::default(),
+        )?;
+        doc.tracks.push(mtab_guitar::GuitarTrack {
+            tuning: tuning.clone(),
+            capo: mtab_guitar::Capo::NONE,
+            notes: assigned,
+            instrument: None,
+        });
+    }
+    Ok(doc)
+}
+
+fn run_audio_entries<F>(
+    entries: &[AudioEntry],
+    model_label: &str,
+    max_tokens: usize,
+    mut infer: F,
+) -> Result<(String, usize)>
+where
+    F: FnMut(&AudioEntry) -> Result<TabDocument>,
+{
+    let mut total = Counts::default();
+    let mut frames = 0usize;
+    let mut failures = 0usize;
+    let mut details = String::new();
+    for (i, entry) in entries.iter().enumerate() {
+        eprintln!(
+            "GuitarSet end-to-end recording {}/{}: {}",
+            i + 1,
+            entries.len(),
+            entry.audio.display()
+        );
+        let effective = (entry.duration * 16000.0).floor() / 16000.0;
+        let result = infer(entry).and_then(|doc| score_document(&entry.reference, &doc, effective));
+        let (scored, status) = match result {
+            Ok(score) => (score, "ok".to_owned()),
+            Err(error) => {
+                failures += 1;
+                // Failed files count as an empty transcription, never dropped.
+                let reason = error.to_string().replace(['|', '\n', '\r'], " ");
+                (
+                    score_document(&entry.reference, &empty_document(), effective)?,
+                    format!("failed: {reason}"),
+                )
+            }
+        };
+        let c = scored.counts;
+        frames += scored.frames;
+        total.pitch_tp += c.pitch_tp;
+        total.pitch_ref += c.pitch_ref;
+        total.pitch_pred += c.pitch_pred;
+        total.tab_tp += c.tab_tp;
+        total.tab_ref += c.tab_ref;
+        total.tab_pred += c.tab_pred;
+        total.pitch_string_matches += c.pitch_string_matches;
+        total.wrong_string += c.wrong_string;
+        details.push_str(&format!(
+            "| {} | {} | {} | {} | {} | {} | {} |\n",
+            i + 1,
+            scored.frames,
+            scored.reference_notes,
+            scored.predicted_notes,
+            percent(2 * c.pitch_tp, c.pitch_ref + c.pitch_pred),
+            percent(2 * c.tab_tp, c.tab_ref + c.tab_pred),
+            status
+        ));
+    }
+    Ok((format!("# GuitarSet end-to-end audio evaluation\n\nEntries: {}; failed entries: {failures}; total frames: {frames}. Model architecture: {model_label}; greedy decoding, seed 0, guitar-family mask, strict EOS, token limit {max_tokens}, standard tuning, capo 0, 22 frets, default bounded fingering (no wide-stretch retry). The model is loaded once. Each manifest duration is rounded down to 16 kHz sample boundaries; only that prefix is transcribed and scored. No source separation, technique inference, or dynamics estimation.\n\n| Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n\nWrong-string among pitch-matched string instances: {} / {} = {}.\n\n| Manifest entry | Frames | Reference notes | Predicted notes | Multi-pitch F1 | Tab-position F1 | Status |\n| ---: | ---: | ---: | ---: | ---: | ---: | --- |\n{details}\nFailures (including strict-EOS, decoding, assignment or short audio) count as empty predictions, never excluded; thus failures contribute reference false negatives but cannot estimate their hypothetical false positives. Pitch and tab metrics are 10 ms note-derived fixed-pitch frame sets, not continuous F0 or TabCNN TDR. No held-out split, tab-labeler-v3 baseline, or independent ground-truth pairing is established by the manifest. Record the weights hash, manifest and data selection separately. GuitarSet 1.1.0, Xi et al., CC BY 4.0; annotations can contain errors.\n", entries.len(), row("Multi-pitch frames", total.pitch_tp,total.pitch_ref,total.pitch_pred), row("Tab position frames", total.tab_tp,total.tab_ref,total.tab_pred), total.wrong_string,total.pitch_string_matches,percent(total.wrong_string,total.pitch_string_matches)), failures))
+}
+
+pub fn evaluate_audio_manifest(
+    manifest: &Path,
+    weights: &Path,
+    size: mtab_core::ModelSize,
+    max_tokens: usize,
+    report: Option<&Path>,
+) -> Result<()> {
+    if max_tokens == 0 || max_tokens > 2000 {
+        return Err(fail("--max-gen-len must be in 1–2000"));
+    }
+    let entries = load_audio_manifest(manifest, weights, report)?;
+    let model = mtab_core::lm::LmModel::load(mtab_core::lm::LmConfig::from_size(size), weights)?;
+    let (result, failures) = run_audio_entries(&entries, &size.to_string(), max_tokens, |entry| {
+        transcribe_for_evaluation(&model, entry, max_tokens)
+    })?;
+    if let Some(path) = report {
+        std::fs::write(path, result)?;
+    } else {
+        print!("{result}");
+    }
+    if failures > 0 {
+        return Err(fail(format!(
+            "end-to-end evaluation had {failures} failed recordings; see report"
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn end_to_end_failures_are_counted_as_false_negatives() {
+        let reference = vec![Reference {
+            note: mtab_core::NoteEvent {
+                start: 0.0,
+                end: 1.0,
+                midi: 45,
+                velocity: 100,
+                instrument: 24,
+            },
+            string: 1,
+        }];
+        let entries = vec![
+            AudioEntry {
+                audio: "one.wav".into(),
+                reference: reference.clone(),
+                duration: 1.0,
+            },
+            AudioEntry {
+                audio: "two.wav".into(),
+                reference,
+                duration: 1.0,
+            },
+        ];
+        let mut document = empty_document();
+        document.tracks.push(mtab_guitar::GuitarTrack {
+            tuning: Tuning::standard(),
+            capo: mtab_guitar::Capo::NONE,
+            instrument: None,
+            notes: vec![mtab_guitar::TabNote {
+                start: 0.0,
+                end: 1.0,
+                midi: 45,
+                string: 1,
+                fret: 0,
+                velocity: 100,
+                bend: None,
+                technique: vec![],
+                tie_from_prev: false,
+            }],
+        });
+        let mut n = 0;
+        let (report, failures) = run_audio_entries(&entries, "fixture", 512, |_| {
+            n += 1;
+            if n == 1 {
+                Ok(document.clone())
+            } else {
+                Err(fail("synthetic | failure"))
+            }
+        })
+        .unwrap();
+        assert_eq!(failures, 1);
+        assert!(report.contains("Entries: 2; failed entries: 1"), "{report}");
+        assert!(
+            report.contains("| Multi-pitch frames | 100 | 0 | 100 | 100.00% | 50.00% | 66.67% |"),
+            "{report}"
+        );
+        assert!(
+            report.contains("| Tab position frames | 100 | 0 | 100 | 100.00% | 50.00% | 66.67% |"),
+            "{report}"
+        );
+        assert!(
+            report.contains("failed: ") && report.contains("synthetic   failure"),
+            "{report}"
+        );
+    }
+    #[test]
+    fn actual_tiny_model_executes_audio_path_and_short_audio_fails() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let audio = root.join("tests/fixtures/guitarset/guitarset_solo_5s.wav");
+        let annotation = root.join("tests/fixtures/guitarset/guitarset_solo_5s.jams");
+        let weights = root.join("../mtab-core/tests/fixtures/model/tiny.fixture");
+        let model = mtab_core::lm::LmModel::load(mtab_core::lm::LmConfig::fixture_tiny(), &weights)
+            .unwrap();
+        let mut entry = AudioEntry {
+            audio,
+            reference: parse_jams(&annotation).unwrap(),
+            duration: 0.5,
+        };
+        let first = transcribe_for_evaluation(&model, &entry, 2);
+        let second = transcribe_for_evaluation(&model, &entry, 2);
+        match (first, second) {
+            (Ok(a), Ok(b)) => assert_eq!(a, b),
+            (Err(a), Err(b)) => assert_eq!(a.to_string(), b.to_string()),
+            _ => panic!("synthetic-model inference must be deterministic"),
+        }
+        entry.duration = 6.0;
+        assert!(transcribe_for_evaluation(&model, &entry, 2)
+            .unwrap_err()
+            .to_string()
+            .contains("shorter"));
+    }
     #[test]
     fn half_open_boundaries_and_unison_wrong_string() {
         assert_eq!(boundary(0.005, 100), 0);

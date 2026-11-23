@@ -7,6 +7,12 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Added local-weight audio-manifest end-to-end GuitarSet evaluation, reusing
+  one loaded model with deterministic guitar-masked strict-EOS inference and
+  default standard-tuning fingering. Failed recordings remain false negatives,
+  are explicitly reported and cause a nonzero exit. Optional Nightly `run_eval`
+  now targets one five-second development excerpt; the official checkpoint run
+  and full-corpus/baseline comparison remain unverified.
 - Added strict JSON-manifest aggregation for multiple precomputed GuitarSet IR
   evaluations, including per-recording rows and micro-aggregated frame counts.
   It does not run inference and refuses missing, malformed or duplicate inputs.

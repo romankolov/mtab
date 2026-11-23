@@ -372,3 +372,48 @@ fn real_small_gp5_ir_independent_roundtrip() {
     );
     eprintln!("{}", String::from_utf8_lossy(&check.stdout).trim());
 }
+
+#[test]
+#[ignore = "requires authorized official small checkpoint; expensive"]
+fn real_small_end_to_end_guitarset_manifest() {
+    let weights = std::env::var_os("MTAB_SMALL_WEIGHTS")
+        .expect("set MTAB_SMALL_WEIGHTS to the licensed official checkpoint");
+    let id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir =
+        Scratch(std::env::temp_dir().join(format!("mtab-small-eval-{}-{id}", std::process::id())));
+    std::fs::create_dir(&dir.0).unwrap();
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/guitarset");
+    let manifest = dir.0.join("audio-manifest.json");
+    let report = dir.0.join("eval.md");
+    std::fs::write(
+        &manifest,
+        serde_json::to_vec(&serde_json::json!([{
+            "audio":fixture.join("guitarset_solo_5s.wav"),
+            "annotation":fixture.join("guitarset_solo_5s.jams"),
+            "duration":5.0
+        }]))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_mtab"))
+        .args(["eval", "--audio-manifest"])
+        .arg(&manifest)
+        .arg("--weights")
+        .arg(weights)
+        .args(["--size", "small", "--max-gen-len", "512", "--report"])
+        .arg(&report)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let text = std::fs::read_to_string(&report).unwrap();
+    eprintln!("{text}");
+    assert!(text.contains("Entries: 1; failed entries: 0"), "{text}");
+    assert!(text.contains("| Multi-pitch frames |") && text.contains("| Tab position frames |"));
+}

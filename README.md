@@ -182,6 +182,34 @@ mtab eval --annotations recording.jams --tab-ir recording.json \
   --clip-duration 5 --report recording-eval.md
 ```
 
+To transcribe and score an explicit list of local audio recordings end to end,
+use a separate audio manifest, with paths relative to that manifest:
+
+```json
+[
+  {"annotation": "a.jams", "audio": "a.wav", "duration": 30.0},
+  {"annotation": "b.jams", "audio": "b.wav", "duration": 27.0}
+]
+```
+
+```sh
+mtab eval --audio-manifest audio-manifest.json --size small \
+  --weights /path/to/model.safetensors --max-gen-len 512 --report eval.md
+```
+
+The model is loaded once. The evaluator uses only each audio prefix specified
+by its duration, greedy guitar-masked decoding with strict EOS, and standard
+tuning/capo zero/default fingering. If inference or fingering fails, that entry
+is scored as an empty prediction, marked failed in the report, and the command
+returns an error after writing the report; such failures contribute false
+negatives but have unknown hypothetical false positives. It validates that
+all listed paths exist, but cannot verify that audio and annotations are paired
+correctly. List the intended complete split explicitly, preserve the manifest,
+and record model-weight hash and setup before drawing any conclusions. The
+Nightly `run_eval` option currently runs only the checked-in five-second
+**development** excerpt, not the full corpus. It requires an authorized
+`HF_TOKEN` repository secret and has not been run in the current environment.
+
 For several precomputed recordings, make a JSON manifest (paths are relative
 to the manifest) and pass `--tab-manifest manifest.json --report eval.md`:
 
@@ -201,7 +229,7 @@ split, model, and decoding settings separately.
 The IR score uses 10 ms frame centers and fixed MIDI notes (not continuous
 pitch contours), reports multi-pitch and tab-position precision/recall/F1,
 and gives a pitch-matched wrong-string rate. It does not implement TabCNN TDR,
-run inference itself, establish corpus quality, or compare to tab-labeler-v3.
+establish corpus quality, or compare to tab-labeler-v3.
 The specified duration must match the audio being evaluated. Note-event JSONL
 and IR frame metrics use different matching definitions. The Nightly `run_real_small` option performs the fixture check using an
 accepted Hugging Face account's `HF_TOKEN` repository secret; no model

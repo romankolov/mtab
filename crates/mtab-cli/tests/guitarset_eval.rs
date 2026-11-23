@@ -351,3 +351,49 @@ fn scores_emitted_ir_framewise_and_rejects_misleading_inputs() {
     save(&doc);
     assert!(!run(&["--clip-duration", "2"]).status.success());
 }
+
+#[test]
+fn audio_manifest_preflights_files_and_protects_inputs() {
+    let scratch = Scratch::new();
+    let jams = scratch.0.join("reference.jams");
+    let wav = scratch.0.join("audio.wav");
+    let weights = scratch.0.join("weights.safetensors");
+    let manifest = scratch.0.join("audio.json");
+    let annotations: Vec<_> = (0..6).map(|s| serde_json::json!({"namespace":"note_midi", "annotation_metadata":{"data_source":s.to_string()}, "data":[]})).collect();
+    std::fs::write(
+        &jams,
+        serde_json::to_vec(&serde_json::json!({"annotations":annotations})).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(&wav, b"not a wav").unwrap();
+    std::fs::write(&weights, b"not a checkpoint").unwrap();
+    let entry =
+        serde_json::json!({"audio":"audio.wav", "annotation":"reference.jams", "duration":5.0});
+    let save = |entries: Vec<serde_json::Value>| {
+        std::fs::write(&manifest, serde_json::to_vec(&entries).unwrap()).unwrap()
+    };
+    let run = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_mtab"))
+            .args(["eval", "--audio-manifest"])
+            .arg(&manifest)
+            .arg("--weights")
+            .arg(&weights)
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    save(vec![entry.clone()]);
+    for path in [&manifest, &jams, &wav, &weights] {
+        let before = std::fs::read(path).unwrap();
+        let output = run(&["--report", path.to_str().unwrap()]);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("overwrite"));
+        assert_eq!(std::fs::read(path).unwrap(), before);
+    }
+    assert!(!run(&["--max-gen-len", "0"]).status.success());
+    assert!(!run(&["--max-gen-len", "2001"]).status.success());
+    save(vec![entry.clone(), entry]);
+    let output = run(&[]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("must not repeat"));
+}

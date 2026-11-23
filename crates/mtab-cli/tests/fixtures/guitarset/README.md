@@ -8,7 +8,9 @@ note durations crossing the boundary were clipped. The clip has 20 annotated
 note events, including simultaneous notes. `guitarset_solo_5s_pitch.json` is
 an additional derived excerpt of the original six `pitch_contour` namespaces:
 only voiced positive-frequency observations in the first five seconds are
-retained, grouped by original string index.
+retained, grouped by original string index. `guitarset_audio_manifest.json`
+references the local five-second clip and JAMS for an end-to-end harness smoke
+run; it is not a held-out or corpus-scale selection.
 
 **Attribution and license:** GuitarSet, version 1.1.0, by Qingyang Xi, Rachel
 M. Bittner, Xuzhou Ye, Johan Pauwels and Juan P. Bello,
