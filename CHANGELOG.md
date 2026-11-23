@@ -7,6 +7,10 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Added an experimental partial fingering library API that explicitly reports
+  unassigned input indices instead of failing an entire track. A bounded beam
+  minimizes skipped notes before ergonomic cost; it may not find a global
+  optimum. Strict assignment remains unchanged by default.
 - Added a deterministic exhaustive-search oracle for short fingering cases,
   checking score optimality and constraints for a wide beam, with varied
   overlaps, capo and span; this does not measure musical quality.

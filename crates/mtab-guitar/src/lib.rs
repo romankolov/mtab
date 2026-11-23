@@ -18,7 +18,8 @@ pub use detection::{
     detect_tuning, standard_candidates, TuningCandidate, TuningDetection, TuningScore,
 };
 pub use fingering::{
-    assign_notes, assign_notes_with_stretch, FingeringAssignment, FingeringOptions,
+    assign_notes, assign_notes_partial, assign_notes_with_stretch, FingeringAssignment,
+    FingeringOptions, PartialFingering,
 };
 pub use rhythm::Grid;
 pub use tab::{

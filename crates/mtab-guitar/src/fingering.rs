@@ -67,6 +67,7 @@ struct State {
     position: Option<u8>,
     last_string: Option<u8>,
     score: f64,
+    skipped: usize,
     path: Option<usize>,
 }
 
@@ -83,6 +84,50 @@ pub fn assign_notes(
     capo: Capo,
     options: FingeringOptions,
 ) -> Result<Vec<TabNote>> {
+    let result = assign_impl(notes, tuning, capo, options, false)?;
+    Ok(result
+        .notes
+        .into_iter()
+        .map(|note| note.expect("strict search assigns every note"))
+        .collect())
+}
+
+/// Partial assignment, aligned to the original input order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartialFingering {
+    /// `None` marks a note not assigned and therefore absent from tab exports.
+    pub notes: Vec<Option<TabNote>>,
+    /// Original input indices of all notes not assigned, in ascending order.
+    pub unassigned_indices: Vec<usize>,
+}
+
+/// Attempt a partial fingering without silently discarding impossible notes.
+///
+/// Unlike [`assign_notes`], this allows skipping notes to keep the remaining
+/// part playable. Paths are ranked lexicographically by the number of skipped
+/// notes, then the same ergonomic cost as the strict search. Beam pruning means
+/// neither the number of skips nor the cost is globally optimal in general.
+/// Every skipped input note is exposed in `unassigned_indices` and as `None`.
+/// Out-of-range pitches can be skipped, but malformed note metadata, tuning and
+/// options remain errors. Input notes are never mutated. Same-string collision,
+/// span, and sub-nanosecond boundary rules are identical to strict search.
+/// A partial result is not an accurate transcription of all original notes.
+pub fn assign_notes_partial(
+    notes: &[NoteEvent],
+    tuning: &Tuning,
+    capo: Capo,
+    options: FingeringOptions,
+) -> Result<PartialFingering> {
+    assign_impl(notes, tuning, capo, options, true)
+}
+
+fn assign_impl(
+    notes: &[NoteEvent],
+    tuning: &Tuning,
+    capo: Capo,
+    options: FingeringOptions,
+    allow_skip: bool,
+) -> Result<PartialFingering> {
     if !(Tuning::MIN_STRINGS..=Tuning::MAX_STRINGS).contains(&tuning.strings.len())
         || !tuning.strings.windows(2).all(|w| w[0] < w[1])
         || tuning.strings.iter().any(|&p| p > 127)
@@ -126,6 +171,7 @@ pub fn assign_notes(
         position: None,
         last_string: None,
         score: 0.0,
+        skipped: 0,
         path: None,
     }];
     // An index arena avoids recursive reference-counted path destruction on
@@ -143,7 +189,7 @@ pub fn assign_notes(
                     .then_some((string as u8, fret as u8))
             })
             .collect();
-        if candidates.is_empty() {
+        if candidates.is_empty() && !allow_skip {
             return Err(MtabError::UnplayableNote {
                 index,
                 reason: format!("pitch {} is outside this tuning/capo/fret range", note.midi),
@@ -157,6 +203,12 @@ pub fn assign_notes(
                 .filter(|a| sounding_at(a, note.start))
                 .cloned()
                 .collect();
+            if allow_skip {
+                let mut skipped = state.clone();
+                skipped.active = active.clone();
+                skipped.skipped += 1;
+                next.push((skipped, None));
+            }
             for &(string, fret) in &candidates {
                 if active.iter().any(|a| a.string == string) {
                     continue;
@@ -205,10 +257,10 @@ pub fn assign_notes(
                         },
                         last_string: Some(string),
                         score,
+                        skipped: state.skipped,
                         path: state.path,
                     },
-                    string,
-                    fret,
+                    Some((string, fret)),
                 ));
             }
         }
@@ -221,9 +273,13 @@ pub fn assign_notes(
         // Stable sort preserves deterministic generation order for equal costs.
         // Merge equivalent future-relevant states, keeping their cheapest path,
         // so redundant histories do not crowd useful alternatives out of the beam.
-        next.sort_by(|a, b| a.0.score.total_cmp(&b.0.score));
+        next.sort_by(|a, b| {
+            a.0.skipped
+                .cmp(&b.0.skipped)
+                .then_with(|| a.0.score.total_cmp(&b.0.score))
+        });
         let mut seen = HashSet::new();
-        next.retain(|(state, _, _)| {
+        next.retain(|(state, _)| {
             let mut active: Vec<(u8, u8, u64, u64)> = state
                 .active
                 .iter()
@@ -235,57 +291,66 @@ pub fn assign_notes(
         next.truncate(options.beam_width);
         states = next
             .into_iter()
-            .map(|(mut state, string, fret)| {
-                paths.push(PathNode {
-                    previous: state.path,
-                    index,
-                    string,
-                    fret,
-                });
-                state.path = Some(paths.len() - 1);
+            .map(|(mut state, assigned)| {
+                if let Some((string, fret)) = assigned {
+                    paths.push(PathNode {
+                        previous: state.path,
+                        index,
+                        string,
+                        fret,
+                    });
+                    state.path = Some(paths.len() - 1);
+                }
                 state
             })
             .collect();
     }
-    let mut out: Vec<TabNote> = notes
-        .iter()
-        .map(|n| TabNote {
-            start: n.start,
-            end: n.end,
-            midi: n.midi,
-            string: 0,
-            fret: 0,
-            velocity: n.velocity,
-            bend: None,
-            technique: Vec::new(),
-            tie_from_prev: false,
-        })
-        .collect();
+    let mut out: Vec<Option<TabNote>> = vec![None; notes.len()];
     let mut path = states[0].path;
     while let Some(index) = path {
         let node = &paths[index];
-        out[node.index].string = node.string;
-        out[node.index].fret = node.fret;
+        let note = &notes[node.index];
+        out[node.index] = Some(TabNote {
+            start: note.start,
+            end: note.end,
+            midi: note.midi,
+            string: node.string,
+            fret: node.fret,
+            velocity: note.velocity,
+            bend: None,
+            technique: Vec::new(),
+            tie_from_prev: false,
+        });
         path = node.previous;
     }
-    // Mirror the search's boundary tolerance in the returned notes. A note
-    // clipped here started before the later onset, so its duration stays >0.
-    // This also keeps simultaneous-span constraints true in the returned IR.
+    // Mirror the search's boundary tolerance only for assigned notes.
     let mut live: Vec<usize> = Vec::new();
     for &index in &order {
-        let onset = out[index].start;
+        let Some(note) = &out[index] else { continue };
+        let onset = note.start;
         for &previous in &live {
-            if out[previous].start < onset
-                && out[previous].end > onset
-                && out[previous].end - onset <= BOUNDARY_EPSILON
+            let earlier = out[previous]
+                .as_mut()
+                .expect("only assigned notes are live");
+            if earlier.start < onset
+                && earlier.end > onset
+                && earlier.end - onset <= BOUNDARY_EPSILON
             {
-                out[previous].end = onset;
+                earlier.end = onset;
             }
         }
-        live.retain(|&previous| out[previous].end > onset);
+        live.retain(|&previous| out[previous].as_ref().unwrap().end > onset);
         live.push(index);
     }
-    Ok(out)
+    let unassigned_indices = out
+        .iter()
+        .enumerate()
+        .filter_map(|(i, n)| n.is_none().then_some(i))
+        .collect();
+    Ok(PartialFingering {
+        notes: out,
+        unassigned_indices,
+    })
 }
 
 /// A complete fingering and the maximum span permitted by the successful run.
@@ -359,6 +424,60 @@ mod tests {
             velocity: 91,
             instrument: 24,
         }
+    }
+
+    #[test]
+    fn partial_reports_unplayable_and_collision_without_dropping_silently() {
+        let notes = [
+            note(40, 0.0, 2.0),
+            note(40, 1.0, 1.5),
+            note(20, 2.0, 3.0),
+            note(64, 3.0, 4.0),
+        ];
+        let result = assign_notes_partial(
+            &notes,
+            &Tuning::standard(),
+            Capo::NONE,
+            FingeringOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(result.unassigned_indices.len(), 2);
+        assert!(result.unassigned_indices.contains(&2));
+        assert_eq!(result.notes.iter().flatten().count(), 2);
+        assert!(result.notes[3].is_some());
+        assert!(assign_notes(
+            &notes,
+            &Tuning::standard(),
+            Capo::NONE,
+            FingeringOptions::default()
+        )
+        .is_err());
+        assert!(assign_notes_partial(
+            &[note(40, f64::NAN, 1.0)],
+            &Tuning::standard(),
+            Capo::NONE,
+            FingeringOptions::default()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn partial_clips_assigned_boundaries_but_not_for_skipped_notes() {
+        let notes = [
+            note(40, 0.0, 1.0 + 5e-10),
+            note(20, 0.5, 0.75),
+            note(40, 1.0, 2.0),
+        ];
+        let result = assign_notes_partial(
+            &notes,
+            &Tuning::standard(),
+            Capo::NONE,
+            FingeringOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(result.unassigned_indices, vec![1]);
+        assert_eq!(result.notes[0].as_ref().unwrap().end, 1.0);
+        assert_eq!(result.notes[2].as_ref().unwrap().start, 1.0);
     }
 
     #[test]
