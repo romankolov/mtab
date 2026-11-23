@@ -56,7 +56,7 @@ substantial beat-phase and tempo errors, even when reference tempo was supplied.
 A subsequent [predeclared tightness experiment](benches/m4-beat-tightness-results.md)
 reduced some errors but did not make the tracker production-ready.
 
-Beat tracking is not implemented: MIDI preserves note times with a fixed
+No reliable automatic beat tracking is enabled by default: MIDI preserves note times with a fixed
 120 BPM / 4/4 map by default, apart from clipping sequential boundary
 roundoff of at most one nanosecond. Use `--bpm 96` to specify a constant
 integer tempo (4–255 BPM) instead; it sets the musical grid and metadata but
@@ -70,8 +70,7 @@ align it to a quarter-note boundary: the pre-roll beat count is the offset
 divided by the first interval, rounded to the nearest integer and at least one.
 This does not infer earlier beats, a downbeat, meter, or pickup measures; 4/4
 bars still start at audio time zero. The CLI warns about this convention and
-uses the final interval's tempo beyond the last beat. There is no automatic
-beat tracking. Provide 2–100,001 finite, nonnegative, strictly increasing
+uses the final interval's tempo beyond the last beat. There is no automatic beat detection in this mode. Provide 2–100,001 finite, nonnegative, strictly increasing
 times, with intervals from 1 to 16,777,215 microseconds. The synthetic pre-roll
 interval has the same bounds and is limited to 100,000 beats; the UTF-8 JSON
 file must be at most 2 MiB. The file is
@@ -83,6 +82,18 @@ changed concurrently after the check. This option conflicts with `--bpm`, raw JS
 mtab transcribe song.wav --size small --weights ./muscriptor-small.safetensors \
     --tuning standard --capo 0 --beat-times beats.json --emit-ir song.json -o song.mid
 ```
+
+An opt-in `--experimental-beat-tracking` estimates beats from the audio for
+MIDI output only. It is **not production quality**: on a 50-recording GuitarSet
+second-take diagnostic it achieved 53.31% beat micro F1, and a synthetic louder-
+offbeat control scored 0%. It can select half/double tempo or offbeats, reports
+no confidence, does not detect downbeats or meter, and uses a global tempo
+candidate. It analyzes at most 30,000 onset frames (about five minutes), fails
+rather than producing a tempo if fewer than two beats are found, and assumes
+4/4 with a synthetic pre-roll for an offset first beat. Note playback retains
+raw seconds subject to MIDI rounding. This option conflicts with `--bpm` and
+`--beat-times`, and is not available for JSONL, GP5, MusicXML or ASCII. Review
+the MIDI grid manually; see [the diagnostic](benches/m4-beat-tightness-results.md).
 
 Fret assignment may fail on unplayable or beam-pruned polyphony; it is not a quality evaluation.
 The optional `--allow-wide-stretch` retries a failed assignment with a maximum

@@ -52,8 +52,10 @@ future versions to preserve the failure. The test uses click-derived beats, not 
 performance-beat truth, scores only after five seconds, assumes constant target
 tempo, and provides neither downbeats nor meter. The strongest-peak rule is not calibrated and may select
 noise, subdivisions or the wrong metrical level. Accordingly **no automatic
-tracker or new default was enabled**. The library API still requires its
-caller to choose both tempo and tightness explicitly.
+tracker or new default was enabled at the time of this experiment**. A later
+explicit opt-in CLI flag composes this rule with MIDI export; it remains
+experimental, and the default is unchanged. The conditioned path API still
+allows callers to choose tempo and tightness explicitly.
 
 ## Reproduction and raw reports
 

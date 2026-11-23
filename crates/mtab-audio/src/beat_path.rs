@@ -38,8 +38,9 @@ pub struct BeatPath {
 /// an empty path. Peaks may represent subdivisions or non-musical noise, and
 /// the objective may insert zero-strength beats between strong peaks; the
 /// output is not confidence-calibrated. This function does not estimate tempo,
-/// downbeats or meter. It is not wired to CLI output, and assumes a fixed
-/// global period rather than tracking tempo changes. Timestamps have 10 ms
+/// downbeats or meter. The optional experimental CLI tracker composes this
+/// with autocorrelation; it assumes a fixed global period rather than
+/// tracking tempo changes reliably. Timestamps have 10 ms
 /// resolution and refer to window centers, not corrected attack times.
 pub fn track_with_tempo(envelope: &OnsetEnvelope, bpm: f64, tightness: f64) -> Result<BeatPath> {
     if !bpm.is_finite() || !(40.0..=240.0).contains(&bpm) {

@@ -64,7 +64,8 @@ impl PeriodicityEvidence {
 /// tempo. It has no tempo prior, metrical interpretation, phase, beat times,
 /// uncertainty calibration, tempo-change tracking, or downbeat estimate.
 /// A positive local peak can be caused by noise, a subdivision, or any regular
-/// activity, even in non-musical audio. This is not connected to the CLI.
+/// activity, even in non-musical audio. The optional experimental CLI tracker
+/// uses the strongest peak, with known substantial errors.
 pub fn autocorrelation(envelope: &OnsetEnvelope) -> Result<PeriodicityEvidence> {
     let x = &envelope.strength;
     if x.len() > MAX_ONSET_FRAMES || x.iter().any(|v| !v.is_finite() || *v < 0.0) {

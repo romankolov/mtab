@@ -175,6 +175,10 @@ struct TranscribeArgs {
     #[arg(long, conflicts_with = "bpm")]
     beat_times: Option<PathBuf>,
 
+    /// Experimental audio beat hypothesis (MIDI only; often inaccurate; review output)
+    #[arg(long, conflicts_with_all = ["bpm", "beat_times"])]
+    experimental_beat_tracking: bool,
+
     /// Quantization grid: auto, off, 1/4..1/64 (T suffix = triplets)
     #[arg(long, default_value = "1/16")]
     grid: Grid,
@@ -546,19 +550,20 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<TempoMap> {
             || args.partial_report.is_some()
             || args.bpm.is_some()
             || args.beat_times.is_some()
+            || args.experimental_beat_tracking
             || args.grid != Grid::SIXTEENTH
         {
             return Err(MtabError::NotImplemented("tuning, capo, fretting, rhythm and TabDocument IR are not applied to raw JSONL notes"));
         }
     } else {
-        if args.beat_times.is_some()
+        if (args.beat_times.is_some() || args.experimental_beat_tracking)
             && args
                 .outputs
                 .iter()
                 .any(|path| ExportFormat::from_path(path) != Some(ExportFormat::Midi))
         {
             return Err(MtabError::InvalidTempo(
-                "--beat-times supports MIDI outputs only; GP5, MusicXML and ASCII do not support changing tempos".into(),
+                "supplied or experimental beat tracking supports MIDI outputs only; GP5, MusicXML and ASCII do not support changing tempos".into(),
             ));
         }
         if args.bpm.is_some_and(|bpm| !(4..=255).contains(&bpm)) {
@@ -646,6 +651,23 @@ fn existing_file_identity(path: &std::path::Path) -> Result<Option<same_file::Ha
 
 fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel, tempo: &TempoMap) -> Result<()> {
     let audio = mtab_audio::load_model_input(&args.input)?;
+    let estimated_tempo = if args.experimental_beat_tracking {
+        eprintln!("warning: experimental beat tracking is inaccurate, can lock to offbeats or subdivisions, has no confidence or downbeat detection, and requires review; meter is assumed 4/4");
+        let hypothesis = mtab_audio::automatic_beat::automatic_beats(&audio)?.ok_or_else(|| {
+            MtabError::InvalidTempo("experimental tracker found fewer than two beats; supply --bpm or --beat-times instead".into())
+        })?;
+        eprintln!(
+            "experimental beat hypothesis: {:.2} BPM, {} beats (not a confidence score)",
+            hypothesis.tempo_evidence.bpm,
+            hypothesis.path.times.len()
+        );
+        Some(TempoMap::from_offset_quarter_beat_times(
+            &hypothesis.path.times,
+        )?)
+    } else {
+        None
+    };
+    let tempo = estimated_tempo.as_ref().unwrap_or(tempo);
     let names: Vec<String> = args.instruments.as_deref().map_or_else(Vec::new, |value| {
         value
             .split(',')
@@ -849,8 +871,10 @@ fn build_midi_document(
     tempo: &TempoMap,
 ) -> Result<(TabDocument, Vec<serde_json::Value>)> {
     let (tuning, capo) = resolve_tuning_and_capo(args, audio)?;
-    if args.beat_times.is_some() {
-        eprintln!("warning: beat tracking is not implemented; MIDI uses raw timing, supplied quarter beats and assumed 4/4 meter");
+    if args.experimental_beat_tracking {
+        eprintln!("warning: MIDI uses raw note timing with an experimental beat hypothesis and assumed 4/4 meter; inspect the result");
+    } else if args.beat_times.is_some() {
+        eprintln!("warning: MIDI uses raw timing, supplied quarter beats and assumed 4/4 meter");
     } else {
         let bpm = args.bpm.unwrap_or(120);
         eprintln!("warning: beat tracking is not implemented; MIDI uses raw timing and a fixed {bpm} BPM, 4/4 tempo map");
@@ -1436,6 +1460,193 @@ mod tests {
             );
         }
         for path in [audio, beats, midi] {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn experimental_beat_tracking_is_opt_in_and_rejects_unsupported_combinations() {
+        let audio = make_test_wav();
+        let midi = audio.with_extension("mid");
+        let gp5 = audio.with_extension("gp5");
+        let parse = |extra: Vec<&str>| {
+            let mut argv = vec![
+                "mtab",
+                "transcribe",
+                audio.to_str().unwrap(),
+                "--experimental-beat-tracking",
+            ];
+            argv.extend(extra);
+            Cli::try_parse_from(argv)
+        };
+        assert!(parse(vec!["--bpm", "120"]).is_err());
+        assert!(parse(vec!["--beat-times", "beats.json"]).is_err());
+        let Some(Cmd::Transcribe(args)) = parse(vec!["--format", "jsonl"]).unwrap().command else {
+            panic!()
+        };
+        assert!(validate_transcribe(&args).is_err());
+        let Some(Cmd::Transcribe(args)) = parse(vec!["-o", gp5.to_str().unwrap()]).unwrap().command
+        else {
+            panic!()
+        };
+        assert!(validate_transcribe(&args).is_err());
+        let Some(Cmd::Transcribe(args)) =
+            parse(vec!["-o", midi.to_str().unwrap()]).unwrap().command
+        else {
+            panic!()
+        };
+        assert!(validate_transcribe(&args).is_ok());
+        let Some(Cmd::Transcribe(default_args)) = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "-o",
+            midi.to_str().unwrap(),
+        ])
+        .unwrap()
+        .command
+        else {
+            panic!()
+        };
+        assert!(!default_args.experimental_beat_tracking);
+        std::fs::remove_file(audio).unwrap();
+    }
+
+    #[test]
+    fn experimental_beat_tracker_silence_does_not_overwrite_output() {
+        let audio = make_test_wav();
+        let midi = audio.with_extension("mid");
+        std::fs::write(&midi, b"original").unwrap();
+        let model_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../mtab-core/tests/fixtures/model/tiny.fixture");
+        let model = LmModel::load(LmConfig::fixture_tiny(), &model_path).unwrap();
+        let Some(Cmd::Transcribe(args)) = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--experimental-beat-tracking",
+            "-o",
+            midi.to_str().unwrap(),
+        ])
+        .unwrap()
+        .command
+        else {
+            panic!()
+        };
+        let tempo = validate_transcribe(&args).unwrap();
+        assert!(transcribe_with_model(&args, &model, &tempo)
+            .unwrap_err()
+            .to_string()
+            .contains("fewer than two beats"));
+        assert_eq!(std::fs::read(&midi).unwrap(), b"original");
+        for path in [audio, midi] {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn experimental_beat_tracker_flows_through_synthetic_transcription() {
+        let audio = make_test_wav();
+        let midi = audio.with_extension("mid");
+        let ir = audio.with_extension("ir.json");
+        let n = 16_000u32 * 5;
+        let mut bytes = std::fs::read(&audio).unwrap();
+        bytes.truncate(44);
+        bytes[4..8].copy_from_slice(&(36 + n * 2).to_le_bytes());
+        bytes[40..44].copy_from_slice(&(n * 2).to_le_bytes());
+        for i in 0..n {
+            let pulse = i % 8000;
+            let value: i16 = if pulse < 120 {
+                if pulse % 2 == 0 {
+                    20000
+                } else {
+                    -20000
+                }
+            } else {
+                0
+            };
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        std::fs::write(&audio, bytes).unwrap();
+        let data = mtab_audio::load_model_input(&audio).unwrap();
+        let hypothesis = mtab_audio::automatic_beat::automatic_beats(&data)
+            .unwrap()
+            .unwrap();
+        let expected = TempoMap::from_offset_quarter_beat_times(&hypothesis.path.times).unwrap();
+        let model_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../mtab-core/tests/fixtures/model/tiny.fixture");
+        let model = LmModel::load(LmConfig::fixture_tiny(), &model_path).unwrap();
+        let Some(Cmd::Transcribe(args)) = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            audio.to_str().unwrap(),
+            "--experimental-beat-tracking",
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "--max-gen-len",
+            "2",
+            "--instruments",
+            "guitar",
+            "--emit-ir",
+            ir.to_str().unwrap(),
+            "-o",
+            midi.to_str().unwrap(),
+        ])
+        .unwrap()
+        .command
+        else {
+            panic!()
+        };
+        let tempo = validate_transcribe(&args).unwrap();
+        transcribe_with_model(&args, &model, &tempo).unwrap();
+        let doc = TabDocument::from_json(&std::fs::read_to_string(&ir).unwrap()).unwrap();
+        assert_eq!(doc.meta.tempo_map.changes.len(), expected.changes.len());
+        for (a, b) in doc.meta.tempo_map.changes.iter().zip(&expected.changes) {
+            assert!((a.time - b.time).abs() < 1e-12 && (a.bpm - b.bpm).abs() < 1e-10);
+        }
+        let bytes = std::fs::read(&midi).unwrap();
+        let smf = midly::Smf::parse(&bytes).unwrap();
+        assert_eq!(
+            smf.tracks[0]
+                .iter()
+                .filter(|e| matches!(
+                    e.kind,
+                    midly::TrackEventKind::Meta(midly::MetaMessage::Tempo(_))
+                ))
+                .count(),
+            expected.changes.len()
+        );
+        // The tiny model emits no notes; independently validate playback with
+        // supplied synthetic notes through the same auto-tempo document path.
+        let notes =
+            [(0.2, 0.35, 40), (2.1, 2.35, 45)].map(|(start, end, midi)| mtab_core::NoteEvent {
+                start,
+                end,
+                midi,
+                velocity: 90,
+                instrument: 24,
+            });
+        let (with_notes, omitted) = build_midi_document(&args, &data, &notes, &expected).unwrap();
+        assert!(omitted.is_empty());
+        write_document_outputs(&args, &with_notes, None).unwrap();
+        if let Some(python) = std::env::var_os("MTAB_TEMPO_PYTHON") {
+            let output = std::process::Command::new(python)
+                .arg(
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("../../tools/check_midi_auto_beat.py"),
+                )
+                .arg(&midi)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        for path in [audio, midi, ir] {
             std::fs::remove_file(path).unwrap();
         }
     }
