@@ -52,8 +52,7 @@ python3 samples/showcase/generate_gallery.py \
 uploads the gallery as an artifact. Add a repository secret **`HF_TOKEN`** from
 an account that has accepted the license at
 <https://huggingface.co/MuScriptor/muscriptor-large>, then trigger the workflow
-by hand (Actions → Sample gallery → Run workflow). Leave `max_seconds` at `0`
-for the whole clip, or set it to keep a run short.
+by hand (Actions → Sample gallery → Run workflow).
 
 The workflow downloads the weights into `$RUNNER_TEMP` and uploads only the
 transcripts. A final step fails the job if any `*.safetensors` file reached the
@@ -74,15 +73,13 @@ generated tokens, which grows with audio length. Measured on a 2-vCPU container:
 
 That is why the job has a 350-minute timeout and runs on `workflow_dispatch`
 rather than on every push. If you want a fast sample, dispatch it with
-`size: small` and `max_seconds: 30`.
+`size: small`, which is roughly 3.5x fewer parameters and far cheaper per token.
 
 ## Audio
 
-`audio/sample.wav` is the first five seconds of the supplied clip, converted to
-mono 16 kHz WAV so the repository stays small. The workflow downloads and
-converts the full clip itself. Note that the source is WebM/Opus, which the
-decoder does not read directly; it reports that plainly and suggests a
-conversion, which is what the workflow does with ffmpeg.
+`audio/sample.wav` is the supplied 87-second clip, converted to mono 16 kHz WAV
+(2.8 MB). It is committed so the workflow is hermetic: the original upload is
+WebM/Opus behind a file-sharing link that expires, and the decoder does not read
+WebM directly — it says so and suggests a conversion.
 
-The recording is the user's own upload and is not redistributed beyond this
-short excerpt.
+The recording is the user's own upload.
