@@ -187,6 +187,49 @@ fn independent_legato_and_slide_schema_and_semantics() {
 
 #[test]
 #[ignore = "requires lxml and the bundled MusicXML 3.1 schema"]
+fn independent_chord_symbols_schema_and_semantics() {
+    let mut doc = fixture();
+    // One attack per chord change: a tied beat cannot carry two symbols.
+    doc.tracks[0].notes = vec![
+        note(0.0, 1.5, 45, 0, 3),
+        note(1.5, 3.0, 45, 0, 3),
+        note(3.0, 4.5, 45, 0, 3),
+    ];
+    let symbol = |start: f64, end: f64, label: &str| mtab_guitar::ChordSymbol {
+        start,
+        end,
+        label: label.into(),
+    };
+    doc.chord_symbols = vec![
+        symbol(0.0, 1.5, "Em7"),
+        // Anchored mid-beat: the containing beat still receives it.
+        symbol(1.7, 3.0, "C"),
+        symbol(3.0, 4.5, "G"),
+    ];
+    let (text, _) = musicxml::musicxml(&doc).unwrap();
+    assert!(text.contains("<harmony><root><root-step>E</root-step></root><kind>minor-seventh</kind><staff>1</staff></harmony>"));
+    assert_eq!(text.matches("<harmony>").count(), 3);
+    let path =
+        std::env::temp_dir().join(format!("mtab-xml-chords-{}.musicxml", std::process::id()));
+    std::fs::write(&path, text).unwrap();
+    let python =
+        std::env::var_os("MTAB_XML_PYTHON").expect("set MTAB_XML_PYTHON to a Python with lxml");
+    let output = std::process::Command::new(python)
+        .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_musicxml_chords.py"))
+        .arg(&path)
+        .output()
+        .unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+#[ignore = "requires lxml and the bundled MusicXML 3.1 schema"]
 fn independent_let_ring_schema_and_semantics() {
     let mut doc = fixture();
     doc.tracks[0].notes[0].technique.push(Technique::LetRing);

@@ -53,7 +53,8 @@ pub struct PitchClass {
     pub sharp: bool,
 }
 impl PitchClass {
-    pub(crate) fn from(just: i8, accidental: Option<i8>, sharp: Option<bool>) -> PitchClass {
+    /// mtab: made public so the exporter can attach a chord root.
+    pub fn from(just: i8, accidental: Option<i8>, sharp: Option<bool>) -> PitchClass {
         let mut p = PitchClass {
             just,
             accidental: 0,
@@ -94,7 +95,8 @@ impl PitchClass {
         }
         p
     }
-    pub(crate) fn from_note(note: String) -> PitchClass {
+    /// mtab: made public so the exporter can attach a chord root by name.
+    pub fn from_note(note: String) -> PitchClass {
         let mut p = PitchClass {
             note,
             just: 0,
@@ -218,11 +220,11 @@ impl Song {
         chord.ninth = Some(get_chord_alteration(read_int(data, seek).to_u8().unwrap()));
         chord.eleventh = Some(get_chord_alteration(read_int(data, seek).to_u8().unwrap()));
         chord.first_fret = Some(read_int(data, seek).to_u8().unwrap());
-        for i in 0u8..6u8 {
+        for i in 0u8..7u8 {
             let fret = read_int(data, seek).to_i8().unwrap();
-            if i < chord.strings.len().to_u8().unwrap() {
-                chord.strings.push(fret);
-            } //chord.strings[i] = fret;
+            if let Some(slot) = chord.strings.get_mut(i as usize) {
+                *slot = fret;
+            }
         }
         //barre
         let barre_count = read_int(data, seek).to_usize().unwrap();
@@ -299,9 +301,9 @@ impl Song {
         chord.first_fret = Some(read_int(data, seek).to_u8().unwrap());
         for i in 0u8..7u8 {
             let fret = read_int(data, seek).to_i8().unwrap();
-            if i < chord.strings.len().to_u8().unwrap() {
-                chord.strings.push(fret);
-            } //chord.strings[i] = fret;
+            if let Some(slot) = chord.strings.get_mut(i as usize) {
+                *slot = fret;
+            }
         }
         //barre
         let barre_count = read_byte(data, seek).to_usize().unwrap();
@@ -467,68 +469,51 @@ impl Song {
     }
 
     pub(crate) fn write_chord_v4(&self, data: &mut Vec<u8>, beat: &crate::beat::Beat) {
+        // GP5 (GP4-style) chord diagram layout; widths follow the documented
+        // format and PyGuitarPro's reader: root/type/extension and the
+        // fifth/ninth/eleventh alterations are single bytes, the bass note,
+        // tonality, first fret and string frets are ints, and the barre count
+        // and barre frets/starts/ends are bytes.
         if let Some(c) = &beat.effect.chord {
             write_signed_byte(data, 1); //signify GP4 chord format
             write_bool(data, c.sharp == Some(true));
             write_placeholder_default(data, 3);
             //root
-            if let Some(r) = &c.root {
-                write_i32(data, r.value.to_i32().unwrap());
-            } else {
-                write_i32(data, 0);
-            }
+            let root = c.root.as_ref().and_then(|r| r.value.to_u8()).unwrap_or(0);
+            write_byte(data, root);
             //chord type
-            if let Some(t) = &c.kind {
-                write_i32(data, from_chord_type(t).to_i32().unwrap());
-            } else {
-                write_i32(data, 0);
-            }
+            let kind = c.kind.as_ref().map(from_chord_type).unwrap_or(0);
+            write_byte(data, kind);
             //chord extension
-            if let Some(e) = &c.extension {
-                write_i32(data, from_chord_extension(e).to_i32().unwrap());
-            } else {
-                write_i32(data, 0);
-            }
+            let extension = c.extension.as_ref().map(from_chord_extension).unwrap_or(0);
+            write_byte(data, extension);
             //bass
-            if let Some(b) = &c.bass {
-                write_i32(data, b.value.to_i32().unwrap());
-            } else {
-                write_i32(data, 0);
-            }
+            let bass = c.bass.as_ref().and_then(|b| b.value.to_i32()).unwrap_or(0);
+            write_i32(data, bass);
             //tonality
-            if let Some(t) = &c.tonality {
-                write_i32(data, from_chord_alteration(t).to_i32().unwrap());
-            } else {
-                write_i32(data, 0);
-            }
+            let tonality = c
+                .tonality
+                .as_ref()
+                .map(|t| from_chord_alteration(t).to_i32().unwrap())
+                .unwrap_or(0);
+            write_i32(data, tonality);
             //
             write_bool(data, c.add == Some(true));
-            write_byte_size_string(data, &c.name);
-            write_placeholder_default(data, 22 - c.name.len());
+            //name, padded to the fixed 22-byte field
+            let (encoded, _, _) = encoding_rs::WINDOWS_1252.encode(&c.name);
+            write_byte(data, encoded.len().to_u8().unwrap());
+            data.extend_from_slice(&encoded);
+            write_placeholder_default(data, 22usize.saturating_sub(encoded.len()));
             //fifth, ninth, eleventh
-            if let Some(f) = &c.fifth {
-                write_i32(data, from_chord_alteration(f).to_i32().unwrap());
-            } else {
-                write_i32(data, 0);
-            }
-            if let Some(n) = &c.ninth {
-                write_i32(data, from_chord_alteration(n).to_i32().unwrap());
-            } else {
-                write_i32(data, 0);
-            }
-            if let Some(e) = &c.eleventh {
-                write_i32(data, from_chord_alteration(e).to_i32().unwrap());
-            } else {
-                write_i32(data, 0);
+            for alteration in [&c.fifth, &c.ninth, &c.eleventh] {
+                let value = alteration.as_ref().map(from_chord_alteration).unwrap_or(0);
+                write_byte(data, value);
             }
             //first fret
-            if let Some(ff) = c.first_fret {
-                write_i32(data, ff.to_i32().unwrap());
-            } else {
-                write_i32(data, 0);
-            }
-            //strings
-            for i in 0..6 {
+            let first_fret = c.first_fret.and_then(|f| f.to_i32()).unwrap_or(0);
+            write_i32(data, first_fret);
+            //strings: the GP4/GP5 chord slot holds 7 fret ints
+            for i in 0..7 {
                 if i < c.strings.len() {
                     write_i32(data, c.strings[i].to_i32().unwrap());
                 } else {
@@ -536,15 +521,15 @@ impl Song {
                 }
             }
             //barre
-            let mut barres: Vec<Barre> = Vec::with_capacity(2);
-            for i in 0..2usize {
+            let mut barres: Vec<Barre> = Vec::with_capacity(5);
+            for i in 0..5usize {
                 if i < c.barres.len() {
                     barres.push(c.barres[i].clone());
                 } else {
                     break;
                 }
             }
-            write_i32(data, barres.len().to_i32().unwrap());
+            write_byte(data, barres.len().to_u8().unwrap());
             while barres.len() < 5 {
                 barres.push(Barre {
                     fret: 0,
@@ -553,13 +538,13 @@ impl Song {
                 });
             }
             for b in barres.iter().take(5) {
-                write_i32(data, b.fret.to_i32().unwrap());
+                write_byte(data, b.fret.to_u8().unwrap());
             }
             for b in barres.iter().take(5) {
-                write_i32(data, b.start.to_i32().unwrap());
+                write_byte(data, b.start.to_u8().unwrap());
             }
             for b in barres.iter().take(5) {
-                write_i32(data, b.end.to_i32().unwrap());
+                write_byte(data, b.end.to_u8().unwrap());
             }
             //omissions
             for i in 0..7usize {

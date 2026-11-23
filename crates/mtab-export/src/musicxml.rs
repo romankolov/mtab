@@ -6,7 +6,7 @@
 //! MusicXML bend mark alone cannot preserve the supplied timed contour.
 //! MuseScore 3.2.3 changed string/fret assignments and dropped capo and palm
 //! mutes on a tested re-export; do not assume application round-trip fidelity.
-use crate::gp5_plan::{self, BeatPlan, PlannedNote, ScorePlan, PPQ};
+use crate::gp5_plan::{self, BeatPlan, ChordKind, PlannedChord, PlannedNote, ScorePlan, PPQ};
 use mtab_core::{MtabError, Result};
 use mtab_guitar::{GuitarTrack, TabDocument};
 use std::fmt::Write as _;
@@ -18,6 +18,55 @@ fn invalid(reason: &str) -> MtabError {
         reason: format!("cannot export MusicXML: {reason}"),
     }
 }
+/// Split a supported chord label into its MusicXML root step and alteration.
+///
+/// Only labels accepted by `gp5_plan::parse_chord_label` reach this function, so
+/// the root is always one of the fixed spellings; flats are reported as a
+/// negative `root-alter` rather than a re-spelled sharp.
+fn chord_root(chord: &PlannedChord) -> (&'static str, Option<i8>) {
+    match chord.root {
+        0 => ("C", None),
+        1 => ("C", Some(1)),
+        2 => ("D", None),
+        3 => ("E", Some(-1)),
+        4 => ("E", None),
+        5 => ("F", None),
+        6 => ("F", Some(1)),
+        7 => ("G", None),
+        8 => ("A", Some(-1)),
+        9 => ("A", None),
+        10 => ("B", Some(-1)),
+        11 => ("B", None),
+        _ => unreachable!("validated chord root"),
+    }
+}
+
+fn chord_kind(chord: &PlannedChord) -> &'static str {
+    match chord.kind {
+        ChordKind::Major => "major",
+        ChordKind::Minor => "minor",
+        ChordKind::Diminished => "diminished",
+        ChordKind::DominantSeventh => "dominant",
+        ChordKind::MajorSeventh => "major-seventh",
+        ChordKind::MinorSeventh => "minor-seventh",
+    }
+}
+
+/// Render a `<harmony>` chord symbol; the caller places it before the beat.
+fn harmony_xml(out: &mut String, chord: &PlannedChord) {
+    let (step, alter) = chord_root(chord);
+    write!(out, "<harmony><root><root-step>{step}</root-step>",).unwrap();
+    if let Some(alter) = alter {
+        write!(out, "<root-alter>{alter}</root-alter>").unwrap();
+    }
+    writeln!(
+        out,
+        "</root><kind>{}</kind><staff>1</staff></harmony>",
+        chord_kind(chord)
+    )
+    .unwrap();
+}
+
 fn escape_xml(text: &str) -> Result<String> {
     if text.chars().any(|c| {
         !matches!(c, '\t' | '\n' | '\r') && (c < ' ' || c == '\u{fffe}' || c == '\u{ffff}')
@@ -280,6 +329,12 @@ pub fn musicxml(doc: &TabDocument) -> Result<(String, ScorePlan)> {
                     writeln!(out, "<backup><duration>{}</duration></backup>", PPQ * 4).unwrap();
                 }
                 for beat in bar {
+                    // Chord symbols belong to the first staff only.
+                    if staff == 1 {
+                        if let Some(chord) = &beat.chord {
+                            harmony_xml(&mut out, chord);
+                        }
+                    }
                     if beat.notes.is_empty() {
                         note_xml(
                             &mut out,

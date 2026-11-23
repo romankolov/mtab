@@ -14,6 +14,19 @@ versioning: [SemVer](https://semver.org/).
 - Independent checks: `tools/check_gp5_vibrato.py` (PyGuitarPro) and
   `tools/check_musicxml_vibrato.py` (W3C XSD plus exact per-staff ornament
   positions) run in the same gated CI jobs as the existing let-ring checks.
+- Supplied chord symbols now reach all notation exports. Only the fixed
+  `mtab_guitar` root/vocabulary spellings are accepted; each symbol anchors to
+  the containing beat of the first track (a trailing symbol to the last beat),
+  two symbols on one beat or out-of-order symbols are rejected, and at most
+  20,000 symbols of at most one hour each are planned. GP5 writes a chord
+  diagram with name, root and quality and no invented fingering; ASCII prints a
+  `chd` row; MusicXML writes `<harmony>` with root-step/root-alter and kind.
+  `tools/check_gp5_chords.py` and `tools/check_musicxml_chords.py` verify the
+  output independently.
+- Fixed the vendored GP5 chord writer, which emitted ints where the format uses
+  bytes (and wrote six rather than seven string-fret slots), so files with
+  chord diagrams were unreadable past the first chord. See
+  `vendor/guitarpro/README-mtab.md`.
 - Supplied hammer-on/pull-off and slide techniques now reach all notation
   exports. The planner validates them against the adjacent attack on the same
   string (different fret, no dead-note target, exact adjacency) because GP5

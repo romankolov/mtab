@@ -23,6 +23,16 @@ Changes made for mtab's limited GP5 5.00 encoder:
 - Match PyGuitarPro's integer rounding when packing velocity dynamics.
 - Remove channel-writing debug output and expose a MIDI program setter.
 - Allow upstream's existing unused private helpers under `-D warnings`.
+- Make `chord::PitchClass::from` and `PitchClass::from_note` public so the
+  exporter can attach a chord root/quality to a beat.
+- Rewrite `write_chord_v4` to the documented GP4/GP5 chord layout. The old
+  writer emitted ints where the format (and PyGuitarPro, and this crate's own
+  reader) uses bytes for root, type, extension, fifth/ninth/eleventh, and for
+  the barre count/frets/starts/ends, so any file with a chord diagram was
+  unreadable past the first chord.
+- Write the 7 fret ints of a GP4/GP5 chord slot (7-string layout) instead of 6,
+  and fix the reader to assign each fret into its string slot instead of
+  appending (which duplicated slots and shifted every later field).
 
 This is **not** an assertion that all features of the old upstream library are
 correct. mtab validates and restricts inputs to its independently tested GP5

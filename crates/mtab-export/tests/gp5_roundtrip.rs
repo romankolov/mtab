@@ -323,6 +323,48 @@ fn pyguitarpro_reads_tracks_ties_and_dynamics() {
         String::from_utf8_lossy(&output.stderr)
     );
 
+    // Supplied chord symbols become GP5 chord diagrams on the containing beat.
+    let mut charted = fixture();
+    charted.tracks.truncate(1);
+    // A chord change needs a new attack: one tied beat cannot carry two
+    // chord diagrams, so the planner rejects that case.
+    charted.tracks[0].notes = vec![
+        note(0.0, 1.5, 45, 0, 3, 80),
+        note(1.5, 3.0, 45, 0, 3, 80),
+        note(3.0, 4.5, 45, 0, 3, 80),
+    ];
+    charted.chord_symbols = vec![
+        mtab_guitar::ChordSymbol {
+            start: 0.0,
+            end: 1.5,
+            label: "Em7".into(),
+        },
+        mtab_guitar::ChordSymbol {
+            start: 1.5,
+            end: 3.0,
+            label: "C".into(),
+        },
+        mtab_guitar::ChordSymbol {
+            start: 3.0,
+            end: 4.5,
+            label: "G".into(),
+        },
+    ];
+    let charted_file = dir.0.join("chords.gp5");
+    gp5::write_gp5(&charted, &charted_file).unwrap();
+    keep_fixture(&charted_file);
+    let output = Command::new(&python)
+        .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_chords.py"))
+        .arg(&charted_file)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
     let header_check =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/check_gp5_bar_headers.py");
     for (index, title) in ["Café — déjà vu".to_owned(), "é".repeat(255)]

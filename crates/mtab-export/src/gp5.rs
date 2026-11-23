@@ -12,8 +12,9 @@ use std::path::Path;
 
 use guitarpro::{
     beat::{Beat, Voice},
+    chord::{Chord, PitchClass},
     effects::{BendEffect, BendPoint},
-    enums::{BeatStatus, BendType, NoteType, SlideType},
+    enums::{BeatStatus, BendType, ChordType, NoteType, SlideType},
     gp::Song,
     headers::MeasureHeader,
     key_signature::Duration,
@@ -169,6 +170,31 @@ pub fn gp5_bytes(doc: &TabDocument) -> Result<(Vec<u8>, ScorePlan)> {
                         });
                     }
                     target.notes.push(target_note);
+                }
+                if let Some(chord) = &beat.chord {
+                    // GP5 chord diagrams carry a name plus root/quality; no
+                    // fingering diagram is invented here.
+                    let kind = match chord.kind {
+                        gp5_plan::ChordKind::Major => ChordType::Major,
+                        gp5_plan::ChordKind::Minor => ChordType::Minor,
+                        gp5_plan::ChordKind::Diminished => ChordType::Diminished,
+                        gp5_plan::ChordKind::DominantSeventh => ChordType::Seventh,
+                        gp5_plan::ChordKind::MajorSeventh => ChordType::MajorSeventh,
+                        gp5_plan::ChordKind::MinorSeventh => ChordType::MinorSeventh,
+                    };
+                    target.effect.chord = Some(Chord {
+                        name: chord.name.clone(),
+                        first_fret: Some(0),
+                        strings: Vec::new(),
+                        show: Some(true),
+                        root: Some(PitchClass::from(
+                            i8::try_from(chord.root).unwrap(),
+                            None,
+                            None,
+                        )),
+                        kind: Some(kind),
+                        ..Chord::default()
+                    });
                 }
                 voice.beats.push(target);
             }

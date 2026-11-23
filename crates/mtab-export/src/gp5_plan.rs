@@ -3,7 +3,7 @@
 //! This module does **not** write Guitar Pro files. It converts a constrained
 //! [`TabDocument`] to bar-contained beats with ties and rests. It intentionally
 //! rejects input it cannot yet preserve, including tempo/meter changes,
-//! eight-string tuning, chord symbols, unsupported bends and techniques; it
+//! eight-string tuning, unsupported bends and techniques; it
 //! never silently drops them. Dead-note, palm-mute, let-ring and vibrato flags,
 //! hammer-ons, pull-offs and adjacent-note slides are retained; vibrato depth
 //! and rate are not encodable in GP5. Timing is
@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 
 use mtab_core::{MtabError, Result};
-use mtab_guitar::{BendKind, GuitarTrack, TabDocument, TabNote, Technique};
+use mtab_guitar::{BendKind, ChordSymbol, GuitarTrack, TabDocument, TabNote, Technique};
 
 /// Pulses per quarter note in the proposed notation plan.
 pub const PPQ: u64 = 960;
@@ -28,6 +28,7 @@ const MAX_BARS: u64 = 4096;
 const MAX_TRACKS: usize = 60;
 const MAX_NOTES: usize = 50_000;
 const MAX_BEATS: usize = 300_000;
+const MAX_CHORDS: usize = 20_000;
 
 /// A rhythmic score plan; no GP5 bytes have been encoded.
 #[derive(Debug, Clone, PartialEq)]
@@ -60,6 +61,57 @@ pub struct BeatPlan {
     pub dotted: bool,
     /// Notes sounding in this beat, sorted low-string-first.
     pub notes: Vec<PlannedNote>,
+    /// Chord symbol anchored at this beat, if one was supplied.
+    pub chord: Option<PlannedChord>,
+}
+
+/// A supplied chord symbol anchored to a planned beat.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlannedChord {
+    /// Original label, e.g. `Em7`.
+    pub name: String,
+    /// Root pitch class, `C = 0`.
+    pub root: u8,
+    /// Chord quality from the fixed supported vocabulary.
+    pub kind: ChordKind,
+}
+
+/// The chord qualities `mtab_guitar::suggest_chords` can emit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChordKind {
+    Major,
+    Minor,
+    Diminished,
+    DominantSeventh,
+    MajorSeventh,
+    MinorSeventh,
+}
+
+const CHORD_ROOTS: [&str; 12] = [
+    "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B",
+];
+const CHORD_SUFFIXES: [(&str, ChordKind); 6] = [
+    ("", ChordKind::Major),
+    ("m", ChordKind::Minor),
+    ("dim", ChordKind::Diminished),
+    ("7", ChordKind::DominantSeventh),
+    ("maj7", ChordKind::MajorSeventh),
+    ("m7", ChordKind::MinorSeventh),
+];
+
+/// Parse one of the fixed symbolic chord labels. No other spelling is accepted,
+/// so an exporter never writes a chord it cannot name exactly.
+pub fn parse_chord_label(label: &str) -> Option<(u8, ChordKind)> {
+    let (root, suffix) = CHORD_ROOTS
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| label.strip_prefix(name).map(|rest| (index, rest)))
+        .max_by_key(|(_, rest)| CHORD_ROOTS.len() - rest.len())?;
+    let kind = CHORD_SUFFIXES
+        .iter()
+        .find(|(name, _)| *name == suffix)
+        .map(|(_, kind)| *kind)?;
+    Some((root as u8, kind))
 }
 
 /// A fretted note inside a planned beat.
@@ -172,8 +224,25 @@ pub fn plan(doc: &TabDocument) -> Result<ScorePlan> {
     if !doc.meta.time_signatures.is_empty() && doc.meta.time_signatures != [(0, 4, 4)] {
         return Err(invalid("only a constant 4/4 time signature is supported"));
     }
-    if !doc.chord_symbols.is_empty() {
-        return Err(invalid("chord symbols are not supported"));
+    for symbol in &doc.chord_symbols {
+        if !symbol.start.is_finite()
+            || !symbol.end.is_finite()
+            || symbol.start < 0.0
+            || symbol.end <= symbol.start
+            || symbol.end - symbol.start > 3600.0
+        {
+            return Err(invalid(
+                "chord symbols need finite ordered times up to one hour",
+            ));
+        }
+        if parse_chord_label(&symbol.label).is_none() {
+            return Err(invalid(
+                "chord symbols must use the supported exact spellings (C, C#, D, Eb, E, F, F#, G, Ab, A, Bb, B with no suffix, m, dim, 7, maj7 or m7)",
+            ));
+        }
+    }
+    if doc.chord_symbols.len() > MAX_CHORDS {
+        return Err(invalid("too many chord symbols (limit 20000)"));
     }
     if doc.tracks.is_empty() || doc.tracks.len() > MAX_TRACKS {
         return Err(invalid("provide between 1 and 60 guitar tracks"));
@@ -203,6 +272,7 @@ pub fn plan(doc: &TabDocument) -> Result<ScorePlan> {
     for notes in quantized {
         tracks.push(plan_track(&notes, bars, &mut beat_count)?);
     }
+    attach_chords(&mut tracks[0], &doc.chord_symbols, bpm)?;
     Ok(ScorePlan {
         bpm: bpm as u16,
         max_boundary_shift_seconds: max_shift,
@@ -432,6 +502,65 @@ fn plan_bend(note: &TabNote) -> Result<Option<PlannedBend>> {
     }))
 }
 
+/// Anchor each supplied symbol at the last beat starting at or before it.
+///
+/// Chord symbols are chart annotations, not sounding events, so a symbol may
+/// fall between grid positions; it is attached to the containing beat of the
+/// first track, which is how notation programs display it. Symbols before the
+/// first beat attach to the first beat. The caller has already validated times
+/// and labels.
+fn attach_chords(track: &mut TrackPlan, symbols: &[ChordSymbol], bpm: f64) -> Result<()> {
+    if symbols.is_empty() {
+        return Ok(());
+    }
+    let seconds_per_grid = GRID as f64 / PPQ as f64 * 60.0 / bpm;
+    let mut previous_start = None;
+    for symbol in symbols {
+        let grid = (symbol.start / seconds_per_grid).round();
+        if !grid.is_finite() || grid < 0.0 {
+            return Err(invalid("chord symbol lies outside the score"));
+        }
+        let tick = grid as u64 * GRID;
+        if previous_start.is_some_and(|previous| tick < previous) {
+            return Err(invalid(
+                "chord symbols must be supplied in nondecreasing time order",
+            ));
+        }
+        previous_start = Some(tick);
+        let (root, kind) = parse_chord_label(&symbol.label)
+            .ok_or_else(|| invalid("chord symbols must use the supported exact spellings"))?;
+        // Locate the containing beat (or the last beat for a trailing symbol)
+        // in a read-only pass, then mutate exactly that slot.
+        let mut target = None;
+        let mut last = None;
+        for (bar_index, bar) in track.bars.iter().enumerate() {
+            for (beat_index, beat) in bar.iter().enumerate() {
+                last = Some((bar_index, beat_index));
+                if beat.start <= tick && tick < beat.start + beat.duration {
+                    target = Some((bar_index, beat_index));
+                    break;
+                }
+            }
+            if target.is_some() {
+                break;
+            }
+        }
+        let (bar_index, beat_index) = target
+            .or(last)
+            .ok_or_else(|| invalid("the score has no beats to anchor a chord symbol"))?;
+        let beat = &mut track.bars[bar_index][beat_index];
+        if beat.chord.is_some() {
+            return Err(invalid("two chord symbols map to one notated beat"));
+        }
+        beat.chord = Some(PlannedChord {
+            name: symbol.label.clone(),
+            root,
+            kind,
+        });
+    }
+    Ok(())
+}
+
 fn plan_track(notes: &[QuantizedNote], bars: u64, beat_count: &mut usize) -> Result<TrackPlan> {
     // Event buckets are processed with all note-offs before all note-ons so
     // a new attack on the same string may start exactly at the old offset.
@@ -498,6 +627,7 @@ fn plan_track(notes: &[QuantizedNote], bars: u64, beat_count: &mut usize) -> Res
                 denominator,
                 dotted,
                 notes: sounding,
+                chord: None,
             });
             tick += duration;
         }
@@ -668,6 +798,102 @@ mod tests {
         assert!(plan(&doc).is_err());
         doc.tracks.clear();
         assert!(plan(&doc).is_err());
+    }
+
+    #[test]
+    fn attaches_chord_symbols_to_the_containing_beat() {
+        let symbol = |start: f64, end: f64, label: &str| mtab_guitar::ChordSymbol {
+            start,
+            end,
+            label: label.into(),
+        };
+        // 120 BPM: one 1/32 grid step is 0.015625 s.
+        let mut doc = document(vec![
+            note(0.0, 0.5, 0, 0),
+            note(0.5, 1.0, 0, 0),
+            note(1.0, 1.5, 0, 0),
+        ]);
+        doc.chord_symbols = vec![symbol(0.0, 0.5, "C"), symbol(1.2, 2.0, "Ebmaj7")];
+        let p = plan(&doc).unwrap();
+        let beats = &p.tracks[0].bars[0];
+        // Symbol 2 starts mid-beat and still anchors to that beat.
+        assert_eq!(beats[0].chord.as_ref().unwrap().name, "C");
+        assert_eq!(beats[0].chord.as_ref().unwrap().root, 0);
+        assert_eq!(beats[1].chord, None);
+        assert_eq!(beats[2].chord.as_ref().unwrap().name, "Ebmaj7");
+        assert_eq!(beats[2].chord.as_ref().unwrap().root, 3);
+        assert_eq!(
+            beats[2].chord.as_ref().unwrap().kind,
+            ChordKind::MajorSeventh
+        );
+        // A symbol starting before the first beat anchors to it.
+        doc.chord_symbols = vec![symbol(0.0, 1.0, "Am"), symbol(0.001, 1.0, "D7")];
+        assert!(plan(&doc).is_err());
+        // A symbol past the last beat anchors to the last beat.
+        let mut trailing = document(vec![note(0.0, 0.5, 0, 0)]);
+        trailing.chord_symbols = vec![symbol(5.0, 6.0, "G")];
+        let beats = &plan(&trailing).unwrap().tracks[0].bars[0];
+        assert_eq!(beats.last().unwrap().chord.as_ref().unwrap().name, "G");
+    }
+
+    #[test]
+    fn rejects_invalid_chord_symbols() {
+        let symbol = |start: f64, end: f64, label: &str| mtab_guitar::ChordSymbol {
+            start,
+            end,
+            label: label.into(),
+        };
+        let doc_with = |symbols| {
+            let mut doc = document(vec![note(0.0, 0.5, 0, 0), note(0.5, 1.0, 0, 0)]);
+            doc.chord_symbols = symbols;
+            doc
+        };
+        // Only the fixed root spellings and suffixes are accepted.
+        for label in ["Hm7", "Cmaj9", "c", "Cm ", "", "CM7", "C mi", "Dbm7", "G#"] {
+            assert!(
+                plan(&doc_with(vec![symbol(0.0, 0.5, label)])).is_err(),
+                "{label:?} must be rejected"
+            );
+        }
+        // Every supported spelling, including accented roots, is accepted.
+        // Enharmonic spellings outside the fixed vocabulary (Db, G#, ...) are
+        // not, because the vocabulary mirrors mtab_guitar's chord roots.
+        for label in ["C#", "Ebmaj7", "Bbm7", "Cdim", "B7", "Abm"] {
+            assert!(
+                plan(&doc_with(vec![symbol(0.0, 0.5, label)])).is_ok(),
+                "{label:?} must be accepted"
+            );
+        }
+        // Two symbols cannot share one notated beat.
+        assert!(plan(&doc_with(vec![
+            symbol(0.0, 0.2, "C"),
+            symbol(0.2, 0.4, "G")
+        ]))
+        .is_err());
+        // Order must be nondecreasing once quantized to the grid.
+        assert!(plan(&doc_with(vec![
+            symbol(0.5, 1.0, "C"),
+            symbol(0.0, 0.5, "G")
+        ]))
+        .is_err());
+        // Times must be finite, nonnegative and within the exportable range.
+        for (start, end) in [
+            (f64::NAN, 0.5),
+            (-1.0, 0.5),
+            (0.0, f64::INFINITY),
+            (0.0, -0.5),
+            (0.0, 3600.1),
+        ] {
+            assert!(
+                plan(&doc_with(vec![symbol(start, end, "C")])).is_err(),
+                "({start}, {end}) must be rejected"
+            );
+        }
+        // The symbol count is bounded.
+        let many = (0..=MAX_CHORDS)
+            .map(|i| symbol(i as f64 * 0.5, i as f64 * 0.5 + 0.5, "C"))
+            .collect();
+        assert!(plan(&doc_with(many)).is_err());
     }
 
     #[test]
