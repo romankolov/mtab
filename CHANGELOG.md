@@ -7,6 +7,8 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- The GuitarSet oracle report now scores an explicit span-four partial retry
+  on strict-search failures, counting skipped notes as incorrect.
 - Added an experimental partial fingering library API that explicitly reports
   unassigned input indices instead of failing an entire track. A bounded beam
   minimizes skipped notes before ergonomic cost; it may not find a global

@@ -75,6 +75,10 @@ fn evaluates_jams_and_protects_annotations() {
         "{output}"
     );
     assert!(
+        output.contains("| Partial retry span 4 | 3 | 0 | 2 | 66.67% | 33.33% |"),
+        "{output}"
+    );
+    assert!(
         output.contains("| Per-note lowest-fret greedy | 3 | 0 | 2 | 66.67% | 33.33% |"),
         "{output}"
     );

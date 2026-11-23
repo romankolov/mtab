@@ -7,7 +7,9 @@
 use std::path::{Path, PathBuf};
 
 use mtab_core::{MtabError, NoteEvent, Result};
-use mtab_guitar::{assign_notes, assign_notes_with_stretch, Capo, FingeringOptions, Tuning};
+use mtab_guitar::{
+    assign_notes, assign_notes_partial, assign_notes_with_stretch, Capo, FingeringOptions, Tuning,
+};
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
@@ -29,6 +31,10 @@ struct Counts {
     adaptive_wide_recovered: usize,
     adaptive_max_span: u8,
     adaptive_failures: usize,
+    partial_assigned: usize,
+    partial_correct: usize,
+    partial_errors: usize,
+    partial_recovered: usize,
     greedy_assigned: usize,
     greedy_correct: usize,
     greedy_collisions: usize,
@@ -153,9 +159,25 @@ fn score_file(refs: &[Reference], counts: &mut Counts) -> Option<Failure> {
             counts.correct += correct;
             counts.adaptive_assigned += assigned.len();
             counts.adaptive_correct += correct;
+            counts.partial_assigned += assigned.len();
+            counts.partial_correct += correct;
         }
         Err(error) => {
             counts.failures += 1;
+            match assign_notes_partial(&notes, &tuning, Capo::NONE, FingeringOptions::default()) {
+                Ok(result) => {
+                    counts.partial_recovered +=
+                        usize::from(result.notes.iter().any(Option::is_some));
+                    for (reference, assigned) in refs.iter().zip(&result.notes) {
+                        if let Some(assigned) = assigned {
+                            counts.partial_assigned += 1;
+                            counts.partial_correct +=
+                                usize::from(reference.string == assigned.string);
+                        }
+                    }
+                }
+                Err(_) => counts.partial_errors += 1,
+            }
             let mut adaptive_error = None;
             match assign_notes_with_stretch(
                 &notes,
@@ -350,10 +372,11 @@ Reference pitches and onset/offsets, not model predictions, are provided to all 
 String accuracy is correct assignments divided by **all** reference notes; unassigned notes count as incorrect.\n\
 Wrong-string rate is incorrect assigned notes divided by assigned notes. Beam-search failures mark the entire excerpt unassigned.\n\
 Adaptive search retries failed excerpts with a seven-fret span, which may be uncomfortable and needs review.\n\
+Partial search retries strict failures at span four, explicitly counts skipped notes as incorrect, and has no optimality guarantee.\n\
 Fingering clips sequential note-boundary overlaps of at most 1 ns; reference times otherwise remain unchanged.\n\
 The greedy baseline chooses the lowest fret per note independently and does not enforce overlaps.\n\
 This is not end-to-end accuracy, a TabCNN/TDR metric, or a tab-labeler-v3 comparison.\n\n\
-- Annotation files: {}\n- Reference notes: {}\n- Beam-search failed excerpts: {}\n- Adaptive retry recovered excerpts: {}\n- Recovered excerpts with actual span above four: {}\n- Largest actual span in recovered excerpts: {} frets\n- Adaptive retry still failed excerpts: {}\n- Greedy notes overlapping another note on the same string: {}\n\
+- Annotation files: {}\n- Reference notes: {}\n- Beam-search failed excerpts: {}\n- Adaptive retry recovered excerpts: {}\n- Recovered excerpts with actual span above four: {}\n- Largest actual span in recovered excerpts: {} frets\n- Adaptive retry still failed excerpts: {}\n- Partial retry recovered at least one note: {} excerpts\n- Partial retry errors: {} excerpts\n- Greedy notes overlapping another note on the same string: {}\n\
 - At failure, reference fretted span exceeds four: {} excerpts\n\
 - At failure, reference has a same-string overlap: {} excerpts\n\
 - At failure, reference has neither condition: {} excerpts\n\
@@ -362,12 +385,14 @@ This is not end-to-end accuracy, a TabCNN/TDR metric, or a tab-labeler-v3 compar
 | --- | ---: | ---: | ---: | ---: | ---: |\n\
 | Bounded beam | {} | {} | {} | {} | {} |\n\
 | Adaptive span 4→7 | {} | {} | {} | {} | {} |\n\
+| Partial retry span 4 | {} | {} | {} | {} | {} |\n\
 | Per-note lowest-fret greedy | {} | {} | {} | {} | {} |\n\n\
 Settings: standard EADGBE, capo 0, frets 0–22, normal span 4, adaptive retry span 7, beam width 512.\n\
 GuitarSet (Xi et al., 2018), Zenodo 3371780, version 1.1.0, CC BY 4.0; annotations are user-provided and known dataset errors may affect results.\n",
-        counts.files, counts.notes, counts.failures, counts.adaptive_recovered, counts.adaptive_wide_recovered, counts.adaptive_max_span, counts.adaptive_failures, counts.greedy_collisions, counts.reference_span_over_four, counts.reference_string_overlaps, counts.reference_other,
+        counts.files, counts.notes, counts.failures, counts.adaptive_recovered, counts.adaptive_wide_recovered, counts.adaptive_max_span, counts.adaptive_failures, counts.partial_recovered, counts.partial_errors, counts.greedy_collisions, counts.reference_span_over_four, counts.reference_string_overlaps, counts.reference_other,
         counts.assigned, counts.notes - counts.assigned, counts.correct, percent(counts.correct, counts.notes), percent(counts.assigned - counts.correct, counts.assigned),
         counts.adaptive_assigned, counts.notes - counts.adaptive_assigned, counts.adaptive_correct, percent(counts.adaptive_correct, counts.notes), percent(counts.adaptive_assigned - counts.adaptive_correct, counts.adaptive_assigned),
+        counts.partial_assigned, counts.notes - counts.partial_assigned, counts.partial_correct, percent(counts.partial_correct, counts.notes), percent(counts.partial_assigned - counts.partial_correct, counts.partial_assigned),
         counts.greedy_assigned, counts.notes - counts.greedy_assigned, counts.greedy_correct, percent(counts.greedy_correct, counts.notes), percent(counts.greedy_assigned - counts.greedy_correct, counts.greedy_assigned));
     if !failures.is_empty() {
         result.push_str("\n## Strict-search failures and adaptive retry\n\n");
@@ -436,6 +461,15 @@ mod tests {
         assert_eq!((counts.greedy_assigned, counts.greedy_correct), (2, 2));
         assert_eq!(counts.greedy_collisions, 1);
         assert_eq!(counts.adaptive_failures, 1);
+        assert_eq!(
+            (
+                counts.partial_recovered,
+                counts.partial_assigned,
+                counts.partial_correct,
+                counts.partial_errors
+            ),
+            (1, 1, 1, 0)
+        );
     }
     #[test]
     fn correct_and_wrong_string_are_counted() {
