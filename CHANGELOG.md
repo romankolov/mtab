@@ -7,6 +7,8 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Reran the 360-file GuitarSet oracle-note evaluation with partial recovery;
+  this measures reference-note fingering, not audio transcription or v3.
 - Add opt-in `--partial-report` recovery: omitted notes are listed in a JSON
   report and warned about; all outputs, including MIDI, are incomplete when
   any notes are omitted. Strict failure remains the default.

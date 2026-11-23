@@ -16,12 +16,10 @@ note known annotation errors; this unfiltered run includes all 360 excerpts.
 The downloaded `annotation.zip` MD5 was `b39b78e63d3446f2e54ddb7a54df9b10`
 (published by the dataset) and SHA-256 was
 `8daa02e6417ccca1685feb44b135e95928ad7037e5032ecb326b5791856fda99`.
-For local space efficiency, non-`note_midi` annotations were removed from the
-local JAMS copies; all six `note_midi` objects and note data were unchanged.
-An earlier strict-search run over all 360 full original files produced a
-byte-identical report to the note-only copies; this expanded adaptive report
-was generated from the same note-only copies. No dataset files are included in
-the repository.
+This updated run used the 360 full, unmodified JAMS files from the verified
+archive, with code at commit `3c90fd1` in release mode. No dataset files are
+included in the repository. Earlier versions of this report used note-only
+copies, which matched an earlier strict run over the original files.
 
 To reproduce with the full original JAMS files (no Python or model weights):
 
@@ -53,6 +51,17 @@ search failure's cause. The solver clips sequential overlaps of at most one nano
 boundaries to remove arithmetic jitter, and preserves other timing. The
 four-fret constraint itself can exclude the reference fingering.
 
+
+The new partial retry kept the four-fret span and omitted 59 of 62,476 notes,
+while recovering some notes in every strict-failure excerpt. Its all-note
+string accuracy was 68.50% versus 59.65% strict, but the comparison primarily
+reflects strict search counting *entire failed excerpts* as unassigned. The
+seven-fret adaptive retry retained all notes for 38 failed excerpts and had
+67.04% all-note accuracy; two excerpts still failed completely. These are
+alternative trade-offs, not evidence that dropped notes are acceptable or that
+this method will improve audio-derived predictions. Search design was informed
+by this corpus, and the result is not a held-out test or v3 comparison.
+
 ---
 
 # GuitarSet oracle-note string assignment
@@ -61,6 +70,7 @@ Reference pitches and onset/offsets, not model predictions, are provided to all 
 String accuracy is correct assignments divided by **all** reference notes; unassigned notes count as incorrect.
 Wrong-string rate is incorrect assigned notes divided by assigned notes. Beam-search failures mark the entire excerpt unassigned.
 Adaptive search retries failed excerpts with a seven-fret span, which may be uncomfortable and needs review.
+Partial search retries strict failures at span four, explicitly counts skipped notes as incorrect, and has no optimality guarantee.
 Fingering clips sequential note-boundary overlaps of at most 1 ns; reference times otherwise remain unchanged.
 The greedy baseline chooses the lowest fret per note independently and does not enforce overlaps.
 This is not end-to-end accuracy, a TabCNN/TDR metric, or a tab-labeler-v3 comparison.
@@ -72,6 +82,8 @@ This is not end-to-end accuracy, a TabCNN/TDR metric, or a tab-labeler-v3 compar
 - Recovered excerpts with actual span above four: 38
 - Largest actual span in recovered excerpts: 7 frets
 - Adaptive retry still failed excerpts: 2
+- Partial retry recovered at least one note: 40 excerpts
+- Partial retry errors: 0 excerpts
 - Greedy notes overlapping another note on the same string: 7623
 - At failure, reference fretted span exceeds four: 38 excerpts
 - At failure, reference has a same-string overlap: 2 excerpts
@@ -83,6 +95,7 @@ These reference diagnostics may overlap and are not proof of failure cause.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Bounded beam | 54666 | 7810 | 37269 | 59.65% | 31.82% |
 | Adaptive span 4→7 | 61638 | 838 | 41883 | 67.04% | 32.05% |
+| Partial retry span 4 | 62417 | 59 | 42798 | 68.50% | 31.43% |
 | Per-note lowest-fret greedy | 62476 | 0 | 28365 | 45.40% | 54.60% |
 
 Settings: standard EADGBE, capo 0, frets 0–22, normal span 4, adaptive retry span 7, beam width 512.

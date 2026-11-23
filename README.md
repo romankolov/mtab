@@ -174,8 +174,12 @@ mtab eval --corpus guitarset --oracle-notes --annotations /path/to/annotations \
 [Our 360-excerpt report](benches/guitarset-oracle.md) documents a 59.65%
 all-note string accuracy for the bounded beam solver, with 40 excerpts left
 unassigned. An optional wider-stretch retry recovered 38 of those excerpts and
-scored 67.04%; every recovered excerpt contained a span above four frets. The
-collision-ignoring per-note greedy baseline scored 45.40%. The same corpus
+scored 67.04%; every recovered excerpt contained a span above four frets. A
+separate four-fret partial retry scored 68.50% and left 59 notes unassigned,
+recovering at least one note in every strict-failure excerpt. This comparison
+is affected by strict failures counting the whole excerpt as unassigned; the
+partial output is incomplete. These corpus-informed results are not held-out.
+The collision-ignoring per-note greedy baseline scored 45.40%. The same corpus
 was used to diagnose the solver, so these are not held-out results. This is **not** end-to-end audio accuracy or a tab-labeler-v3 comparison; the
 full acceptance evaluation remains outstanding. The optional `Nightly`
 workflow can run this annotation-only check with `run_oracle=true`.
