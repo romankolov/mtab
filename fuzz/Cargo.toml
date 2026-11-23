@@ -11,6 +11,8 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 mtab-core = { path = "../crates/mtab-core" }
 mtab-audio = { path = "../crates/mtab-audio" }
+mtab-guitar = { path = "../crates/mtab-guitar" }
+mtab-export = { path = "../crates/mtab-export" }
 
 [[bin]]
 name = "safetensors"
@@ -22,6 +24,13 @@ bench = false
 [[bin]]
 name = "audio_decode"
 path = "fuzz_targets/audio_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ir_export"
+path = "fuzz_targets/ir_export.rs"
 test = false
 doc = false
 bench = false

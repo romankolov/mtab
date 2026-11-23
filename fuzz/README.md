@@ -1,7 +1,8 @@
 # Fuzzing
 
 These opt-in libFuzzer targets exercise the in-memory safetensors parser and
-loader, and Symphonia audio decoding through a temporary file. They do not use
+loader, Symphonia audio decoding through a temporary file, and the tablature IR
+path (`TabDocument` JSON → GP5/ASCII/MusicXML/MIDI). They do not use
 or download model weights. `cargo-fuzz` requires a separate nightly toolchain;
 the workspace's Rust 1.75 minimum applies to the product, not fuzz tooling.
 
@@ -11,7 +12,15 @@ rustup toolchain install nightly --profile minimal
 python3 fuzz/seed.py
 cargo +nightly fuzz run safetensors -- -max_total_time=60 -max_len=1048576
 cargo +nightly fuzz run audio_decode -- -max_total_time=60 -max_len=1048576
+cargo +nightly fuzz run ir_export -- -max_total_time=60 -max_len=524288
 ```
+
+The `ir_export` target is the one path where user-supplied data (the IR JSON
+written by `--emit-ir`, also read back by `mtab eval`) reaches three different
+writers. It asserts that any document the plan accepts yields non-empty output
+with a finite, non-negative quantization displacement and an in-range tempo;
+rejected documents must return an error rather than panic. Its tracked seeds
+cover a plain phrase, techniques, chord symbols and a bend.
 
 Corpora, crashes and build outputs stay ignored locally. Seed inputs should be
 synthetic or permissively licensed and contain no gated weights. The audio

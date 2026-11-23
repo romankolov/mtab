@@ -38,7 +38,9 @@ def verify(archive):
     expected |= {f'{stem}/docs/{doc}' for doc in docs}
     if len(files) != len(expected) or set(files) != expected:
         raise ValueError(f'{archive}: unexpected archive layout or duplicate files: {files}')
-    if set(dirs) != {stem, f'{stem}/docs'}:
+    # Directory entries may be implicit; if present, only the archive root and
+    # its docs directory are allowed.
+    if not set(dirs) <= {stem, f'{stem}/docs'}:
         raise ValueError(f'{archive}: unexpected directories: {dirs}')
     if any(sizes[path] == 0 for path in expected):
         raise ValueError(f'{archive}: empty required file')

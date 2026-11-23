@@ -11,6 +11,9 @@ import zipfile
 from verify_release_archive import verify
 
 
+DOCS = ['architecture.md', 'tuning-detection.md', 'techniques.md', 'weights.md']
+
+
 class ReleaseArchiveTest(unittest.TestCase):
     def test_tar_and_zip_whitelist_rejects_extra_assets(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -18,6 +21,7 @@ class ReleaseArchiveTest(unittest.TestCase):
             tar = root/'mtab-test-x86_64-unknown-linux-gnu.tar.gz'
             stem = tar.name[:-7]
             names = [f'{stem}/{x}' for x in ['mtab', 'README.md', 'LICENSE', 'NOTICE', 'PROMPT.md']]
+            names += [f'{stem}/docs/{doc}' for doc in DOCS]
             def make_tar(extra=None):
                 with tarfile.open(tar, 'w:gz') as out:
                     for name in names + ([extra] if extra else []):
@@ -30,6 +34,15 @@ class ReleaseArchiveTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 verify(tar)
             make_tar(names[0])
+            with self.assertRaises(ValueError):
+                verify(tar)
+            # A missing document is a failure, not a silently thinner archive.
+            make_tar()
+            with tarfile.open(tar, 'w:gz') as out:
+                for name in names[:-1]:
+                    entry = tarfile.TarInfo(name)
+                    entry.size = 1
+                    out.addfile(entry, io.BytesIO(b'x'))
             with self.assertRaises(ValueError):
                 verify(tar)
             with tarfile.open(tar, 'w:gz') as out:
@@ -45,9 +58,13 @@ class ReleaseArchiveTest(unittest.TestCase):
             with zipfile.ZipFile(zip_path, 'w') as out:
                 for name in ['mtab.exe', 'README.md', 'LICENSE', 'NOTICE', 'PROMPT.md']:
                     out.writestr(f'{stem}/{name}', b'x')
+                for doc in DOCS:
+                    out.writestr(f'{stem}/docs/{doc}', b'x')
             verify(zip_path)
             symlink = root/'mtab-link.zip'
             with zipfile.ZipFile(symlink, 'w') as out:
+                for doc in DOCS:
+                    out.writestr(f'mtab-link/docs/{doc}', b'x')
                 for name in ['mtab.exe', 'README.md', 'LICENSE', 'NOTICE', 'PROMPT.md']:
                     info = zipfile.ZipInfo('mtab-link/' + name)
                     if name == 'mtab.exe':
