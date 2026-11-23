@@ -7,6 +7,10 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Added an offline GuitarSet manifest preparation utility that pairs local
+  annotations and mono-mic WAVs, defaults to requiring 360 files, and rejects
+  missing audio and accidental input overwrites. Subsets require an explicit
+  flag; file count alone does not verify corpus identity or held-out status.
 - Framewise reports include the Wiggins–Kim TDR-style ratio, with explicit
   unison and protocol caveats, checked against an independent brute-force
   Python frame-set oracle in CI.

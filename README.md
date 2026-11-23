@@ -197,6 +197,21 @@ mtab eval --audio-manifest audio-manifest.json --size small \
   --weights /path/to/model.safetensors --max-gen-len 512 --report eval.md
 ```
 
+For a locally extracted GuitarSet 1.1.0 mono-mic corpus, the optional
+preparation helper pairs `*.jams` with matching `*_mic.wav` files:
+
+```sh
+python tools/make_guitarset_audio_manifest.py --annotations /data/guitarset/annotation \
+  --audio /data/guitarset/audio_mono-mic --output audio-manifest.json
+```
+
+It expects 360 annotations unless `--allow-subset` is explicitly passed,
+checks that every matching WAV exists, and uses a duration just below the WAV
+end. It writes absolute paths and does not download or verify the dataset,
+prove that 360 files are the official set, establish a held-out split, or
+replace recording selection and provenance review. Python is a preparation and
+test dependency only, not an mtab runtime dependency.
+
 The model is loaded once. The evaluator uses only each audio prefix specified
 by its duration, greedy guitar-masked decoding with strict EOS, and standard
 tuning/capo zero/default fingering. If inference or fingering fails, that entry

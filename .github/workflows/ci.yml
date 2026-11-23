@@ -76,6 +76,7 @@ jobs:
           key: guitarset-frame-metrics
       - run: cargo build --locked -p mtab-cli
       - run: python tools/test_guitarset_frame_score.py target/debug/mtab
+      - run: python tools/test_make_guitarset_manifest.py
 
   independent-gp5-roundtrip:
     name: Independent GP5 round-trip
