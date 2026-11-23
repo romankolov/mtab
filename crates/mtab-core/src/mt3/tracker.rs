@@ -314,7 +314,12 @@ pub fn decode_stream(items: &[StreamItem], vocab: Vec<Event>, frame_rate: u32) -
                     } => {
                         if let Some(pos) = open.iter().position(|(k, _)| *k == (program, pitch)) {
                             let (_, idx) = open.remove(pos);
-                            notes[idx].end = time;
+                            // A pitch that is closed and re-struck within the
+                            // same frame would otherwise decode to a
+                            // zero-length note, which every downstream
+                            // consumer rejects. Give it the same floor as a
+                            // drum hit and an unclosed note.
+                            notes[idx].end = time.max(notes[idx].start + MINIMUM_NOTE_DURATION_SEC);
                         }
                     }
                     DecodeAction::DrumHit { pitch, time } => {
@@ -564,6 +569,34 @@ mod tests {
         assert_eq!(notes[0].start, 0.0);
         assert_eq!(notes[1].start, 0.5);
         assert_eq!(notes[1].end, 0.5 + MINIMUM_NOTE_DURATION_SEC);
+    }
+
+    #[test]
+    fn same_frame_restrike_is_not_zero_length() {
+        let tk = t();
+        let all = items_seq(
+            &[
+                ("tie", 0),
+                ("program", 26),
+                ("velocity", 1),
+                ("shift", 100),
+                ("pitch", 64),
+                // A re-struck string: no shift, still at velocity, the same
+                // pitch again. The tracker closes and reopens it in one go.
+                ("pitch", 64),
+            ],
+            0.0,
+            None,
+        );
+        let notes = decode_stream(&all, tk.vocab, 100);
+        assert_eq!(notes.len(), 2);
+        for note in &notes {
+            assert!(
+                note.end >= note.start + MINIMUM_NOTE_DURATION_SEC,
+                "zero-length note at {}",
+                note.start
+            );
+        }
     }
 
     #[test]

@@ -505,6 +505,23 @@ Produce JSONL and MIDI from the same input and generation settings, then use
 checker compares note events and the fixed tempo/meter using Mido; it is not a
 DAW playback or round-trip test. Python is not required by the Rust application.
 
+### End-to-end goldens
+
+`benches/goldens/` holds the five §6.14.4 fixtures — clean acoustic, distorted
+rhythm, lead, capo + drop-D and a full mix — as checked-in `.ir.json`, `.gp5`
+and `.mid` files. They pin chunking, the forced tie prelude, the MT3 tracker,
+string/fret assignment and every exporter for the committed GuitarSet excerpt,
+so a change in any of those stages shows up as a reviewable golden diff.
+
+The trained MuScriptor weights are CC BY-NC 4.0 and gated, so the fixtures do
+not run the model: they replay the excerpt's annotated onsets as MT3 tokens
+through the real `transcribe_chunks`. The model's own token stream is covered
+separately by the parity tests above. Regenerate deliberately:
+
+```sh
+UPDATE_GOLDENS=1 cargo test -p mtab-cli --test end_to_end_goldens -- --ignored
+```
+
 ### Optional small-checkpoint upstream parity test
 
 With a local upstream MuScriptor checkout and its Python dependencies (`torch`,

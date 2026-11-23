@@ -1,0 +1,251 @@
+{
+  "meta": {
+    "title": "golden",
+    "tempo_map": {
+      "changes": [
+        {
+          "time": 0.0,
+          "bpm": 60.0
+        }
+      ]
+    },
+    "time_signatures": [
+      [
+        0,
+        4,
+        4
+      ]
+    ],
+    "frets": 22,
+    "source_hash": null
+  },
+  "tracks": [
+    {
+      "tuning": {
+        "strings": [
+          40,
+          45,
+          50,
+          55,
+          59,
+          64
+        ],
+        "name": "standard"
+      },
+      "capo": 0,
+      "notes": [
+        {
+          "start": 0.02,
+          "end": 0.45,
+          "midi": 46,
+          "string": 1,
+          "fret": 1,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 0.02,
+          "end": 0.37,
+          "midi": 56,
+          "string": 3,
+          "fret": 1,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 0.03,
+          "end": 0.37,
+          "midi": 51,
+          "string": 2,
+          "fret": 1,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 0.37,
+          "end": 0.98,
+          "midi": 53,
+          "string": 2,
+          "fret": 3,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 0.38,
+          "end": 0.96,
+          "midi": 58,
+          "string": 3,
+          "fret": 3,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 0.99,
+          "end": 1.84,
+          "midi": 52,
+          "string": 2,
+          "fret": 2,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 1.86,
+          "end": 2.05,
+          "midi": 52,
+          "string": 2,
+          "fret": 2,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 2.05,
+          "end": 2.87,
+          "midi": 53,
+          "string": 2,
+          "fret": 3,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 2.88,
+          "end": 3.61,
+          "midi": 52,
+          "string": 2,
+          "fret": 2,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 2.88,
+          "end": 3.36,
+          "midi": 57,
+          "string": 3,
+          "fret": 2,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 3.36,
+          "end": 3.79,
+          "midi": 58,
+          "string": 3,
+          "fret": 3,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 3.81,
+          "end": 5.51,
+          "midi": 57,
+          "string": 3,
+          "fret": 2,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 4.63,
+          "end": 5.81,
+          "midi": 53,
+          "string": 2,
+          "fret": 3,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 5.58,
+          "end": 8.39,
+          "midi": 57,
+          "string": 3,
+          "fret": 2,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 6.48,
+          "end": 7.43,
+          "midi": 62,
+          "string": 4,
+          "fret": 3,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 7.43,
+          "end": 8.41,
+          "midi": 62,
+          "string": 4,
+          "fret": 3,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 8.45,
+          "end": 8.459999999999999,
+          "midi": 58,
+          "string": 3,
+          "fret": 3,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 8.92,
+          "end": 8.93,
+          "midi": 62,
+          "string": 4,
+          "fret": 3,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        },
+        {
+          "start": 9.83,
+          "end": 9.84,
+          "midi": 65,
+          "string": 5,
+          "fret": 1,
+          "velocity": 100,
+          "bend": null,
+          "technique": [],
+          "tie_from_prev": false
+        }
+      ],
+      "instrument": "clean_electric_guitar"
+    }
+  ],
+  "chord_symbols": []
+}

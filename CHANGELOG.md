@@ -7,6 +7,12 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- End-to-end goldens for the five §6.14.4 fixtures (`benches/goldens/`, IR JSON
+  + GP5 + MIDI) driven by `crates/mtab-cli/tests/end_to_end_goldens.rs`. They
+  run the real chunker, forced tie prelude, tracker, string/fret assignment and
+  exporters over the committed GuitarSet excerpt and replay its annotated
+  onsets as MT3 tokens, because the gated CC BY-NC weights are not available in
+  CI. Two chunks per fixture, with notes ringing across the boundary.
 - Supplied-IR vibrato marks now survive every notation export: GP5 note-level
   vibrato flags, ASCII `v` markers, and MusicXML wavy-line ornaments with
   start/continue/stop across split notes. Vibrato depth and rate are not
@@ -49,6 +55,11 @@ versioning: [SemVer](https://semver.org/).
   the MusicXML XSD order. Nothing infers these techniques from audio.
 
 ### Fixed
+- A pitch closed and re-struck within the same frame decoded to a zero-length
+  note, which every downstream consumer rejects; it now gets the same
+  `MINIMUM_NOTE_DURATION_SEC` floor as drum hits and unclosed notes. Found by
+  the new end-to-end goldens, which replay a real performance that restrikes a
+  string on the beat.
 - An overlong chord label crashed the notation planner in debug builds and
   produced a silently wrong root/quality in release builds, because root
   scoring subtracted string lengths (`roots - remainder`) and underflowed.
