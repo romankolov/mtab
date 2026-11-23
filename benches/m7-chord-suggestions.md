@@ -12,8 +12,9 @@ instrument can change the set or label. An exact match is **not** calibrated
 confidence: chords may be voiced incompletely or interpreted differently.
 
 The library does not yet attach these suggestions to the transcription CLI or
-export chord symbols, and `--chords` remains unsupported. No annotated chord
-corpus or audio accuracy evaluation has been performed. Synthetic tests check
+export chord symbols, and `--chords` remains unsupported. The oracle-note
+sheet-chord diagnostic in [m7-guitarset-chord-results.md](m7-guitarset-chord-results.md)
+shows low coverage. No audio accuracy evaluation has been performed. Synthetic tests check
 exact examples, abstention, same-time transitions and sweep consistency across
 500 deterministic randomized symbolic fixtures. These tests establish algorithm
 behavior, not musical effectiveness or milestone acceptance.
