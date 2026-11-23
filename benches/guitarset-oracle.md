@@ -17,9 +17,13 @@ The downloaded `annotation.zip` MD5 was `b39b78e63d3446f2e54ddb7a54df9b10`
 (published by the dataset) and SHA-256 was
 `8daa02e6417ccca1685feb44b135e95928ad7037e5032ecb326b5791856fda99`.
 This updated run used the 360 full, unmodified JAMS files from the verified
-archive, with code at commit `3c90fd1` in release mode. No dataset files are
-included in the repository. Earlier versions of this report used note-only
-copies, which matched an earlier strict run over the original files.
+archive, with code at commit `3c90fd1` in release mode. A separate
+[GitHub Actions run](https://github.com/romankolov/mtab/actions/runs/45112497566)
+at commit `710a71d` downloaded and checked the archive independently; its
+oracle-report artifact was byte-identical to the local generated report below.
+No dataset files are included in the repository. Earlier versions of this
+report used note-only copies, which matched an earlier strict run over the
+original files.
 
 To reproduce with the full original JAMS files (no Python or model weights):
 

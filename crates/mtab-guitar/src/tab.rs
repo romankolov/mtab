@@ -28,8 +28,9 @@ pub struct TrackMeta {
     pub source_hash: Option<String>,
 }
 
-/// Tempo map: `bpm_at(t)` interpolates between change points.
-/// Unsteady performances get one change per beat (upstream behavior, §2).
+/// Piecewise-constant tempo map: `bpm_at(t)` uses the most recent change.
+/// The representation permits one change per beat, but no beat tracking or
+/// automatic unsteady-tempo inference is implemented by the CLI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TempoMap {
     pub changes: Vec<TempoChange>,
