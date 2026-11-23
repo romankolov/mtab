@@ -7,6 +7,10 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Documented an Ardour 8.12 synthetic bend import/playback smoke check and
+  independently checked the saved MIDI source. Wheel events survived, but the
+  pitch-sensitivity RPN was absent; other synthesizers may use a different
+  range. This is not a general DAW round-trip guarantee.
 - Added a synthetic MIDI dynamics playback sanity check using FluidSynth,
   Mido and an equal-velocity negative control. This does not calibrate the
   experimental dynamics estimator or validate real guitar.

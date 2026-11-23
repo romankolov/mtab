@@ -94,8 +94,10 @@ overlapping notes onto separate channels and reports an error if its available
 pitch-wheel steps at up to 50 Hz (capped at 2,048 steps per segment) and
 support up to ±200 cents. MIDI files do not encode tablature fingering; the
 optional IR does. A synthetic bend/release was rendered and measured with
-FluidSynth and two soundfonts; see `benches/m7-midi-bend-playback.md`. No DAW
-round-trip validation has yet been performed.
+FluidSynth and two soundfonts; see `benches/m7-midi-bend-playback.md`. One
+synthetic bend was also imported and played in Ardour 8.12; its saved imported
+source preserved wheel events but dropped the pitch-sensitivity RPN. See
+`benches/m4-ardour-midi.md`. This is not a general DAW round-trip guarantee.
 
 Omit `-o` to write JSONL to stdout. Each line is a raw note with `start`, `end`
 (seconds), `midi`, `velocity`, and `instrument` (program) fields; progress and
