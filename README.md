@@ -103,7 +103,10 @@ warnings go to stderr. Velocities default to upstream's fixed value 100. The
 optional `--dynamics` flag estimates relative velocity (30–127) from the
 attack envelope and local RMS, using the mixed audio. This experimental
 heuristic is uncalibrated; overlapping notes and other instruments can bias
-it, and notes without usable attack energy retain their original velocity.
+it, and notes without usable attack energy retain their original velocity. A
+controlled FluidSynth test checks ordering on one synthetic velocity sequence,
+not velocity calibration or real-guitar accuracy; see
+`benches/m7-dynamics-playback.md`.
 `--strict-eos` makes an incomplete generated chunk an error, `--beam-size` selects beam search, and `--temperature` enables seeded
 sampling (`--seed`). The current reference CPU implementation uses f64 and is
 not yet performance-optimized; device acceleration and streaming audio are

@@ -83,6 +83,17 @@ jobs:
           fi
           grep -F 'pitch contour differs' "$RUNNER_TEMP/flat-check.log"
           cargo run --locked -p mtab-audio --example check_bend_render -- "$RUNNER_TEMP/flat.wav" flat
+      - name: Verify and render a controlled MIDI dynamics fixture
+        run: |
+          set -euo pipefail
+          cargo run --locked -p mtab-export --example midi_dynamics_fixture -- "$RUNNER_TEMP/dynamics.mid"
+          python tools/check_midi_dynamics_mido.py "$RUNNER_TEMP/dynamics.mid" "$RUNNER_TEMP/dynamics-flat.mid"
+          for mode in dynamics dynamics-flat; do
+            fluidsynth -ni -o synth.reverb.active=0 -o synth.chorus.active=0 \
+              -F "$RUNNER_TEMP/$mode.wav" -r 44100 /usr/share/sounds/sf2/TimGM6mb.sf2 "$RUNNER_TEMP/$mode.mid"
+          done
+          cargo run --locked -p mtab-audio --example check_dynamics_render -- "$RUNNER_TEMP/dynamics.wav" rising
+          cargo run --locked -p mtab-audio --example check_dynamics_render -- "$RUNNER_TEMP/dynamics-flat.wav" flat
 
   independent-guitarset-frame-metrics:
     name: Independent evaluation and release-package checks

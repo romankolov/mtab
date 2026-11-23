@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Added a synthetic MIDI dynamics playback sanity check using FluidSynth,
+  Mido and an equal-velocity negative control. This does not calibrate the
+  experimental dynamics estimator or validate real guitar.
 - Added `--partial-fingering` to audio-manifest evaluation with per-recording
   omission counts and explicit scoring caveats. Official-weight evaluation of
   this mode is still pending.
