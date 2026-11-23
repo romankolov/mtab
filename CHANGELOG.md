@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Transcription output preflight checks existing file identities to reject
+  hard-link aliases to inputs or other outputs, as well as canonical paths.
+  This is not a defense against concurrent filesystem changes.
 - CLI `--beat-times` accepts a bounded JSON list of supplied quarter-beat times
   for variable-tempo MIDI. It does not perform audio beat or meter detection;
   it assumes 4/4 and does not support JSONL or notation exports.

@@ -48,6 +48,9 @@ pub enum MtabError {
     #[error("invalid grid '{0}'\n  hint: use auto, off, 1/4, 1/8, 1/16, 1/32 (add T for triplets, e.g. 1/8T)")]
     InvalidGrid(String),
 
+    #[error("invalid output: {0}")]
+    InvalidOutput(String),
+
     #[error("invalid tempo: {0}")]
     InvalidTempo(String),
 

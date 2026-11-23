@@ -474,11 +474,20 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<TempoMap> {
         }
         _ => {}
     }
-    let protected = std::iter::once(args.input.as_path())
+    let protected: Vec<&std::path::Path> = std::iter::once(args.input.as_path())
         .chain(args.weights.as_deref().map(std::path::Path::new))
-        .chain(args.beat_times.as_deref());
-    let protected: Vec<PathBuf> = protected.filter_map(path_identity).collect();
-    let mut outputs = std::collections::HashSet::new();
+        .chain(args.beat_times.as_deref())
+        .collect();
+    let protected_paths: std::collections::HashSet<PathBuf> =
+        protected.iter().filter_map(|p| path_identity(p)).collect();
+    let mut protected_files = std::collections::HashSet::new();
+    for path in &protected {
+        if let Some(identity) = existing_file_identity(path)? {
+            protected_files.insert(identity);
+        }
+    }
+    let mut output_paths = std::collections::HashSet::new();
+    let mut output_files = std::collections::HashSet::new();
     for path in args
         .outputs
         .iter()
@@ -486,14 +495,28 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<TempoMap> {
         .chain(args.partial_report.iter())
     {
         if let Some(identity) = path_identity(path) {
-            if protected.contains(&identity) {
-                return Err(MtabError::InvalidModelSource(
+            if protected_paths.contains(&identity) {
+                return Err(MtabError::InvalidOutput(
                     "output must not overwrite input audio, weights or beat times".into(),
                 ));
             }
-            if !outputs.insert(identity) {
-                return Err(MtabError::InvalidModelSource(
+            if !output_paths.insert(identity) {
+                return Err(MtabError::InvalidOutput(
                     "output paths must be distinct".into(),
+                ));
+            }
+        }
+        // Canonical paths do not identify hard links: compare existing files
+        // by OS file identity too, before opening any output for writing.
+        if let Some(identity) = existing_file_identity(path)? {
+            if protected_files.contains(&identity) {
+                return Err(MtabError::InvalidOutput(
+                    "output must not overwrite input audio, weights or beat times (hard-link alias)".into(),
+                ));
+            }
+            if !output_files.insert(identity) {
+                return Err(MtabError::InvalidOutput(
+                    "output paths must be distinct (hard-link alias)".into(),
                 ));
             }
         }
@@ -603,6 +626,18 @@ fn path_identity(path: &std::path::Path) -> Option<PathBuf> {
             .unwrap_or_else(|| std::path::Path::new("."));
         Some(std::fs::canonicalize(parent).ok()?.join(path.file_name()?))
     })
+}
+
+/// Capture OS file identity for existing regular files (including hard links).
+/// Missing paths are handled by canonical path identity instead. Opening an
+/// existing file can fail, in which case preflight fails closed.
+fn existing_file_identity(path: &std::path::Path) -> Result<Option<same_file::Handle>> {
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => Ok(Some(same_file::Handle::from_path(path)?)),
+        Ok(_) => Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel, tempo: &TempoMap) -> Result<()> {
@@ -1391,6 +1426,70 @@ mod tests {
         let doc = TabDocument::from_json(&std::fs::read_to_string(&ir).unwrap()).unwrap();
         assert_eq!(doc.meta.tempo_map.changes.len(), 4);
         for path in [audio, beats, midi, ir] {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn transcribe_rejects_hard_links_to_inputs_and_between_outputs() {
+        let audio = make_test_wav();
+        let beats = audio.with_extension("beats.json");
+        let alias = audio.with_extension("alias.json");
+        let midi = audio.with_extension("mid");
+        let midi_alias = audio.with_extension("second.mid");
+        std::fs::write(&beats, "[0, 0.5, 1]").unwrap();
+        std::fs::hard_link(&beats, &alias).unwrap();
+        let parse = || {
+            let cli = Cli::try_parse_from([
+                "mtab",
+                "transcribe",
+                audio.to_str().unwrap(),
+                "--beat-times",
+                beats.to_str().unwrap(),
+                "--emit-ir",
+                alias.to_str().unwrap(),
+                "-o",
+                midi.to_str().unwrap(),
+            ])
+            .unwrap();
+            let Some(Cmd::Transcribe(args)) = cli.command else {
+                panic!("wrong command")
+            };
+            args
+        };
+        assert!(validate_transcribe(&parse())
+            .unwrap_err()
+            .to_string()
+            .contains("hard-link"));
+        assert_eq!(std::fs::read_to_string(&beats).unwrap(), "[0, 0.5, 1]");
+        let mut audio_alias = parse();
+        std::fs::remove_file(&alias).unwrap();
+        std::fs::hard_link(&audio, &alias).unwrap();
+        assert!(validate_transcribe(&audio_alias)
+            .unwrap_err()
+            .to_string()
+            .contains("hard-link"));
+        assert!(std::fs::metadata(&audio).unwrap().len() > 0);
+        let weights = audio.with_extension("safetensors");
+        std::fs::write(&weights, b"dummy weights").unwrap();
+        std::fs::remove_file(&alias).unwrap();
+        std::fs::hard_link(&weights, &alias).unwrap();
+        audio_alias.weights = Some(weights.to_str().unwrap().into());
+        assert!(validate_transcribe(&audio_alias)
+            .unwrap_err()
+            .to_string()
+            .contains("hard-link"));
+        assert_eq!(std::fs::read(&weights).unwrap(), b"dummy weights");
+        audio_alias.emit_ir = None;
+        std::fs::write(&midi, b"old output").unwrap();
+        std::fs::hard_link(&midi, &midi_alias).unwrap();
+        audio_alias.outputs.push(midi_alias.clone());
+        assert!(validate_transcribe(&audio_alias)
+            .unwrap_err()
+            .to_string()
+            .contains("hard-link"));
+        assert_eq!(std::fs::read(&midi).unwrap(), b"old output");
+        for path in [audio, beats, weights, alias, midi, midi_alias] {
             std::fs::remove_file(path).unwrap();
         }
     }

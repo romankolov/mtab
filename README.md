@@ -61,8 +61,9 @@ pickup, an offset first beat, meter detection or automatic beat tracking. The
 CLI assumes 4/4 and uses the final interval's tempo beyond the last beat.
 Provide 2–100,001 finite, strictly increasing times, with intervals from 1 to
 16,777,215 microseconds; the UTF-8 JSON file must be at most 2 MiB. The file is
-validated and read before model loading, and cannot also be an output. This
-option conflicts with `--bpm`, raw JSONL, GP5, MusicXML and ASCII outputs.
+validated and read before model loading. Preflight rejects paths and existing
+hard links that alias inputs or other outputs, but cannot protect against files
+changed concurrently after the check. This option conflicts with `--bpm`, raw JSONL, GP5, MusicXML and ASCII outputs.
 
 ```console
 mtab transcribe song.wav --size small --weights ./muscriptor-small.safetensors \
