@@ -13,7 +13,7 @@ use serde_json::Value;
 #[derive(Debug, Clone)]
 pub(super) struct Reference {
     pub(super) note: NoteEvent,
-    string: u8,
+    pub(super) string: u8,
 }
 
 #[derive(Debug, Default)]

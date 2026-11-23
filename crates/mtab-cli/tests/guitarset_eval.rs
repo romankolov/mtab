@@ -204,3 +204,98 @@ fn scores_predicted_notes_with_onset_offset_and_clipping() {
         .success());
     assert_eq!(std::fs::read_to_string(predictions).unwrap(), jsonl);
 }
+
+#[test]
+fn scores_emitted_ir_framewise_and_rejects_misleading_inputs() {
+    use mtab_guitar::{Capo, GuitarTrack, TabDocument, TabNote, TempoMap, TrackMeta, Tuning};
+    let scratch = Scratch::new();
+    let jams = scratch.0.join("reference.jams");
+    let ir = scratch.0.join("prediction.json");
+    let mut annotations = Vec::new();
+    for string in 0..6 {
+        let data = match string {
+            0 => vec![serde_json::json!({"time":0.0,"duration":1.0,"value":50.0})],
+            1 => vec![serde_json::json!({"time":1.0,"duration":1.0,"value":45.0})],
+            _ => vec![],
+        };
+        annotations.push(serde_json::json!({"namespace":"note_midi", "annotation_metadata":{"data_source":string.to_string()}, "data":data}));
+    }
+    std::fs::write(
+        &jams,
+        serde_json::to_vec(&serde_json::json!({"annotations":annotations})).unwrap(),
+    )
+    .unwrap();
+    let note = |start, end, midi, string, fret| TabNote {
+        start,
+        end,
+        midi,
+        string,
+        fret,
+        velocity: 100,
+        bend: None,
+        technique: vec![],
+        tie_from_prev: false,
+    };
+    let mut doc = TabDocument {
+        meta: TrackMeta {
+            title: None,
+            tempo_map: TempoMap::constant(120.0),
+            time_signatures: vec![(0, 4, 4)],
+            frets: 22,
+            source_hash: None,
+        },
+        tracks: vec![GuitarTrack {
+            tuning: Tuning::standard(),
+            capo: Capo::NONE,
+            instrument: None,
+            notes: vec![note(0.0, 1.0, 50, 1, 5), note(1.0, 2.0, 45, 1, 0)],
+        }],
+        chord_symbols: vec![],
+    };
+    let save = |doc: &TabDocument| std::fs::write(&ir, doc.to_json().unwrap()).unwrap();
+    save(&doc);
+    let run = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_mtab"))
+            .args(["eval", "--annotations"])
+            .arg(&jams)
+            .arg("--tab-ir")
+            .arg(&ir)
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let output = run(&["--clip-duration", "2"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        report.contains("| Multi-pitch frames | 200 | 0 | 0 | 100.00% | 100.00% | 100.00% |"),
+        "{report}"
+    );
+    assert!(
+        report.contains("| Tab position frames | 100 | 100 | 100 | 50.00% | 50.00% | 50.00% |"),
+        "{report}"
+    );
+    assert!(report.contains("100 / 200 = 50.00%"), "{report}");
+    let clipped = run(&["--clip-duration", "1"]);
+    assert!(String::from_utf8(clipped.stdout)
+        .unwrap()
+        .contains("100 / 100 = 100.00%"));
+    assert!(!run(&[]).status.success());
+    assert!(!run(&["--clip-duration", "0"]).status.success());
+    assert!(
+        !run(&["--clip-duration", "2", "--report", ir.to_str().unwrap()])
+            .status
+            .success()
+    );
+    doc.tracks[0].tuning = Tuning::drop_d();
+    save(&doc);
+    assert!(!run(&["--clip-duration", "2"]).status.success());
+    doc.tracks[0].tuning = Tuning::standard();
+    doc.tracks[0].notes[0].fret = 6;
+    save(&doc);
+    assert!(!run(&["--clip-duration", "2"]).status.success());
+}

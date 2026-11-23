@@ -172,8 +172,22 @@ mtab eval --corpus guitarset --annotations recording.jams \
   --predictions notes.jsonl --clip-duration 5
 ```
 
-This is note-event matching, not full transcription or tablature evaluation.
-The Nightly `run_real_small` option performs the fixture check using an
+For emitted standard-tuning, capo-zero IR, an additional single-recording
+framewise evaluation compares note-derived pitch sets and string/fret positions:
+
+```sh
+mtab transcribe recording.wav --size small --weights /path/to/model.safetensors \
+  --tuning standard --capo 0 -o recording.mid --emit-ir recording.json
+mtab eval --annotations recording.jams --tab-ir recording.json \
+  --clip-duration 5 --report recording-eval.md
+```
+
+The IR score uses 10 ms frame centers and fixed MIDI notes (not continuous
+pitch contours), reports multi-pitch and tab-position precision/recall/F1,
+and gives a pitch-matched wrong-string rate. It does not implement TabCNN TDR,
+run inference itself, establish corpus quality, or compare to tab-labeler-v3.
+The specified duration must match the audio being evaluated. Note-event JSONL
+and IR frame metrics use different matching definitions. The Nightly `run_real_small` option performs the fixture check using an
 accepted Hugging Face account's `HF_TOKEN` repository secret; no model
 weights are uploaded as artifacts.
 

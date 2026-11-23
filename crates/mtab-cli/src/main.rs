@@ -5,6 +5,7 @@
 
 mod guitarset;
 mod guitarset_notes;
+mod guitarset_tab;
 
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
@@ -75,13 +76,16 @@ enum Cmd {
         #[arg(long)]
         annotations: Option<PathBuf>,
         /// Evaluate string assignment on ground-truth notes (not audio transcription)
-        #[arg(long, conflicts_with = "predictions")]
+        #[arg(long, conflicts_with_all = ["predictions", "tab_ir"])]
         oracle_notes: bool,
         /// Score a JSONL note transcription against one matching GuitarSet JAMS file
-        #[arg(long, conflicts_with = "oracle_notes")]
+        #[arg(long, conflicts_with_all = ["oracle_notes", "tab_ir"])]
         predictions: Option<PathBuf>,
-        /// Limit both note sets to this many seconds, clipping note offsets
-        #[arg(long, requires = "predictions")]
+        /// Score one emitted TabDocument IR against matching GuitarSet JAMS
+        #[arg(long, conflicts_with_all = ["oracle_notes", "predictions"], requires = "clip_duration")]
+        tab_ir: Option<PathBuf>,
+        /// Evaluation duration in seconds (required for tab-IR frame evaluation)
+        #[arg(long)]
         clip_duration: Option<f64>,
         /// Write a markdown report to this path (default: stdout)
         #[arg(long)]
@@ -202,6 +206,7 @@ fn run(cli: Cli) -> Result<()> {
             annotations,
             oracle_notes,
             predictions,
+            tab_ir,
             clip_duration,
             report,
         }) => eval(
@@ -209,6 +214,7 @@ fn run(cli: Cli) -> Result<()> {
             annotations.as_deref(),
             oracle_notes,
             predictions.as_deref(),
+            tab_ir.as_deref(),
             clip_duration,
             report.as_deref(),
         ),
@@ -323,6 +329,7 @@ fn eval(
     annotations: Option<&std::path::Path>,
     oracle_notes: bool,
     predictions: Option<&std::path::Path>,
+    tab_ir: Option<&std::path::Path>,
     clip_duration: Option<f64>,
     report: Option<&std::path::Path>,
 ) -> Result<()> {
@@ -331,7 +338,7 @@ fn eval(
             "only GuitarSet evaluation is supported",
         ));
     }
-    if !oracle_notes && predictions.is_none() {
+    if !oracle_notes && predictions.is_none() && tab_ir.is_none() {
         return Err(MtabError::NotImplemented("automatic end-to-end corpus evaluation; provide --predictions <JSONL> or use --oracle-notes"));
     }
     let path = annotations.ok_or_else(|| {
@@ -339,9 +346,21 @@ fn eval(
             "provide --annotations <local GuitarSet .jams file or directory>".into(),
         )
     })?;
-    if let Some(predictions) = predictions {
+    if let Some(tab_ir) = tab_ir {
+        guitarset_tab::evaluate(
+            path,
+            tab_ir,
+            clip_duration.expect("clap requires duration"),
+            report,
+        )
+    } else if let Some(predictions) = predictions {
         guitarset_notes::evaluate(path, predictions, clip_duration, report)
     } else {
+        if clip_duration.is_some() {
+            return Err(MtabError::InvalidModelSource(
+                "--clip-duration requires --predictions or --tab-ir".into(),
+            ));
+        }
         guitarset::evaluate(path, report)
     }
 }

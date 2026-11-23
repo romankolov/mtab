@@ -7,6 +7,11 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Score one emitted standard-tuning/capo-zero TabDocument against matching
+  GuitarSet JAMS using fixed-pitch 10 ms framewise multi-pitch and tab-position
+  precision/recall/F1 and a pitch-matched wrong-string rate. Requires an
+  explicit evaluation duration and does not claim published TabCNN TDR or a
+  corpus or tab-labeler-v3 comparison.
 - MIDI now renders supplied bend contours as bounded-rate linear pitch-wheel
   ramps rather than three abrupt steps. An independent mido parser verifies
   ramps, RPN range, note timing, and velocity; no audio playback validation.
