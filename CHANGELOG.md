@@ -10,6 +10,9 @@ versioning: [SemVer](https://semver.org/).
 - Added a synthetic MIDI bend/release playback sanity check with FluidSynth,
   a test-only soundfont, an independent spectral pitch estimate and a flat
   negative control. This is not a DAW round-trip or real-guitar bend test.
+- Test the experimental Rust pitch tracker and bend suggestions on that
+  synthesized waveform; loosen the endpoint tolerance from 25 to 30 cents.
+  Real-recording bend accuracy remains unvalidated.
 - GuitarSet IR and audio reports include one-to-one note-level string/fret
   precision, recall and F1 with onset and optional offset matching. The scorer
   is checked against an independent brute-force Python implementation.

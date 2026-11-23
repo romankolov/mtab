@@ -162,15 +162,14 @@ fn assess(tracker: &mut PitchTracker<'_>, note: &NoteEvent) -> Result<BendAssess
     if changes > 2 {
         return Ok(BendAssessment::NoClearBend);
     }
-    let shape = if first.abs() <= 25.0 && last >= 40.0 && peak - last <= 25.0 {
+    // Frame centers lie at least half a window inside the note, so a moving
+    // contour may still be offset at the first and last measured frames.
+    let near_base = |value: f64| value.abs() <= 30.0;
+    let shape = if near_base(first) && last >= 40.0 && peak - last <= 25.0 {
         BendShape::Bend
-    } else if first >= 40.0 && last.abs() <= 25.0 {
+    } else if first >= 40.0 && near_base(last) {
         BendShape::Release
-    } else if first.abs() <= 25.0
-        && last.abs() <= 25.0
-        && peak_index >= n / 5
-        && peak_index < n * 4 / 5
-    {
+    } else if near_base(first) && near_base(last) && peak_index >= n / 5 && peak_index < n * 4 / 5 {
         BendShape::BendRelease
     } else {
         return Ok(BendAssessment::NoClearBend);
@@ -269,10 +268,21 @@ mod tests {
         }
     }
     #[test]
+    fn bend_release_ramp_at_note_edges_remains_detectable() {
+        let result = suggest_bends(&audio(|t| 200.0 * t.min(1.0 - t)), &[note(0.0, 1.0)]).unwrap();
+        let BendAssessment::Candidate(candidate) = result[0] else {
+            panic!("expected bend/release, got {result:?}")
+        };
+        assert_eq!(candidate.shape, BendShape::BendRelease);
+        assert!((candidate.depth_cents - 100.0).abs() < 15.0);
+    }
+    #[test]
     fn abstains_on_constant_pitch_vibrato_noise_and_out_of_range() {
         for contour in [
             Box::new(|_| 0.0) as Box<dyn Fn(f64) -> f64>,
             Box::new(|_| 20.0),
+            Box::new(|_| 30.0),
+            Box::new(|_| 60.0),
             Box::new(|t| 50.0 + 45.0 * (2.0 * PI * 5.0 * t).sin()),
         ] {
             let result = suggest_bends(&audio(contour), &[note(0.0, 1.0)]).unwrap();

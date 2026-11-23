@@ -73,6 +73,7 @@ jobs:
           fluidsynth -ni -o synth.reverb.active=0 -o synth.chorus.active=0 \
             -F "$RUNNER_TEMP/bend.wav" -r 44100 /usr/share/sounds/sf2/TimGM6mb.sf2 "$RUNNER_TEMP/bend.mid"
           python tools/check_midi_bend_audio.py "$RUNNER_TEMP/bend.wav"
+          cargo run --locked -p mtab-audio --example check_bend_render -- "$RUNNER_TEMP/bend.wav" bend
           python tools/remove_midi_pitchwheel.py "$RUNNER_TEMP/bend.mid" "$RUNNER_TEMP/flat.mid"
           fluidsynth -ni -o synth.reverb.active=0 -o synth.chorus.active=0 \
             -F "$RUNNER_TEMP/flat.wav" -r 44100 /usr/share/sounds/sf2/TimGM6mb.sf2 "$RUNNER_TEMP/flat.mid"
@@ -81,6 +82,7 @@ jobs:
             exit 1
           fi
           grep -F 'pitch contour differs' "$RUNNER_TEMP/flat-check.log"
+          cargo run --locked -p mtab-audio --example check_bend_render -- "$RUNNER_TEMP/flat.wav" flat
 
   independent-guitarset-frame-metrics:
     name: Independent evaluation and release-package checks

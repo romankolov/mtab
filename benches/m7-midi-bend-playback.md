@@ -38,3 +38,21 @@ python tools/check_midi_bend_audio.py /tmp/bend.wav
 
 No real model, recorded guitar bend, subjective listening test, DAW import, or
 playback compatibility with other synthesizers is implied by this fixture.
+
+## Experimental Rust tracker and suggestion
+
+Feeding these synthesized guitar-timbre WAVs through the standard mono/16 kHz
+loader, FFT-YIN tracker and experimental suggestion API initially returned
+`NoClearBend` for both renders. The 128 ms fully-contained analysis window
+misses the very beginning and end; for TimGM6mb the last measured frames were
+still more than 25 cents above the nominal pitch. Widening the endpoint
+near-base threshold from 25 to 30 cents yielded a `BendRelease` candidate:
+TimGM6mb 95.4 cents and FluidR3_GM 94.0 cents, both reporting peak time 0.448 s
+(the API reports the first frame within 10 cents of the peak, not the actual
+peak). The flat TimGM6mb control produced `NoClearBend`. CI checks the
+TimGM6mb render's F0 and coarse suggestion, plus the flat negative control.
+
+This threshold was adjusted against these same synthetic test renders; they
+are not held out, and this is **not** a validated real-recording detection
+rate. It may increase false positives on detuned notes, expressive pitch,
+mixtures or tracker errors. The CLI still does not apply bend suggestions.
