@@ -65,10 +65,12 @@ def main():
         # A louder offbeat shows that phase can be wrong even with oracle BPM.
         samples, reference = click_signal(120, offbeat=True)
         write_wav(path, samples)
-        estimated = detect(executable, path, 120)
-        offbeat_f1 = score(reference, estimated)
-        print(f'120 BPM louder-offbeat control: reference={len(reference)} estimated={len(estimated)} beat F1={offbeat_f1:.4f}')
-        assert offbeat_f1 < 0.5, (reference, estimated, offbeat_f1)
+        for tightness in (3.0, 30.0):
+            estimated = detect(executable, path, 120, tightness)
+            offbeat_f1 = score(reference, estimated)
+            print(f'120 BPM louder-offbeat control, tightness={tightness:g}: reference={len(reference)} estimated={len(estimated)} beat F1={offbeat_f1:.4f}')
+            # Report the phase ambiguity without requiring future versions to fail.
+            assert len(estimated) > 0 and 0 <= offbeat_f1 <= 1
         write_wav(path, np.zeros(8 * 16000, dtype=np.int16))
         assert len(detect(executable, path, 120)) == 0
         single = np.zeros(8 * 16000, dtype=np.int16)

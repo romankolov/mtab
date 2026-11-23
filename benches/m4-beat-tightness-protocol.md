@@ -39,3 +39,6 @@ After selecting by the frozen rule, run with `--take-index 1` once at the
 selected value and once at 3.0. The tool reports both baselines and hashes.
 The results and precise executable/environment provenance will be published
 separately; neither result will be promoted to production by this protocol.
+
+The completed run is reported separately in
+[m4-beat-tightness-results.md](m4-beat-tightness-results.md).

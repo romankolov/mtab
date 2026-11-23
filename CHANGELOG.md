@@ -7,6 +7,9 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- A predeclared beat-path tightness grid and separate 50-take validation,
+  including all per-recording results and input hashes. Automatic tracking
+  remains experimental and is not enabled in the CLI.
 - A reproducible 50-recording GuitarSet rhythm diagnostic, with separate
   reference-tempo and uncalibrated autocorrelation baselines and input hashes.
   Results expose substantial beat-path errors; no CLI tracker was enabled.

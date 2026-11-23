@@ -53,6 +53,8 @@ on a supplied tempo ([details and independent checks](benches/m4-onset-envelope.
 These are not a complete automatic beat tracker and do not change CLI output.
 A limited [50-recording diagnostic](benches/m4-guitarset-beat-path.md) found
 substantial beat-phase and tempo errors, even when reference tempo was supplied.
+A subsequent [predeclared tightness experiment](benches/m4-beat-tightness-results.md)
+reduced some errors but did not make the tracker production-ready.
 
 Beat tracking is not implemented: MIDI preserves note times with a fixed
 120 BPM / 4/4 map by default, apart from clipping sequential boundary
