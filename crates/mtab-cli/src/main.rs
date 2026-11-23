@@ -159,6 +159,10 @@ struct TranscribeArgs {
     #[arg(long)]
     dynamics: bool,
 
+    /// Experimental isolated-note bend inference (MIDI only; manual review required)
+    #[arg(long)]
+    experimental_bends: bool,
+
     /// Detect bends/vibrato/dead notes/slides (§6.8)
     #[arg(long)]
     techniques: bool,
@@ -551,6 +555,7 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<TempoMap> {
             || args.bpm.is_some()
             || args.beat_times.is_some()
             || args.experimental_beat_tracking
+            || args.experimental_bends
             || args.grid != Grid::SIXTEENTH
         {
             return Err(MtabError::NotImplemented("tuning, capo, fretting, rhythm and TabDocument IR are not applied to raw JSONL notes"));
@@ -564,6 +569,16 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<TempoMap> {
         {
             return Err(MtabError::InvalidTempo(
                 "supplied or experimental beat tracking supports MIDI outputs only; GP5, MusicXML and ASCII do not support changing tempos".into(),
+            ));
+        }
+        if args.experimental_bends
+            && args
+                .outputs
+                .iter()
+                .any(|path| ExportFormat::from_path(path) != Some(ExportFormat::Midi))
+        {
+            return Err(MtabError::NotImplemented(
+                "experimental bend inference supports MIDI outputs only",
             ));
         }
         if args.bpm.is_some_and(|bpm| !(4..=255).contains(&bpm)) {
@@ -877,8 +892,15 @@ fn build_midi_document(
         eprintln!("warning: MIDI uses raw timing, supplied quarter beats and assumed 4/4 meter");
     } else {
         let bpm = args.bpm.unwrap_or(120);
-        eprintln!("warning: beat tracking is not implemented; MIDI uses raw timing and a fixed {bpm} BPM, 4/4 tempo map");
+        eprintln!("warning: no automatic beat tracking selected; MIDI uses raw timing and a fixed {bpm} BPM, 4/4 tempo map");
     }
+    let bend_assessments = if args.experimental_bends {
+        eprintln!("warning: experimental bend inference is uncalibrated and can mistake mixture pitch, tuning or vibrato for bends; inspect MIDI pitch wheels and the IR");
+        Some(mtab_audio::bend_analysis::suggest_bends(audio, notes)?)
+    } else {
+        None
+    };
+    let mut suggested_bends = 0usize;
     let mut grouped: std::collections::BTreeMap<u16, Vec<(usize, mtab_core::NoteEvent)>> =
         std::collections::BTreeMap::new();
     for (index, note) in notes.iter().enumerate() {
@@ -895,7 +917,8 @@ fn build_midi_document(
             max_fret: args.frets,
             ..FingeringOptions::default()
         };
-        let assigned = if args.allow_wide_stretch {
+        let mut skipped_local = Vec::new();
+        let mut assigned = if args.allow_wide_stretch {
             let assignment =
                 mtab_guitar::assign_notes_with_stretch(&track_notes, &tuning, capo, options, 7)?;
             if assignment.used_wider_span {
@@ -908,6 +931,7 @@ fn build_midi_document(
                 Err(MtabError::UnplayableNote { .. }) => {
                     let partial =
                         mtab_guitar::assign_notes_partial(&track_notes, &tuning, capo, options)?;
+                    skipped_local.clone_from(&partial.unassigned_indices);
                     for &index in &partial.unassigned_indices {
                         let (input_index, note) = indexed_notes[index];
                         omissions.push((
@@ -925,12 +949,42 @@ fn build_midi_document(
         } else {
             mtab_guitar::assign_notes(&track_notes, &tuning, capo, options)?
         };
+        if let Some(assessments) = &bend_assessments {
+            let retained = indexed_notes
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| skipped_local.binary_search(i).is_err());
+            for (target, (_, (source_index, _))) in assigned.iter_mut().zip(retained) {
+                use mtab_audio::bend_analysis::{BendAssessment, BendShape};
+                if let BendAssessment::Candidate(candidate) = assessments[*source_index] {
+                    // Fingering can clip a sub-nanosecond overlap at the end.
+                    // Reject instead of silently changing an invalid contour.
+                    if candidate.peak_time <= target.start || candidate.peak_time >= target.end {
+                        continue;
+                    }
+                    target.bend = Some(mtab_guitar::PitchBend {
+                        start: target.start,
+                        peak: candidate.peak_time,
+                        depth_cents: candidate.depth_cents as f32,
+                        kind: match candidate.shape {
+                            BendShape::Bend => mtab_guitar::BendKind::Bend,
+                            BendShape::Release => mtab_guitar::BendKind::Release,
+                            BendShape::BendRelease => mtab_guitar::BendKind::BendRelease,
+                        },
+                    });
+                    suggested_bends += 1;
+                }
+            }
+        }
         tracks.push(GuitarTrack {
             tuning: tuning.clone(),
             capo,
             instrument: Some(mtab_core::mt3::instruments::instrument_for_program(program)),
             notes: assigned,
         });
+    }
+    if bend_assessments.is_some() {
+        eprintln!("experimental bends: {suggested_bends} candidates attached to {} input notes; absence is not proof of no bend", notes.len());
     }
     if tracks.is_empty() {
         eprintln!(
@@ -1462,6 +1516,179 @@ mod tests {
         for path in [audio, beats, midi] {
             std::fs::remove_file(path).unwrap();
         }
+    }
+
+    #[test]
+    fn experimental_bends_reject_unsupported_formats() {
+        let audio = make_test_wav();
+        for options in [
+            vec!["--format", "jsonl"],
+            vec!["-o", "test.gp5"],
+            vec!["-o", "test.musicxml"],
+            vec!["-o", "test.txt"],
+        ] {
+            let mut argv = vec![
+                "mtab",
+                "transcribe",
+                audio.to_str().unwrap(),
+                "--experimental-bends",
+            ];
+            argv.extend(options);
+            let Some(Cmd::Transcribe(args)) = Cli::try_parse_from(argv).unwrap().command else {
+                panic!()
+            };
+            assert!(validate_transcribe(&args).is_err());
+        }
+        std::fs::remove_file(audio).unwrap();
+    }
+
+    #[test]
+    fn experimental_bend_inference_maps_partial_assignments_to_correct_notes() {
+        use std::f64::consts::PI;
+        let path = make_test_wav();
+        let midi = path.with_extension("mid");
+        let ir = path.with_extension("ir.json");
+        let partial = path.with_extension("partial.json");
+        let Some(Cmd::Transcribe(args)) = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            path.to_str().unwrap(),
+            "--experimental-bends",
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "--partial-report",
+            partial.to_str().unwrap(),
+            "--emit-ir",
+            ir.to_str().unwrap(),
+            "-o",
+            midi.to_str().unwrap(),
+        ])
+        .unwrap()
+        .command
+        else {
+            panic!()
+        };
+        let tempo = validate_transcribe(&args).unwrap();
+        let mut phase = 0.0_f64;
+        let samples = (0..19_200)
+            .map(|i| {
+                let t = i as f64 / 16_000.0 - 0.2;
+                if t < 0.0 {
+                    return 0.0;
+                }
+                let cents = ((t - 0.2) / 0.35).clamp(0.0, 1.0) * 100.0;
+                phase += 2.0 * PI * 110.0 * 2.0_f64.powf(cents / 1200.0) / 16_000.0;
+                (0.4 * phase.sin()) as f32
+            })
+            .collect();
+        let audio = mtab_audio::AudioBuffer {
+            samples,
+            sample_rate: 16_000,
+            channels: 1,
+        };
+        let notes = [
+            mtab_core::NoteEvent {
+                start: 0.0,
+                end: 0.1,
+                midi: 10,
+                velocity: 90,
+                instrument: 24,
+            },
+            mtab_core::NoteEvent {
+                start: 0.2,
+                end: 1.2,
+                midi: 45,
+                velocity: 90,
+                instrument: 24,
+            },
+        ];
+        let (doc, omitted) = build_midi_document(&args, &audio, &notes, &tempo).unwrap();
+        assert_eq!(omitted.len(), 1);
+        assert_eq!(omitted[0]["input_index"], 0);
+        assert_eq!(doc.tracks[0].notes.len(), 1);
+        let note = &doc.tracks[0].notes[0];
+        assert_eq!(note.midi, 45);
+        let bend = note.bend.unwrap();
+        assert_eq!(bend.kind, mtab_guitar::BendKind::Bend);
+        assert!((bend.depth_cents - 100.0).abs() < 15.0);
+        let report = partial_report_bytes(notes.len(), &omitted).unwrap();
+        write_document_outputs(&args, &doc, Some(&report)).unwrap();
+        let parsed = TabDocument::from_json(&std::fs::read_to_string(&ir).unwrap()).unwrap();
+        assert!(parsed.tracks[0].notes[0].bend.is_some());
+        if let Some(python) = std::env::var_os("MTAB_TEMPO_PYTHON") {
+            let output = std::process::Command::new(python)
+                .arg(
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("../../tools/check_midi_inferred_bend.py"),
+                )
+                .arg(&midi)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        for path in [path, midi, ir, partial] {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn experimental_bends_skip_overlapping_notes_across_tracks() {
+        let path = make_test_wav();
+        let midi = path.with_extension("mid");
+        let Some(Cmd::Transcribe(args)) = Cli::try_parse_from([
+            "mtab",
+            "transcribe",
+            path.to_str().unwrap(),
+            "--experimental-bends",
+            "--tuning",
+            "standard",
+            "--capo",
+            "0",
+            "-o",
+            midi.to_str().unwrap(),
+        ])
+        .unwrap()
+        .command
+        else {
+            panic!()
+        };
+        let tempo = validate_transcribe(&args).unwrap();
+        let audio = mtab_audio::AudioBuffer {
+            samples: vec![0.0; 16_000],
+            sample_rate: 16_000,
+            channels: 1,
+        };
+        let notes = [
+            mtab_core::NoteEvent {
+                start: 0.0,
+                end: 0.8,
+                midi: 45,
+                velocity: 90,
+                instrument: 24,
+            },
+            mtab_core::NoteEvent {
+                start: 0.2,
+                end: 1.0,
+                midi: 50,
+                velocity: 90,
+                instrument: 25,
+            },
+        ];
+        let (doc, omissions) = build_midi_document(&args, &audio, &notes, &tempo).unwrap();
+        assert!(omissions.is_empty());
+        assert_eq!(doc.tracks.len(), 2);
+        assert!(doc
+            .tracks
+            .iter()
+            .flat_map(|track| &track.notes)
+            .all(|note| note.bend.is_none()));
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

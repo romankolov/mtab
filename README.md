@@ -133,7 +133,7 @@ Two generated fixtures were opened and GP5-re-exported with TuxGuitar 1.6.6;
 their tested musical fields and bend points survived. This is not a general
 compatibility or playback guarantee, and real-checkpoint CLI-to-GP5 output has
 not yet been validated. MIDI remains
-unquantized. Pitch bends are not yet inferred. The MIDI writer isolates bent
+unquantized. Pitch bends are not inferred by default. The MIDI writer isolates bent
 overlapping notes onto separate channels and reports an error if its available
 15 melodic channels are exhausted. Supplied bend contours are interpolated to
 pitch-wheel steps at up to 50 Hz (capped at 2,048 steps per segment) and
@@ -354,11 +354,17 @@ of mono 16 kHz audio. Frames stay within the requested region. Synthetic sine,
 sweep, silence and noise tests exercise the implementation. It is **not**
 source separation and is not reliable on arbitrary polyphonic mixtures.
 `mtab_audio::bend_analysis::suggest_bends` can also suggest simple bend shapes
-for non-overlapping notes, with explicit abstention reasons. It is tested only
-on synthetic signals, does not modify the transcription, and is not currently
-used by `--techniques`; suggestions require human review. One isolated real
-GuitarSet note also provides a small F0 sanity check, not a bend-quality
-benchmark; see `benches/m7-pitch-fixture.md`.
+for non-overlapping notes, with explicit abstention reasons. The optional
+`--experimental-bends` flag attaches candidates to MIDI/IR output; it is not
+`--techniques` (which remains unavailable) and does not detect other effects.
+It skips detected overlapping notes across all tracks, short notes, and other
+insufficient evidence, but undetected mixture sounds can still produce false
+bends. Its output is uncalibrated and requires manual review. It is MIDI-only,
+and the reported candidate count is not confidence. Synthetic checks include
+a bend through partial fingering and an independent Mido playback-time/wheel
+inspection; the tiny-model transcription is not real-checkpoint validation.
+One isolated real GuitarSet note provides a small F0 sanity check, not a
+bend-quality benchmark; see `benches/m7-pitch-fixture.md`.
 
 ### Experimental ASCII library exporter
 

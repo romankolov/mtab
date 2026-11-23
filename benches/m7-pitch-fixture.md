@@ -24,3 +24,16 @@ set, including labeled bends, before using this to infer production techniques.
 Attribution, original data hashes, and regeneration instructions are in
 `crates/mtab-cli/tests/fixtures/guitarset/README.md`. The derived 5-second
 contours are CC BY 4.0, separate from the project code and model weights.
+
+## Opt-in MIDI bend attachment
+
+`--experimental-bends` now attaches candidates from the same conservative
+analysis to assigned notes in MIDI and IR. A synthetic 100-cent rising sine
+with one omitted unplayable predecessor checks source-index mapping through
+partial fingering; Mido independently validates note timing, nonzero pitch
+wheels and reset. Overlapping supplied notes across instrument tracks are
+skipped in a separate test. No official MuScriptor checkpoint or labeled
+real-guitar bend is involved in these tests, so they do not establish precision
+or recall. False positives from undetected overlapping sounds, nonstandard
+tuning or vibrato remain possible; the option is off by default, MIDI-only,
+and requires review. `--techniques` remains unsupported.
