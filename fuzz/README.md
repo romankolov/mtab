@@ -25,6 +25,10 @@ crash). It now compares remainders directly. The regression seed is
 `fuzz/seeds/ir_export/overlong_chord_label.json`, and `mtab-export` has a unit
 test for overlong labels and root-prefix precedence.
 
+A repeat 400-second campaign on the fixed code ran 15.6 million executions
+and added 16,499 coverage-distinct inputs with no crash, then the tracked seeds
+replay clean.
+
 Build the targets with `cargo +nightly fuzz build <target>`; a plain
 `cargo build --release` in `fuzz/` produces a binary without sanitizer coverage,
 which libFuzzer then reports as "no interesting inputs were found". The `ir_export` target is the one path where user-supplied data (the IR JSON
