@@ -5,7 +5,8 @@
 //! else is built in.
 
 use std::fmt;
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
@@ -88,7 +89,7 @@ impl FromStr for ModelSize {
 pub enum ModelSource {
     /// A local `model.safetensors` file.
     Local(PathBuf),
-    /// The crate's own cache of previously fetched weights for this size.
+    /// Previously cached official Hugging Face weights for this size.
     Cached { size: ModelSize },
     /// A Hugging Face repo reference, e.g. `hf://MuScriptor/muscriptor-medium`.
     HfRepo(String),
@@ -100,6 +101,9 @@ impl FromStr for ModelSource {
     type Err = MtabError;
 
     fn from_str(s: &str) -> Result<Self> {
+        if let Ok(size) = s.parse::<ModelSize>() {
+            return Ok(Self::Cached { size });
+        }
         if let Some(rest) = s.strip_prefix("hf://") {
             return Ok(Self::HfRepo(rest.to_owned()));
         }
@@ -112,6 +116,96 @@ impl FromStr for ModelSource {
         }
         Err(MtabError::InvalidModelSource(s.to_owned()))
     }
+}
+
+/// Resolve `model.safetensors` from a Hugging Face Hub cache without network.
+///
+/// `hub` is the Hub cache root, not a repository directory. The repo must be
+/// `owner/name`; this function follows only `refs/main`, requires a 40-digit
+/// hexadecimal commit, and never chooses an arbitrary stale snapshot. Cached
+/// files may normally be symlinks into the Hub's `blobs` directory. This checks
+/// file presence, not integrity, model shape, or license acceptance; the loader
+/// validates safetensors. There is no download and no token is read.
+pub fn resolve_hf_cache(repo: &str, hub: &Path) -> Result<PathBuf> {
+    let components: Vec<_> = repo.split('/').collect();
+    if components.len() != 2
+        || components.iter().any(|part| {
+            part.is_empty()
+                || *part == "."
+                || *part == ".."
+                || part.contains("--")
+                || !part
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+        })
+    {
+        return Err(MtabError::InvalidModelSource(format!(
+            "invalid Hugging Face repository: {repo}"
+        )));
+    }
+    let directory = hub.join(format!("models--{}--{}", components[0], components[1]));
+    let reference = directory.join("refs/main");
+    let file = std::fs::File::open(&reference).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            MtabError::WeightsNotFound {
+                path: reference.clone(),
+            }
+        } else {
+            error.into()
+        }
+    })?;
+    let mut bytes = Vec::new();
+    file.take(129).read_to_end(&mut bytes)?;
+    if bytes.len() > 128 {
+        return Err(MtabError::InvalidModelSource(
+            "cached refs/main exceeds 128 bytes".into(),
+        ));
+    }
+    let hash = std::str::from_utf8(&bytes)
+        .map_err(|_| MtabError::InvalidModelSource("cached refs/main is not UTF-8".into()))?
+        .trim();
+    if hash.len() != 40 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(MtabError::InvalidModelSource(
+            "cached refs/main must be a 40-digit hexadecimal commit".into(),
+        ));
+    }
+    let path = directory
+        .join("snapshots")
+        .join(hash)
+        .join("model.safetensors");
+    if !path.is_file() {
+        return Err(MtabError::WeightsNotFound { path });
+    }
+    Ok(path)
+}
+
+/// Determine the Hugging Face Hub cache root from the standard environment.
+/// `HF_HUB_CACHE` takes precedence over `HF_HOME/hub`, then the user's home
+/// cache (using `XDG_CACHE_HOME` if set). Empty variables are ignored. This
+/// function never accesses a network.
+pub fn hf_hub_cache_dir() -> Result<PathBuf> {
+    fn nonempty(name: &str) -> Option<PathBuf> {
+        std::env::var_os(name)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    }
+    if let Some(path) = nonempty("HF_HUB_CACHE") {
+        return Ok(path);
+    }
+    if let Some(path) = nonempty("HF_HOME") {
+        return Ok(path.join("hub"));
+    }
+    if let Some(path) = nonempty("XDG_CACHE_HOME") {
+        return Ok(path.join("huggingface").join("hub"));
+    }
+    let home = nonempty("HOME")
+        .or_else(|| nonempty("USERPROFILE"))
+        .ok_or_else(|| {
+            MtabError::InvalidModelSource(
+                "set HF_HUB_CACHE or HF_HOME to locate the Hugging Face cache".into(),
+            )
+        })?;
+    Ok(home.join(".cache").join("huggingface").join("hub"))
 }
 
 /// Full model configuration handed to the inference engine.
@@ -135,6 +229,56 @@ impl ModelConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolves_only_valid_hf_main_snapshots_without_network() {
+        let dir = std::env::temp_dir().join(format!(
+            "mtab-hf-cache-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let repo = dir.join("models--MuScriptor--muscriptor-small");
+        std::fs::create_dir_all(repo.join("refs")).unwrap();
+        let reference = repo.join("refs/main");
+        for name in [
+            "", "../x", "a/../x", "a/..", "a/b/c", "a//b", "a\\b/c", "a--b/c", "a/b?x",
+        ] {
+            assert!(resolve_hf_cache(name, &dir).is_err(), "{name}");
+        }
+        assert!(resolve_hf_cache("MuScriptor/muscriptor-small", &dir).is_err());
+        for invalid in [
+            "../../escape".to_owned(),
+            "z".repeat(40),
+            "f".repeat(41),
+            format!("{}{}", "f".repeat(40), " ".repeat(100)),
+        ] {
+            std::fs::write(&reference, invalid).unwrap();
+            assert!(resolve_hf_cache("MuScriptor/muscriptor-small", &dir).is_err());
+        }
+        let hash = "a".repeat(40);
+        std::fs::write(&reference, format!("{hash}\n")).unwrap();
+        assert!(resolve_hf_cache("MuScriptor/muscriptor-small", &dir).is_err());
+        let snapshot = repo.join("snapshots").join(&hash);
+        std::fs::create_dir_all(&snapshot).unwrap();
+        let weights = snapshot.join("model.safetensors");
+        std::fs::write(&weights, b"test fixture, not model weights").unwrap();
+        assert_eq!(
+            resolve_hf_cache("MuScriptor/muscriptor-small", &dir).unwrap(),
+            weights
+        );
+        std::fs::remove_file(&reference).unwrap();
+        assert!(resolve_hf_cache("MuScriptor/muscriptor-small", &dir).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+        assert_eq!(
+            "small".parse::<ModelSource>().unwrap(),
+            ModelSource::Cached {
+                size: ModelSize::Small
+            }
+        );
+    }
 
     #[test]
     fn model_shapes_match_reference_table() {

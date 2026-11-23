@@ -25,12 +25,7 @@ use mtab_guitar::{
     name = "mtab",
     version,
     about = "Audio → guitar tablature (MIDI + Guitar Pro) on MuScriptor",
-    long_about = "Convert any audio file into guitar tablature using the MuScriptor \
-transcription model. The only inputs are the model size (small/medium/large) and \
-its safetensors weights; everything else is built in.\n\n\
-Weights: MuScriptor weights are CC BY-NC 4.0 (non-commercial) and gated on \
-Hugging Face — accept the license on the model page and pass your own weights \
-file. mtab never bundles or silently downloads weights."
+    long_about = "Experimental audio-to-guitar transcription using MuScriptor. Some automatic analysis and export features remain incomplete; see README.md for current limitations.\n\nWeights are CC BY-NC 4.0 (non-commercial) and gated on Hugging Face. Accept the license and supply your own local or previously cached weights. mtab never bundles or silently downloads weights."
 )]
 struct Cli {
     /// List the MuScriptor model variants and exit
@@ -50,7 +45,7 @@ enum Cmd {
         /// Path to a .safetensors file
         path: PathBuf,
     },
-    /// Download gated weights (explicit, user-invoked only — PROMPT.md §1)
+    /// Download helper placeholder (not yet implemented)
     Download {
         /// Model variant to fetch
         #[arg(long, default_value = "medium")]
@@ -123,7 +118,7 @@ struct TranscribeArgs {
     #[arg(long, default_value = "medium")]
     size: ModelSize,
 
-    /// Weights: `<name>.safetensors` path, `hf://<org>/<repo>`, or http(s) URL
+    /// Local safetensors, cached size keyword, or cached `hf://<org>/<repo>` (no downloads)
     #[arg(long)]
     weights: Option<String>,
 
@@ -411,11 +406,19 @@ fn transcribe(args: TranscribeArgs) -> Result<()> {
         .parse::<ModelSource>()?;
     let path = match source {
         ModelSource::Local(path) => path,
-        _ => return Err(MtabError::NotImplemented("remote weight fetching; download the licensed safetensors file separately and pass its local path")),
+        ModelSource::Cached { size } => {
+            if size != args.size {
+                return Err(MtabError::InvalidModelSource(format!("cached weights size {size} does not match --size {}; specify matching sizes", args.size)));
+            }
+            mtab_core::model::resolve_hf_cache(size.hf_repo(), &mtab_core::model::hf_hub_cache_dir()?)?
+        },
+        ModelSource::HfRepo(repo) => mtab_core::model::resolve_hf_cache(&repo, &mtab_core::model::hf_hub_cache_dir()?)?,
+        ModelSource::Url(_) => return Err(MtabError::NotImplemented("remote weight fetching; download the licensed safetensors file separately and pass its local path")),
     };
     if !path.is_file() {
         return Err(MtabError::WeightsNotFound { path });
     }
+    protect_resolved_weights(&args, &path)?;
     let model = LmModel::load(LmConfig::from_size(args.size), &path)?;
     transcribe_with_model(&args, &model, &tempo)
 }
@@ -482,8 +485,15 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<TempoMap> {
         }
         _ => {}
     }
+    let local_weights =
+        args.weights
+            .as_deref()
+            .and_then(|value| match value.parse::<ModelSource>() {
+                Ok(ModelSource::Local(path)) => Some(path),
+                _ => None,
+            });
     let protected: Vec<&std::path::Path> = std::iter::once(args.input.as_path())
-        .chain(args.weights.as_deref().map(std::path::Path::new))
+        .chain(local_weights.as_deref())
         .chain(args.beat_times.as_deref())
         .collect();
     let protected_paths: std::collections::HashSet<PathBuf> =
@@ -662,6 +672,27 @@ fn existing_file_identity(path: &std::path::Path) -> Result<Option<same_file::Ha
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.into()),
     }
+}
+
+/// Protect resolved cache blobs too, including aliases through symlinks or hard links.
+fn protect_resolved_weights(args: &TranscribeArgs, path: &std::path::Path) -> Result<()> {
+    let identity = path_identity(path);
+    let file = existing_file_identity(path)?;
+    for output in args
+        .outputs
+        .iter()
+        .chain(args.emit_ir.iter())
+        .chain(args.partial_report.iter())
+    {
+        if identity.is_some() && identity == path_identity(output)
+            || file.is_some() && file == existing_file_identity(output)?
+        {
+            return Err(MtabError::InvalidOutput(
+                "output must not overwrite resolved weights, including cache aliases".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel, tempo: &TempoMap) -> Result<()> {

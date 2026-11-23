@@ -12,7 +12,7 @@ pub type Result<T> = std::result::Result<T, MtabError>;
 #[derive(Debug, thiserror::Error)]
 pub enum MtabError {
     #[error(
-        "weights not found: {path}\n  hint: pass --weights <file.safetensors>, or run `mtab download --size <small|medium|large>` after accepting the CC BY-NC 4.0 license on the model's Hugging Face page"
+        "weights not found: {path}\n  hint: accept the CC BY-NC 4.0 license on the model's Hugging Face page, obtain the weights separately, and pass --weights <file.safetensors> or an existing HF cache reference"
     )]
     WeightsNotFound { path: PathBuf },
 

@@ -2,8 +2,8 @@
 //!
 //! This does not mutate transcription output, and it is not reliable on mixes:
 //! undetected overlapping notes, vibrato, alternate tuning and octave errors
-//! can all be mistaken for bends. Suggestions require review. The CLI does not
-//! currently enable this analysis.
+//! can all be mistaken for bends. Suggestions require review. The CLI can
+//! optionally attach them to MIDI output; its default does not use this analysis.
 use crate::{pitch_track::PitchTracker, AudioBuffer};
 use mtab_core::{MtabError, NoteEvent, Result};
 

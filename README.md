@@ -163,6 +163,21 @@ The intended finished product accepts just a model size and weights and emits
 fully featured MIDI and Guitar Pro tablature; the remaining features are tracked in
 [PROMPT.md](PROMPT.md).
 
+## Offline Hugging Face cache
+
+In addition to a local safetensors file, `--weights small` (or `medium`/`large`)
+resolves that variant from an **existing** Hugging Face Hub cache; the keyword
+must match `--size`. `--weights hf://MuScriptor/muscriptor-small` resolves an
+existing cache entry by repository. These lookups use `refs/main` and its
+40-hex-digit snapshot's `model.safetensors`; missing references or files fail
+rather than choosing an arbitrary snapshot or downloading. `HF_HUB_CACHE`,
+`HF_HOME`, `XDG_CACHE_HOME`, and the home-directory default determine the Hub
+cache location, in that order. The loader still validates the checkpoint; a
+cache path or hash alone does not prove its contents or grant a license.
+Direct HTTP(S) fetching and the `download` helper remain unimplemented. Cache
+weights and aliases are protected from output overwrites, subject to concurrent
+filesystem changes after checking.
+
 ## Weights & licensing
 
 - **Code:** [MIT](LICENSE) — see [NOTICE](NOTICE) for third-party components.
