@@ -193,6 +193,30 @@ filesystem changes after checking.
   in this repo or in release artifacts. Accept the license on the model page,
   authenticate (`hf auth login` / `HF_TOKEN`), and pass your own weights file.
 
+## Documentation and examples
+
+- [`docs/architecture.md`](docs/architecture.md) — crate layout, pipeline, the
+  shared notation plan, and the testing strategy.
+- [`docs/tuning-detection.md`](docs/tuning-detection.md) — how tuning/capo
+  detection scores hypotheses and why it can be wrong.
+- [`docs/techniques.md`](docs/techniques.md) — what the IR carries, what each
+  export can represent, what is suggested from audio and what is not inferred.
+- [`docs/weights.md`](docs/weights.md) — obtaining and converting MuScriptor
+  weights legally, and the auxiliary-model license picture.
+
+Runnable examples live in `crates/mtab-cli/examples/`:
+
+```console
+cargo run --release -p mtab-cli --example basic -- song.wav ./weights.safetensors
+cargo run --release -p mtab-cli --example streaming -- long.wav ./weights.safetensors
+cargo run -p mtab-cli --example custom_guitar
+```
+
+`basic` is the happy path (audio in, MIDI/GP5/MusicXML/ASCII out), `streaming`
+drives the chunk loop itself so only one five-second chunk is in memory at a
+time, and `custom_guitar` builds a tablature document by hand for a
+seven-string with a capo and exports it without any model.
+
 ## Development
 
 The workspace supports Rust 1.75 or later with the checked-in lockfile; CI
