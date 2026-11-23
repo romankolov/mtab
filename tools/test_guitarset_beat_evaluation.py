@@ -22,6 +22,11 @@ class TestBeatEvaluation(unittest.TestCase):
         self.assertTrue(all(not n.startswith('00_') and '1-120-A' in n for n in selected))
         self.assertEqual(sum(n.endswith('_comp.jams') for n in selected), 25)
         self.assertEqual(sum(n.endswith('_solo.jams') for n in selected), 25)
+        validation = evaluator.select(names, take_index=1)
+        self.assertTrue(all('2-180-G' in n for n in validation))
+        self.assertFalse(set(selected) & set(validation))
+        with self.assertRaises(ValueError):
+            evaluator.select(names, take_index=2)
         with self.assertRaises(ValueError):
             evaluator.select([])
 
@@ -55,8 +60,9 @@ class TestBeatEvaluation(unittest.TestCase):
             self.assertIsNone(evaluator.strongest_candidate(Path('.'), Path('x')))
 
     def test_prediction_trim_and_abstention(self):
-        with patch.object(evaluator, 'run', return_value='4.9\n5.0\n5.1\n'):
-            np.testing.assert_array_equal(evaluator.predict(Path('.'), Path('x'), 120), [5.0, 5.1])
+        with patch.object(evaluator, 'run', return_value='4.9\n5.0\n5.1\n') as run:
+            np.testing.assert_array_equal(evaluator.predict(Path('.'), Path('x'), 120, 10.0), [5.0, 5.1])
+            self.assertEqual(run.call_args.args[0][-1], '10.0')
         with patch.object(evaluator, 'run') as run:
             self.assertEqual(len(evaluator.predict(Path('.'), Path('x'), None)), 0)
             run.assert_not_called()

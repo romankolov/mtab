@@ -9,6 +9,7 @@ rule without inspecting scores; see benches/m4-guitarset-beat-path.md.
 import argparse
 import hashlib
 import json
+import math
 import os
 import subprocess
 import sys
@@ -31,16 +32,18 @@ def digest(path, algorithm):
     return h.hexdigest()
 
 
-def select(names):
+def select(names, take_index=0):
+    if take_index not in (0, 1):
+        raise ValueError('take index must be 0 or 1')
     names = sorted(n for n in names if n.endswith('.jams'))
     chosen = []
     for player in range(1, 6):
         for style in STYLES:
             for mode in ('comp', 'solo'):
                 options = [n for n in names if n.startswith(f'{player:02d}_{style}') and n.endswith(f'_{mode}.jams')]
-                if not options:
-                    raise ValueError(f'missing player={player}, style={style}, mode={mode}')
-                chosen.append(options[0])
+                if len(options) <= take_index:
+                    raise ValueError(f'missing take {take_index} for player={player}, style={style}, mode={mode}')
+                chosen.append(options[take_index])
     if len(set(chosen)) != 50:
         raise ValueError('selection contains repeated files')
     return chosen
@@ -87,10 +90,10 @@ def strongest_candidate(examples, audio):
     return min(peaks, key=lambda x: (-x[2], x[0]))[1]
 
 
-def predict(examples, audio, bpm):
+def predict(examples, audio, bpm, tightness=3.0):
     if bpm is None:
         return np.array([], dtype=np.float64)
-    lines = run([executable(examples, 'beat_path_dump'), audio, bpm, '3.0'])
+    lines = run([executable(examples, 'beat_path_dump'), audio, bpm, str(tightness)])
     return np.array([float(line) for line in lines.splitlines() if float(line) >= 5.0])
 
 
@@ -116,11 +119,17 @@ def main():
     parser.add_argument('--annotation-zip', type=Path, required=True)
     parser.add_argument('--audio-dir', type=Path, required=True)
     parser.add_argument('--examples-dir', type=Path, required=True)
+    parser.add_argument('--take-index', type=int, choices=(0, 1), default=0,
+                        help='lexicographically first (0, development) or second (1, validation) take')
+    parser.add_argument('--tightness', type=float, default=3.0,
+                        help='DP transition tightness (0.01–1000; default 3)')
     args = parser.parse_args()
+    if not math.isfinite(args.tightness) or not 0.01 <= args.tightness <= 1000:
+        parser.error('--tightness must be finite and between 0.01 and 1000')
     if digest(args.annotation_zip, 'md5') != ANNOTATION_MD5:
         raise SystemExit('annotation.zip does not match the published GuitarSet 1.1.0 MD5')
     with zipfile.ZipFile(args.annotation_zip) as archive:
-        selected = select(archive.namelist())
+        selected = select(archive.namelist(), args.take_index)
         missing = [n for n in selected if not (args.audio_dir / (n[:-5] + '_mic.wav')).is_file()]
         if missing:
             raise SystemExit(f'missing {len(missing)} microphone WAVs, first: {missing[0]}')
@@ -134,19 +143,20 @@ def main():
             source = archive.read(name)
             reference_bpm, reference = metadata(source, duration)
             candidate = strongest_candidate(args.examples_dir, audio)
-            oracle = metrics(reference, predict(args.examples_dir, audio, reference_bpm))
-            automatic = metrics(reference, predict(args.examples_dir, audio, candidate))
+            oracle = metrics(reference, predict(args.examples_dir, audio, reference_bpm, args.tightness))
+            automatic = metrics(reference, predict(args.examples_dir, audio, candidate, args.tightness))
             rows.append({'name': name[:-5], 'bpm': reference_bpm, 'candidate': candidate,
                          'oracle': oracle, 'auto': automatic, 'audio_sha': digest(audio, 'sha256'),
                          'jams_sha': hashlib.sha256(source).hexdigest()})
             print(f'{i}/50 {name}', file=sys.stderr, flush=True)
     print('# GuitarSet beat-path diagnostic: frozen 50-recording selection\n')
     print('Fixed parameters: quarter-note references, trim both sequences below 5.0 s; '
-          'mir_eval 0.8.2, ±70 ms maximum-cardinality matching; tightness 3.0. '
+          f'mir_eval 0.8.2, ±70 ms maximum-cardinality matching; tightness {args.tightness}. '
           'Oracle uses annotated constant BPM; auto uses strongest positive autocorrelation local maximum '
           '(no prior, calibrated confidence or abstention except no peak).')
+    rank = 'first' if args.take_index == 0 else 'second'
     print('\nSelection: players 01–05, styles BN/Funk/Jazz/Rock/SS, comp and solo; '
-          'lexicographically first take for each group. Player 00 was excluded because its excerpt '
+          f'lexicographically {rank} take for each group. Player 00 was excluded because its excerpt '
           'informed rhythm development. This is a small fixed selection, not the full corpus or a '
           'project-wide held-out set (GuitarSet annotations informed other work).')
     print('\nAnnotation archive MD5: `' + ANNOTATION_MD5 + '`. The per-recording SHA-256 values below '
