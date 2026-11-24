@@ -11,7 +11,9 @@ const OPEN: [u8; 6] = [40, 45, 50, 55, 59, 64];
 // the beam's active-state representation. Notes are in chronological order.
 fn path_cost(notes: &[NoteEvent], path: &[(u8, u8)], span: u8) -> Option<f64> {
     let mut score = 0.0;
-    let mut position: Option<u8> = None;
+    // Mirrors `State::reach` / `State::shifted` in the solver: a window of
+    // frets the hand occupies, moved one fret at a time.
+    let mut position: Option<(u8, u8)> = None;
     let mut last: Option<u8> = None;
     for (i, &(string, fret)) in path.iter().enumerate() {
         let mut sounding_frets = Vec::new();
@@ -39,10 +41,30 @@ fn path_cost(notes: &[NoteEvent], path: &[(u8, u8)], span: u8) -> Option<f64> {
             score -= 0.1;
         } else {
             score += f64::from(fret) * 0.015;
-            if let Some(old) = position {
-                score += f64::from(fret.abs_diff(old));
-            }
-            position = Some(fret);
+            let shifted = match position {
+                None => {
+                    let half = span / 2;
+                    (fret.saturating_sub(half), fret.saturating_add(span - half))
+                }
+                Some((low, high)) => {
+                    if fret >= low && fret <= high {
+                        (low, high)
+                    } else if fret < low {
+                        let drop = low - fret;
+                        (low - drop, high.saturating_sub(drop))
+                    } else {
+                        let rise = fret - high;
+                        (low.saturating_add(rise), high.saturating_add(rise))
+                    }
+                }
+            };
+            score += match position {
+                None => 0.0,
+                Some((low, high)) if fret >= low && fret <= high => 0.0,
+                Some((low, _)) if fret < low => f64::from(low - fret),
+                Some((_, high)) => f64::from(fret - high),
+            };
+            position = Some(shifted);
         }
         if let Some(old) = last {
             score += 0.15 * f64::from(string.abs_diff(old));

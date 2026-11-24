@@ -27,9 +27,9 @@ These reference diagnostics may overlap and are not proof of failure cause.
 
 | Method | Assigned | Unassigned | Correct strings | String accuracy (all notes) | Wrong-string rate (assigned) |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Bounded beam | 54666 | 7810 | 38219 | 61.17% | 30.09% |
-| Adaptive span 4→7 | 61638 | 838 | 42908 | 68.68% | 30.39% |
-| Partial retry span 4 | 62417 | 59 | 43902 | 70.27% | 29.66% |
+| Bounded beam | 54666 | 7810 | 39116 | 62.61% | 28.45% |
+| Adaptive span 4→7 | 61638 | 838 | 43661 | 69.88% | 29.17% |
+| Partial retry span 4 | 62417 | 59 | 44767 | 71.65% | 28.28% |
 | Per-note lowest-fret greedy | 62476 | 0 | 28365 | 45.40% | 54.60% |
 
 Settings: standard EADGBE, capo 0, frets 0–22, normal span 4, adaptive retry span 7, beam width 512.
@@ -50,8 +50,8 @@ The same three methods, scored only on the feasible excerpts:
 
 | Method | Feasible notes | Correct strings | String accuracy | Wrong-string rate (assigned) |
 | --- | ---: | ---: | ---: | ---: |
-| Strict beam (span 4) | 41138 | 28856 | 70.14% | 29.86% |
-| Partial retry (span 4) | 41138 | 28856 | 70.14% | 29.86% |
+| Strict beam (span 4) | 41138 | 29833 | 72.52% | 27.48% |
+| Partial retry (span 4) | 41138 | 29833 | 72.52% | 27.48% |
 | Per-note lowest-fret greedy | 41138 | 19021 | 46.24% | 53.76% |
 
 Comparing the two tables shows how much of the headline gap is the reference data and how much is the solver.
@@ -62,14 +62,14 @@ Splitting the strict solver's mistakes by context says which fix is worth buildi
 
 | Context | Notes | Correct | Accuracy |
 | --- | ---: | ---: | ---: |
-| Melodic (alone at onset) | 40832 | 28638 | 70.14% |
-| Chordal (shares onset) | 306 | 218 | 71.24% |
-| Open-string reference | 2928 | 2888 | 98.63% |
+| Melodic (alone at onset) | 40832 | 29632 | 72.57% |
+| Chordal (shares onset) | 306 | 201 | 65.69% |
+| Open-string reference | 2928 | 2846 | 97.20% |
 
-- Wrong-string direction: 8196 chose a higher-pitched string, 4086 a lower one
-- Mean fret distance on errors: 5.19 frets
-- Mean fret: reference 5.33, ours 4.78
-- Errors where we took the open string but the reference frets: 3114
+- Wrong-string direction: 9710 chose a higher-pitched string, 1595 a lower one
+- Mean fret distance on errors: 4.89 frets
+- Mean fret: reference 5.33, ours 4.35
+- Errors where we took the open string but the reference frets: 2109
 
 If melodic accuracy is already high, chord-shape templates are not the next lever; the loss is in single-line choices.
 

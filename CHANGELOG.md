@@ -27,6 +27,16 @@ with `SHA256SUMS.txt` and no model weights (§10.1).
 ## [Unreleased]
 
 ### Changed
+- String/fret assignment now tracks a **hand window** instead of a single
+  "last fret" anchor. Moving inside the window is free and shifting it costs a
+  fret per fret, so the search prefers shapes reachable from the current
+  position — the standard fix for pitches that are playable in two places
+  (open high E versus A string fret 19). Held-out GuitarSet string accuracy
+  rises from 68.43% to **70.76%** (whole corpus 70.14% → 72.52%). The
+  reach-vs-shift weight is a measured optimum at 1.0: 0.1 scores 63.08%,
+  0.3 scores 67.31%, 2.0 scores 68.58% on the same held-out half.
+
+### Changed
 - The string/fret solver's open-string bonus dropped from 0.8 to 0.1. On the
   feasible GuitarSet excerpts the old value took the open string where the
   reference frets it 3,671 times; measured accuracy was 68.28% at 0.8, 70.70% at

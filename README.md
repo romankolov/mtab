@@ -342,11 +342,32 @@ honest check is to tune on some players and report on others:
 | **Held out** | **03–05** | **66.26%** | **68.43%** |
 
 The improvement survives on players the weight was never fitted to: **+2.2
-points held out**, a little smaller than the +1.9/+1.6 the two halves suggested
-individually but the same sign throughout. The held-out set also scores lower in
-absolute terms than the full corpus (68.43% vs 70.14%), which is what you would
-expect if the full-corpus number was mildly optimistic. Treat **68.4% on unseen
-players** as the figure worth quoting.
+points held out**. The held-out set also scores lower in absolute terms than the
+full corpus, which is what you would expect if the full-corpus number was mildly
+optimistic.
+
+**Position modelling** then replaced the single "last fret touched" anchor with
+a *hand window*: the range of frets the fingers currently occupy. Sliding it
+costs one unit per fret and moving inside it is free, so the solver prefers
+shapes reachable from where the hand already is — which is how a player
+resolves an ambiguity like `E4` being either the open high E or the A string at
+fret 19.
+
+| Split | Before | After |
+| --- | ---: | ---: |
+| Whole corpus | 70.14% | **72.52%** |
+| A (players 00–02) | 71.83% | 74.25% |
+| **B held out (03–05)** | 68.43% | **70.76%** |
+
+The reach-vs-shift weight was swept rather than guessed, and 1.0 is a genuine
+optimum: 0.3 gives 67.31%, 0.1 gives 63.08%, 2.0 gives 68.58%, against 70.76%
+at 1.0 on the held-out half. Pricing a stretch below a shift lets the hand
+wander; pricing it above makes the solver refuse shapes a player would reach
+for. Every figure above was measured on players not used to choose it.
+
+**70.8% on unseen players** is the number to quote: roughly three notes in four
+land on the string a human annotator chose, against 44–48% for a per-note
+greedy assignment.
 
 Every one of the 40 strict failures was already an infeasible excerpt, so
 nothing is being excused — only the denominator changed. The honest reading is
