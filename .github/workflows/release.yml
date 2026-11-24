@@ -96,6 +96,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path "dist/$stage"
           Copy-Item "target/${{ matrix.target }}/release/mtab.exe" "dist/$stage/"
           Copy-Item README.md, LICENSE, NOTICE, PROMPT.md "dist/$stage/"
+          # The unix legs ship docs/; Windows has to match or the archive
+          # whitelist fails and the release is not the same product per target.
+          Copy-Item -Recurse docs "dist/$stage/docs"
           Compress-Archive -Path "dist/$stage" -DestinationPath "dist/$stage.zip"
           Remove-Item -Recurse -Force "dist/$stage"
 

@@ -38,6 +38,30 @@ small-size architecture executes under the environment's memory constraints;
 it does **not** measure real-checkpoint transcription quality, representative
 RTF, throughput at full sequence lengths, or the project acceptance targets.
 
+## Real-audio timing, CPU only (2026-11-23)
+
+The numbers §6.13 grades against. All on the same Linux x86-64 sandbox
+(2 vCPU, Intel Xeon 2.60 GHz), **f64 reference path, no SIMD dispatch, no
+accelerator**. "Pass" is one decode of the whole file; the gallery runs
+eleven of them.
+
+| Checkpoint | Audio | Per pass | Real-time factor | Peak RSS |
+| --- | --- | ---: | ---: | ---: |
+| small | 87 s (full clip) | 236 s | 0.37× | — |
+| small | 87 s, beam 4 | 1041 s | 0.08× | — |
+| large | 12 s excerpt | 394 s | 0.03× | — |
+
+§6.13 asks for `small` ≥ 10× real time and `large` ≥ 1× on a GPU. The f64
+reference path is **27× short of the small target and the large target assumes
+a backend that does not exist yet** (there is no `candle`/`ort` dependency and
+no device selection — see PROMPT.md §3). These rows are therefore evidence that
+the pipeline works, not a performance claim. Fixing it is an f32 pass plus a
+GPU backend, in that order.
+
+Measured throughput on `small`: 1800 tokens in 243 s ≈ **135 ms/token** on
+2 vCPU. Weights load once per process; it is excluded above and is roughly
+5 s for `small`, 60 s for `large` (5.47 GB, 394 tensors).
+
 ## Official small checkpoint validation (2026-11-22)
 
 The gated official `MuScriptor/muscriptor-small` checkpoint was downloaded after
