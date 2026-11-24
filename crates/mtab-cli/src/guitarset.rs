@@ -684,10 +684,10 @@ lever; the loss is in single-line choices.\n",
         } else {
             a.err_fret_distance as f64 / a.errors as f64
         },
-        if a.melodic_notes + 0 == 0 {
+        if a.melodic_notes == 0 {
             0.0
         } else {
-            a.reference_fret_sum as f64 / (a.melodic_notes + 0) as f64
+            a.reference_fret_sum as f64 / a.melodic_notes as f64
         },
         if a.melodic_notes == 0 {
             0.0
