@@ -170,6 +170,10 @@ jobs:
             --out eval/heldout.json --clips eval/clips \
             --seconds 10 --sessions 03,04,05
       - name: Transcribe and score
+        # A non-zero exit means some recordings failed (strict EOS, unplayable
+        # fingering, short audio). Keep going so the report still uploads: the
+        # per-entry status column is what says which, and why.
+        continue-on-error: true
         env:
           MTAB_EXCERPTS: ${{ inputs.eval_entries }}
         run: |
@@ -187,8 +191,13 @@ jobs:
             --weights "$RUNNER_TEMP/mtab-small.safetensors" \
             --size small --max-gen-len 2000 --report eval/report.md
       - name: Show the headline metrics
-        run: sed -n '/| Micro-aggregated/,/^$/p' eval/report.md
+        if: always()
+        run: |
+          sed -n '/| Micro-aggregated/,/^$/p' eval/report.md || true
+          echo '--- entries that did not score ---'
+          grep -E '\| (failed|error) ' eval/report.md || echo 'none' 
       - name: Upload the report (no model weights)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: guitarset-end-to-end-report
