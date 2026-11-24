@@ -111,7 +111,11 @@ jobs:
           mkdir annotations
           unzip -q -j annotations.zip '*.jams' -d annotations
       - name: Run oracle-note string assignment evaluation
-        run: cargo run --release --locked -p mtab-cli -- eval --corpus guitarset --oracle-notes --annotations annotations --report eval-oracle.md
+        run: |
+          cargo run --release --locked -p mtab-cli -- eval --corpus guitarset \
+            --oracle-notes --annotations annotations --report eval-oracle.md
+      - name: Show the headline numbers
+        run: sed -n '/^| Method/,/^$/p;/^## Feasibility/,$p' eval-oracle.md | head -40
       - name: Upload oracle-note report
         uses: actions/upload-artifact@v4
         with:

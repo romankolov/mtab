@@ -41,6 +41,17 @@ struct Counts {
     reference_span_over_four: usize,
     reference_string_overlaps: usize,
     reference_other: usize,
+    // Excerpts whose annotations no single hand could play, split out so the
+    // solver is not graded on reference data that has no feasible answer.
+    infeasible_excerpts: usize,
+    infeasible_span_only: usize,
+    infeasible_overlap_only: usize,
+    infeasible_both: usize,
+    feasible_notes: usize,
+    feasible_strict_correct: usize,
+    feasible_partial_correct: usize,
+    feasible_partial_assigned: usize,
+    feasible_greedy_correct: usize,
 }
 
 #[derive(Debug)]
@@ -142,12 +153,27 @@ pub(super) fn parse_jams(path: &Path) -> Result<Vec<Reference>> {
     Ok(refs)
 }
 
-fn score_file(refs: &[Reference], counts: &mut Counts) -> Option<Failure> {
+/// Per-excerpt outcome, kept so the feasibility subset can be accumulated
+/// without re-running the solver.
+#[derive(Debug, Default, Clone, Copy)]
+struct ExcerptScore {
+    notes: usize,
+    strict_correct: usize,
+    partial_assigned: usize,
+    partial_correct: usize,
+    greedy_correct: usize,
+}
+
+fn score_file(refs: &[Reference], counts: &mut Counts) -> (Option<Failure>, ExcerptScore) {
     let tuning = Tuning::standard();
     let notes: Vec<NoteEvent> = refs.iter().map(|r| r.note).collect();
     counts.files += 1;
     counts.notes += refs.len();
     let mut failure = None;
+    let mut excerpt = ExcerptScore {
+        notes: refs.len(),
+        ..ExcerptScore::default()
+    };
     match assign_notes(&notes, &tuning, Capo::NONE, FingeringOptions::default()) {
         Ok(assigned) => {
             counts.assigned += assigned.len();
@@ -161,6 +187,9 @@ fn score_file(refs: &[Reference], counts: &mut Counts) -> Option<Failure> {
             counts.adaptive_correct += correct;
             counts.partial_assigned += assigned.len();
             counts.partial_correct += correct;
+            excerpt.strict_correct = correct;
+            excerpt.partial_assigned = assigned.len();
+            excerpt.partial_correct = correct;
         }
         Err(error) => {
             counts.failures += 1;
@@ -171,8 +200,10 @@ fn score_file(refs: &[Reference], counts: &mut Counts) -> Option<Failure> {
                     for (reference, assigned) in refs.iter().zip(&result.notes) {
                         if let Some(assigned) = assigned {
                             counts.partial_assigned += 1;
-                            counts.partial_correct +=
-                                usize::from(reference.string == assigned.string);
+                            let right = usize::from(reference.string == assigned.string);
+                            counts.partial_correct += right;
+                            excerpt.partial_assigned += 1;
+                            excerpt.partial_correct += right;
                         }
                     }
                 }
@@ -246,10 +277,11 @@ fn score_file(refs: &[Reference], counts: &mut Counts) -> Option<Failure> {
             active_until[usize::from(string)] = active_until[usize::from(string)].max(r.note.end);
             if string == r.string {
                 counts.greedy_correct += 1;
+                excerpt.greedy_correct += 1;
             }
         }
     }
-    failure
+    (failure, excerpt)
 }
 
 // Actual overlapping fretted-note span of an assigned track, ignoring open
@@ -301,6 +333,58 @@ fn reference_conflicts(refs: &[Reference], index: usize) -> Option<(bool, bool)>
     Some((span > 4, collision))
 }
 
+/// Whether a single left hand could hold everything the annotations ask for at
+/// any one instant.
+///
+/// Two conditions make an excerpt unplayable as written:
+///
+/// - **Span over four frets** among simultaneously sounding *fretted* notes.
+///   Open strings are excluded: a ringing open string costs no finger.
+/// - **Two notes overlapping in time on the same string.** One string cannot
+///   sound two pitches at once.
+///
+/// GuitarSet is recorded with a hexaphonic pickup, so a note on one string can
+/// appear on a neighbouring string's annotation as sympathetic resonance. The
+/// duplicate-pitch, two-string case that dominates the span failures is almost
+/// certainly that bleed rather than a real double stop, and there is no
+/// fingering a physical hand could give it.
+///
+/// This uses the same span limit as the default search so the split matches
+/// exactly what the solver is allowed to produce.
+fn reference_feasibility(refs: &[Reference]) -> (bool, bool) {
+    const OPEN: [u8; 6] = [40, 45, 50, 55, 59, 64];
+    let mut wide = false;
+    let mut overlap = false;
+    for (index, current) in refs.iter().enumerate() {
+        let now = current.note.start;
+        let mut frets: Vec<u8> = Vec::new();
+        let mut per_string = [0u8; 6];
+        // `refs` is sorted by onset, so everything before `index` starts no
+        // later than `now`; only the ones still sounding matter.
+        for reference in refs.iter().take(index + 1) {
+            if reference.note.end <= now {
+                continue;
+            }
+            let string = usize::from(reference.string.min(5));
+            per_string[string] += 1;
+            if per_string[string] > 1 {
+                overlap = true;
+            }
+            let fret = reference.note.midi.saturating_sub(OPEN[string]);
+            if fret > 0 && reference.note.midi >= OPEN[string] {
+                frets.push(fret);
+            }
+        }
+        // Check the fretted span of everything sounding at this instant.
+        if let (Some(&min), Some(&max)) = (frets.iter().min(), frets.iter().max()) {
+            if max - min > 4 {
+                wide = true;
+            }
+        }
+    }
+    (wide, overlap)
+}
+
 fn percent(numerator: usize, denominator: usize) -> String {
     if denominator == 0 {
         "n/a".into()
@@ -346,7 +430,21 @@ pub fn evaluate(path: &Path, report: Option<&Path>) -> Result<()> {
     let mut failures = Vec::new();
     for file in &files {
         let refs = parse_jams(file)?;
-        if let Some(failure) = score_file(&refs, &mut counts) {
+        let (wide, overlap) = reference_feasibility(&refs);
+        let (failure, excerpt) = score_file(&refs, &mut counts);
+        if wide || overlap {
+            counts.infeasible_excerpts += 1;
+            counts.infeasible_span_only += usize::from(wide && !overlap);
+            counts.infeasible_overlap_only += usize::from(overlap && !wide);
+            counts.infeasible_both += usize::from(wide && overlap);
+        } else {
+            counts.feasible_notes += excerpt.notes;
+            counts.feasible_strict_correct += excerpt.strict_correct;
+            counts.feasible_partial_assigned += excerpt.partial_assigned;
+            counts.feasible_partial_correct += excerpt.partial_correct;
+            counts.feasible_greedy_correct += excerpt.greedy_correct;
+        }
+        if let Some(failure) = failure {
             let name = file.file_name().unwrap_or_default().to_string_lossy();
             let conflicts = failure
                 .index
@@ -386,6 +484,59 @@ GuitarSet (Xi et al., 2018), Zenodo 3371780, version 1.1.0, CC BY 4.0; annotatio
         counts.adaptive_assigned, counts.notes - counts.adaptive_assigned, counts.adaptive_correct, percent(counts.adaptive_correct, counts.notes), percent(counts.adaptive_assigned - counts.adaptive_correct, counts.adaptive_assigned),
         counts.partial_assigned, counts.notes - counts.partial_assigned, counts.partial_correct, percent(counts.partial_correct, counts.notes), percent(counts.partial_assigned - counts.partial_correct, counts.partial_assigned),
         counts.greedy_assigned, counts.notes - counts.greedy_assigned, counts.greedy_correct, percent(counts.greedy_correct, counts.notes), percent(counts.greedy_assigned - counts.greedy_correct, counts.greedy_assigned));
+    result.push_str(&format!(
+        "\n## Feasibility decomposition\n\n\
+An excerpt is **infeasible** when its annotations ask for something no left hand could \
+produce at some instant: a fretted span over four frets between simultaneously \
+sounding notes (open strings excluded — a ringing open string costs no finger), or \
+two notes overlapping in time on the same string. GuitarSet was recorded with a \
+hexaphonic pickup, so a note on one string can also appear on a neighbouring string's \
+annotation; the duplicate-pitch two-string case that dominates the span failures is \
+most likely that bleed, and no fingering could satisfy it.\n\n\
+- Infeasible excerpts: {} of {} ({})\n\
+- ...span over four only: {}\n\
+- ...same-string overlap only: {}\n\
+- ...both: {}\n\
+- Feasible excerpts: {}\n\
+- Reference notes in feasible excerpts: {}\n\n\
+The same three methods, scored only on the feasible excerpts:\n\n\
+| Method | Feasible notes | Correct strings | String accuracy | Wrong-string rate (assigned) |\n\
+| --- | ---: | ---: | ---: | ---: |\n\
+| Strict beam (span 4) | {} | {} | {} | {} |\n\
+| Partial retry (span 4) | {} | {} | {} | {} |\n\
+| Per-note lowest-fret greedy | {} | {} | {} | {} |\n\n\
+Comparing the two tables shows how much of the headline gap is the reference data \
+and how much is the solver.\n",
+        counts.infeasible_excerpts,
+        counts.files,
+        percent(counts.infeasible_excerpts, counts.files),
+        counts.infeasible_span_only,
+        counts.infeasible_overlap_only,
+        counts.infeasible_both,
+        counts.files - counts.infeasible_excerpts,
+        counts.feasible_notes,
+        counts.feasible_notes,
+        counts.feasible_strict_correct,
+        percent(counts.feasible_strict_correct, counts.feasible_notes),
+        percent(
+            counts.feasible_notes - counts.feasible_strict_correct,
+            counts.feasible_notes
+        ),
+        counts.feasible_notes,
+        counts.feasible_partial_correct,
+        percent(counts.feasible_partial_correct, counts.feasible_notes),
+        percent(
+            counts.feasible_partial_assigned - counts.feasible_partial_correct,
+            counts.feasible_partial_assigned
+        ),
+        counts.feasible_notes,
+        counts.feasible_greedy_correct,
+        percent(counts.feasible_greedy_correct, counts.feasible_notes),
+        percent(
+            counts.feasible_notes - counts.feasible_greedy_correct,
+            counts.feasible_notes
+        ),
+    ));
     if !failures.is_empty() {
         result.push_str("\n## Strict-search failures and adaptive retry\n\n");
         for (file, failure, conflicts) in failures {
@@ -440,7 +591,7 @@ mod tests {
             2
         ];
         let mut counts = Counts::default();
-        assert!(score_file(&refs, &mut counts).is_some());
+        assert!(score_file(&refs, &mut counts).0.is_some());
         assert_eq!(
             (
                 counts.notes,
@@ -476,7 +627,7 @@ mod tests {
             string: 4,
         }];
         let mut counts = Counts::default();
-        assert!(score_file(&refs, &mut counts).is_none());
+        assert!(score_file(&refs, &mut counts).0.is_none());
         assert_eq!((counts.notes, counts.assigned, counts.correct), (1, 1, 0));
         assert_eq!((counts.greedy_assigned, counts.greedy_correct), (1, 0));
     }
@@ -514,7 +665,7 @@ mod tests {
         };
         let refs = [make(1), make(2)];
         let mut counts = Counts::default();
-        assert!(score_file(&refs, &mut counts).is_some());
+        assert!(score_file(&refs, &mut counts).0.is_some());
         assert_eq!((counts.failures, counts.assigned), (1, 0));
         assert_eq!(
             (
@@ -528,5 +679,71 @@ mod tests {
             (counts.adaptive_wide_recovered, counts.adaptive_max_span),
             (1, 5)
         );
+    }
+}
+
+#[cfg(test)]
+mod feasibility_tests {
+    use super::*;
+
+    fn note(start: f64, end: f64, midi: u8, string: u8) -> Reference {
+        Reference {
+            note: NoteEvent {
+                start,
+                end,
+                midi,
+                velocity: 100,
+                instrument: 24,
+            },
+            string,
+        }
+    }
+
+    #[test]
+    fn a_plain_chord_is_feasible() {
+        // Open-position A major: frets 2/2/2, well inside one hand.
+        let refs = vec![
+            note(0.0, 1.0, 57, 3),
+            note(0.0, 1.0, 61, 4),
+            note(0.0, 1.0, 64, 5),
+        ];
+        assert_eq!(reference_feasibility(&refs), (false, false));
+    }
+
+    #[test]
+    fn a_wide_simultaneous_grip_is_infeasible() {
+        // Fret 2 on string 1 and fret 8 on string 3 sound together: span 6.
+        let refs = vec![note(0.0, 1.0, 47, 1), note(0.0, 1.0, 58, 2)];
+        assert_eq!(reference_feasibility(&refs), (true, false));
+    }
+
+    #[test]
+    fn a_ringing_open_string_does_not_count_toward_the_span() {
+        // Open low E plus a fret-5 note is a five-fret numeric span, but the
+        // open string needs no finger, so this is playable and feasible.
+        let refs = vec![note(0.0, 2.0, 40, 0), note(0.5, 1.0, 45, 1)];
+        assert_eq!(reference_feasibility(&refs), (false, false));
+    }
+
+    #[test]
+    fn the_same_pitch_on_two_strings_is_infeasible() {
+        // The GuitarSet hexaphonic-bleed case: midi 52 on the A string at fret 7
+        // and on the D string at fret 2, sounding together.
+        let refs = vec![note(0.497, 0.921, 52, 1), note(0.499, 0.847, 52, 2)];
+        let (wide, overlap) = reference_feasibility(&refs);
+        assert!(wide, "a 5-fret gap between simultaneous fretted notes");
+        assert!(!overlap, "different strings, so not a same-string overlap");
+    }
+
+    #[test]
+    fn one_string_cannot_sound_two_pitches() {
+        let refs = vec![note(0.0, 1.0, 45, 1), note(0.5, 1.5, 47, 1)];
+        assert_eq!(reference_feasibility(&refs), (false, true));
+    }
+
+    #[test]
+    fn sequential_notes_on_one_string_are_fine() {
+        let refs = vec![note(0.0, 0.5, 45, 1), note(0.5, 1.0, 47, 1)];
+        assert_eq!(reference_feasibility(&refs), (false, false));
     }
 }
