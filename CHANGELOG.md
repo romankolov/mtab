@@ -7,6 +7,16 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `muscriptor-tab` facade crate implementing the §6.11 API: `Transcriber::builder()`
+  with `.size()`, `.weights()`, `.model()` (already-loaded), `.guitar()`,
+  `.decode()`, `.grid()` and `.tempo()`; `Transcriber::transcribe_file` and
+  `transcribe_file_with_progress` emitting `Progress { stage, completed, total }`;
+  and a `Transcription` with `export_midi` / `export_guitar_pro` /
+  `export_musicxml` / `export_ascii` / `ascii_tab` / `ir_json`. `build()` loads
+  the weights once and the transcriber serves any number of inputs. A grid other
+  than 1/16 or off is rejected at `build()` rather than silently ignored. Eight
+  tests run the facade end to end over the committed tiny checkpoint.
+- Three runnable examples: `basic`, `custom_guitar`, `streaming`.
 - `samples/showcase/`: a worked example that runs the whole CLI surface on a
   real recording — every output format, beam search, seeded sampling, fixed
   tuning/capo, unquantized timing, beat tracking, JSONL, a determinism check and

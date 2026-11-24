@@ -1,0 +1,24 @@
+[package]
+name = "muscriptor-tab"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+description = "Audio to guitar tablature in pure Rust, on MuScriptor — library facade (PROMPT.md §6.11)"
+
+[lib]
+name = "muscriptor_tab"
+path = "src/lib.rs"
+
+[dev-dependencies]
+mtab-core = { path = "../mtab-core" }
+
+[dependencies]
+mtab-core = { path = "../mtab-core" }
+mtab-audio = { path = "../mtab-audio" }
+mtab-guitar = { path = "../mtab-guitar" }
+mtab-export = { path = "../mtab-export" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

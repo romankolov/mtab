@@ -13,7 +13,13 @@ the formats we write.
 | `mtab-audio` | Everything that touches samples: decode (Symphonia), mono mixdown, resample, the upstream-exact mel frontend, model-driven transcription, and the experimental analyses (beat, onset, periodicity, pitch tracking, bends, dynamics, articulation) | `decode`, `dsp`, `resample`, `mel`, `transcribe`, `automatic_beat`, `pitch_track`, `bend_analysis`, `dynamics`, `articulation` |
 | `mtab-guitar` | Guitar domain logic: tunings and capo, tuning/capo scoring, the global string/fret assignment, rhythm/quantization helpers, technique types, chord symbols | `tuning`, `detection`, `fingering`, `rhythm`, `tempo`, `tab`, `chords` |
 | `mtab-export` | Writers and the notation plan: MIDI with real tempo maps and bends, the restricted GP5 plan and encoder, MusicXML 3.1, ASCII tab | `midi`, `gp5_plan`, `gp5`, `musicxml`, `ascii` |
+| `muscriptor-tab` | The §6.11 facade: `Transcriber::builder()` composing the four crates below into one entry point, with `Progress` callbacks and `Transcription::export_*` | `lib` |
 | `mtab-cli` | The `mtab` binary: argument validation, the transcription pipeline, `detect-tuning`, `eval`, `inspect-weights` | `main`, `guitarset*` |
+
+The CLI predates the facade and still calls the stage crates directly, which is
+why it can reach options (`--partial-report`, `--emit-ir`, bend and
+articulation inference) that the facade deliberately leaves out. The facade is
+the supported library surface; the CLI is a superset of it.
 
 ## Pipeline
 

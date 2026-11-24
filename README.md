@@ -20,6 +20,38 @@ of these are not yet implemented or reliably inferred.
 > tested on one real-guitar excerpt. Corpus-level accuracy and end-to-end
 > performance targets remain unverified.
 
+## Library
+
+The workspace ships a facade crate so callers do not have to wire six stages
+themselves:
+
+```rust
+use muscriptor_tab::{DecodeConfig, GuitarConfig, ModelSize, ModelSource, Transcriber};
+
+let transcriber = Transcriber::builder()
+    .size(ModelSize::Small)
+    .weights(ModelSource::Local("muscriptor-small.safetensors".into()))
+    .guitar(GuitarConfig::fixed_standard(22))   // or GuitarConfig::default() to detect
+    .decode(DecodeConfig { strict_eos: true, ..DecodeConfig::default() })
+    .build()?;                                   // loads the weights once
+
+let tab = transcriber.transcribe_file("song.wav")?;
+tab.export_midi("song.mid")?;
+tab.export_guitar_pro("song.gp5")?;
+tab.export_musicxml("song.musicxml")?;
+println!("{}", tab.ascii_tab()?);
+```
+
+`build()` is the expensive call; one `Transcriber` serves any number of files.
+`transcribe_file_with_progress` reports `Progress { stage, completed, total }`
+for the audio, tuning, decode and fingering stages. The facade does **not**
+infer bends, articulations or chords — those stay opt-in heuristics in the CLI,
+where the warnings that come with them can be read.
+
+Three runnable examples are in `crates/mtab/examples/`: `basic` (the happy
+path), `custom_guitar` (drop-D, capo 2, wider fingering search) and `streaming`
+(load once, transcribe a directory, with a progress bar).
+
 ## Current usage
 
 Supply a local MuScriptor safetensors checkpoint matching `--size` (there is no
