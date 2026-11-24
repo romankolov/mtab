@@ -314,8 +314,23 @@ Scored only on the 249 feasible excerpts:
 
 | Method | Notes | String accuracy | Wrong-string rate |
 | --- | ---: | ---: | ---: |
-| Strict beam (span 4) | 41,138 | **68.28%** | 31.72% |
+| Strict beam (span 4) | 41,138 | **70.14%** | 29.86% |
 | Per-note lowest-fret greedy | 41,138 | 46.24% | 53.76% |
+
+**Where the loss is.** Only 306 of those 41,138 notes (0.7%) are chordal — they
+share an onset with another note. Everything else is single-line playing whose
+string choice is ambiguous on its own. That kills the obvious next idea: chord
+shape templates would be solving 0.7% of the problem. The misses split 8,196
+toward a higher-pitched string and 4,086 toward a lower one, with a mean fret
+error of 5.19 — the solver is not failing to reach the high register, it is
+picking the wrong member of an equivalent-sounding set.
+
+One such bias was measurable and is fixed. The old flat bonus for open strings
+was strong enough to override position continuity: it took the open string where
+the reference frets it **3,671 times**. Sweeping the weight across the corpus
+gave 68.28% at the old 0.8, 70.70% at 0.0 and 65.82% at 2.0; it is now 0.1, which
+lets position cost decide. That alone moved feasible accuracy from 68.28% to
+70.14%.
 
 Every one of the 40 strict failures was already an infeasible excerpt, so
 nothing is being excused — only the denominator changed. The honest reading is

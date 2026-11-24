@@ -26,6 +26,17 @@ with `SHA256SUMS.txt` and no model weights (§10.1).
 
 ## [Unreleased]
 
+### Changed
+- The string/fret solver's open-string bonus dropped from 0.8 to 0.1. On the
+  feasible GuitarSet excerpts the old value took the open string where the
+  reference frets it 3,671 times; measured accuracy was 68.28% at 0.8, 70.70% at
+  0.0 and 65.82% at 2.0. Feasible-excerpt string accuracy is now **70.14%**
+  (wrong-string rate 29.86%) against an unchanged 46.24% greedy baseline.
+  The exhaustive-search test oracle mirrors the cost function and was updated
+  with it.
+- The oracle report gained an error anatomy: 0.7% of feasible notes are chordal,
+  so chord-shape work is not the next lever.
+
 ### Added
 - The GuitarSet oracle-note report now decomposes by reference feasibility. 111 of
   360 excerpts (30.8%) contain a physically impossible instant — a fretted span
