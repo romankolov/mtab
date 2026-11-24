@@ -64,7 +64,7 @@ cannot leave a file that looks usable but is not."
         /// Environment variable holding the Hugging Face token
         #[arg(long = "token-env", default_value = "HF_TOKEN")]
         token_env: String,
-        /// Destination file (default: muscriptor-<size>.safetensors)
+        /// Destination file (default: `muscriptor-<size>.safetensors`)
         #[arg(long, short)]
         out: Option<std::path::PathBuf>,
     },
