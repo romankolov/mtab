@@ -78,6 +78,34 @@ class ReleaseArchiveTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 verify(zip_path)
 
+    def test_windows_backslash_entries_are_accepted(self):
+        """Compress-Archive writes `stem\docs\weights.md`, not `stem/docs/...`.
+
+        That is what the real Windows leg produces, and comparing it verbatim
+        made every nested file look unknown — the v0.1.0 dry run failed on it.
+        Normalising must accept the layout without weakening the check.
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            zip_path = root/'mtab-test-x86_64-pc-windows-msvc.zip'
+            stem = zip_path.stem
+
+            def write(extra=None):
+                with zipfile.ZipFile(zip_path, 'w') as out:
+                    for name in ['mtab.exe', 'README.md', 'LICENSE', 'NOTICE', 'PROMPT.md']:
+                        out.writestr(f'{stem}\\{name}', b'x')
+                    for doc in DOCS:
+                        out.writestr(f'{stem}\\docs\\{doc}', b'x')
+                    if extra:
+                        out.writestr(f'{stem}\\{extra}', b'x')
+
+            write()
+            verify(zip_path)
+            # A backslash archive that smuggles weights in must still be caught.
+            write('model.safetensors')
+            with self.assertRaises(ValueError):
+                verify(zip_path)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -28,9 +28,19 @@ def verify(archive):
             entries = source.infolist()
             if any(stat.S_ISLNK(entry.external_attr >> 16) for entry in entries):
                 raise ValueError(f'{archive}: symlinks are forbidden')
-            files = [entry.filename for entry in entries if not entry.is_dir()]
-            dirs = [entry.filename.rstrip('/') for entry in entries if entry.is_dir()]
-            sizes = {entry.filename: entry.file_size for entry in entries if not entry.is_dir()}
+            # Compress-Archive on Windows writes backslash separators into the
+            # zip, which is not what the ZIP spec asks for but is what we get.
+            # Normalise before comparing, or every nested file looks unknown.
+            def normalise(name):
+                return name.replace('\\', '/')
+
+            files = [normalise(entry.filename) for entry in entries if not entry.is_dir()]
+            dirs = [normalise(entry.filename).rstrip('/') for entry in entries if entry.is_dir()]
+            sizes = {
+                normalise(entry.filename): entry.file_size
+                for entry in entries
+                if not entry.is_dir()
+            }
     else:
         raise ValueError(f'{archive}: unsupported archive type')
     docs = ['architecture.md', 'tuning-detection.md', 'techniques.md', 'weights.md']
