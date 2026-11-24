@@ -36,6 +36,11 @@ with `SHA256SUMS.txt` and no model weights (§10.1).
   with it.
 - The oracle report gained an error anatomy: 0.7% of feasible notes are chordal,
   so chord-shape work is not the next lever.
+- A held-out check of the open-string weight. GuitarSet splits cleanly by
+  recording session, so tuning on players 00–02 and reporting on 03–05 gives
+  71.83% and **68.43%** respectively (old weight: 70.26% and 66.26%). The gain
+  survives on unseen players at +2.2 points, so the improvement is not an
+  artifact of fitting the corpus that produced the number.
 
 ### Added
 - The GuitarSet oracle-note report now decomposes by reference feasibility. 111 of

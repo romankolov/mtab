@@ -332,6 +332,22 @@ gave 68.28% at the old 0.8, 70.70% at 0.0 and 65.82% at 2.0; it is now 0.1, whic
 lets position cost decide. That alone moved feasible accuracy from 68.28% to
 70.14%.
 
+**Those weights were tuned on this corpus, so that 70.14% is not a held-out
+number.** GuitarSet's six recording sessions split cleanly by player, so the
+honest check is to tune on some players and report on others:
+
+| Split | Players | Old bonus 0.8 | New bonus 0.1 |
+| --- | --- | ---: | ---: |
+| Tune set | 00–02 | 70.26% | 71.83% |
+| **Held out** | **03–05** | **66.26%** | **68.43%** |
+
+The improvement survives on players the weight was never fitted to: **+2.2
+points held out**, a little smaller than the +1.9/+1.6 the two halves suggested
+individually but the same sign throughout. The held-out set also scores lower in
+absolute terms than the full corpus (68.43% vs 70.14%), which is what you would
+expect if the full-corpus number was mildly optimistic. Treat **68.4% on unseen
+players** as the figure worth quoting.
+
 Every one of the 40 strict failures was already an infeasible excerpt, so
 nothing is being excused — only the denominator changed. The honest reading is
 that the solver beats the naive baseline by 22 points, and about one in three
