@@ -11,7 +11,18 @@ Two properties matter more than convenience here:
 costs.** GuitarSet recordings are one to three minutes; transcribing all 360 in
 full is hours of CPU inference and would make the harness impractical to re-run.
 Each excerpt starts at the first annotated onset so the window contains music
-rather than leading silence, and the annotations are clipped to the same window.
+rather than leading silence.
+
+**Trimming audio in place rebases time, so the annotation must be rebased too.**
+A clip that starts 470 ms into the recording has its own t=0, but the JAMS file
+still counts from the old t=0. Pairing the trimmed WAV with the untrimmed JAMS
+compares two different time origins and scores a model badly for notes it
+actually placed correctly. The first version of this tool shipped that mistake
+and 24 of 40 evaluated excerpts were affected. For every excerpt the tool
+therefore writes a `*.excerpt.jams` whose note times are shifted by exactly the
+samples removed from the audio (integer sample count divided by the sample
+rate, not the float onset) and clipped to the excerpt. The manifest points at
+that file and hashes it.
 
 **The split must be explicit and by recording session.** GuitarSet's six
 sessions are six different players. Tuning anything on one set of players and
@@ -50,6 +61,38 @@ def first_onset(jams_path):
             if isinstance(time, (int, float)) and time >= 0:
                 earliest = time if earliest is None else min(earliest, time)
     return earliest
+
+
+def shifted_jams(source, shift, duration):
+    """JAMS text with note times moved by `shift` seconds and clipped to the excerpt.
+
+    Only `note_midi` is touched: those are the only annotations `mtab eval` reads,
+    and rewriting the others (beats, chords, pitch contours) would imply a resample
+    the tool did not do. Notes that fall entirely outside the window are dropped;
+    the ones that straddle a boundary are clipped to it.
+    """
+    data = json.loads(source.read_text())
+    kept = 0
+    removed = 0
+    for annotation in data.get("annotations", []):
+        if annotation.get("namespace") != "note_midi":
+            continue
+        notes = []
+        for value in annotation.get("data", []):
+            start = float(value["time"]) - shift
+            end = start + float(value["duration"])
+            if end <= 0.0 or start >= duration:
+                removed += 1
+                continue
+            start = max(start, 0.0)
+            end = min(end, duration)
+            note = {"time": start, "duration": end - start, "value": float(value["value"])}
+            if "confidence" in value:
+                note["confidence"] = value["confidence"]
+            notes.append(note)
+            kept += 1
+        annotation["data"] = notes
+    return json.dumps(data, indent=1) + "\n", kept, removed
 
 
 def read_wav(path):
@@ -97,6 +140,8 @@ def main():
         return os.path.relpath(path.resolve(), args.out.parent.resolve())
 
     manifest = []
+    shifted_notes = 0
+    dropped_notes = 0
     skipped = {"no_audio": 0, "no_notes": 0, "session": 0, "short": 0}
     for jams in sorted(args.annotations.glob("*.jams")):
         stem = jams.stem
@@ -122,15 +167,28 @@ def main():
             continue
         trimmed = frames[start * frame_bytes : (start + count) * frame_bytes]
 
+        # The audio loses exactly `start` samples, so time 0 of the clip is
+        # `start / framerate` in the annotation's clock. Using the sample count
+        # rather than the float onset keeps the rebase exact.
+        shift = start / params.framerate
+        excerpt = clips / f"{stem}_{int(args.seconds)}s.excerpt.jams"
+        text, kept, removed = shifted_jams(jams, shift, args.seconds)
+        if kept == 0:
+            skipped["no_notes"] += 1
+            continue
+        excerpt.write_text(text)
+        shifted_notes += kept
+        dropped_notes += removed
+
         clip = clips / f"{stem}_{int(args.seconds)}s.wav"
         write_wav(clip, params, trimmed)
         manifest.append(
             {
                 "audio": rel(clip),
-                "annotation": rel(jams),
+                "annotation": rel(excerpt),
                 "duration": args.seconds,
                 "audio_sha256": sha256(clip),
-                "annotation_sha256": sha256(jams),
+                "annotation_sha256": sha256(excerpt),
             }
         )
 
@@ -138,6 +196,10 @@ def main():
     total = sum(1 for _ in args.annotations.glob("*.jams"))
     print(f"{len(manifest)} excerpts of {args.seconds:g}s written to {args.out}")
     print(f"  considered {total} annotations; skipped {skipped}")
+    print(
+        f"  note times rebased onto each excerpt: {shifted_notes} kept, "
+        f"{dropped_notes} outside the window"
+    )
     if not manifest:
         raise SystemExit("manifest is empty")
 
