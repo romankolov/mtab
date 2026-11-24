@@ -24,6 +24,14 @@ on:
         description: "Test real guitar with official small weights (requires HF_TOKEN)"
         type: boolean
         default: false
+      run_end_to_end:
+        description: "Score a held-out GuitarSet audio subset end to end (requires HF_TOKEN)"
+        type: boolean
+        default: false
+      eval_entries:
+        description: "End-to-end excerpts to score (0 = all 180)"
+        type: string
+        default: "40"
 
 env:
   CARGO_TERM_COLOR: always
@@ -121,6 +129,72 @@ jobs:
         with:
           name: guitarset-oracle-report
           path: eval-oracle.md
+          if-no-files-found: error
+
+  end-to-end-eval:
+    name: GuitarSet end-to-end audio evaluation (optional)
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    if: github.event_name == 'workflow_dispatch' && inputs.run_end_to_end
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: nightly-end-to-end
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build the CLI
+        run: cargo build --release --locked -p mtab-cli
+      - name: Fetch the gated small checkpoint
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo '::error::Set the HF_TOKEN repository secret for an account that accepted the model conditions.'
+            exit 1
+          fi
+          ./target/release/mtab download --size small --out "$RUNNER_TEMP/mtab-small.safetensors"
+      - name: Fetch GuitarSet annotations and audio (CC BY 4.0)
+        run: |
+          curl -fL --retry 3 -o annotations.zip 'https://zenodo.org/records/3371780/files/annotation.zip?download=1'
+          echo 'b39b78e63d3446f2e54ddb7a54df9b10  annotations.zip' | md5sum -c -
+          mkdir annotations && unzip -q -j annotations.zip '*.jams' -d annotations
+          curl -fL --retry 3 -o audio.zip 'https://zenodo.org/records/3371780/files/audio_mono-mic.zip?download=1'
+          mkdir audio && unzip -q -j audio.zip '*.wav' -d audio
+      - name: Build the held-out excerpt manifest
+        run: |
+          python3 tools/make_guitarset_excerpt_manifest.py \
+            --audio audio --annotations annotations \
+            --out eval/heldout.json --clips eval/clips \
+            --seconds 10 --sessions 03,04,05
+      - name: Transcribe and score
+        env:
+          MTAB_EXCERPTS: ${{ inputs.eval_entries }}
+        run: |
+          python3 - "$MTAB_EXCERPTS" <<'PY'
+          import json, sys
+          manifest = json.load(open("eval/heldout.json"))
+          limit = int(sys.argv[1])
+          if limit > 0:
+              manifest = manifest[:limit]
+          json.dump(manifest, open("eval/run.json", "w"), indent=1)
+          print(f"{len(manifest)} excerpts")
+          PY
+          ./target/release/mtab eval --corpus guitarset \
+            --audio-manifest eval/run.json \
+            --weights "$RUNNER_TEMP/mtab-small.safetensors" \
+            --size small --max-gen-len 2000 --report eval/report.md
+      - name: Show the headline metrics
+        run: sed -n '/| Micro-aggregated/,/^$/p' eval/report.md
+      - name: Upload the report (no model weights)
+        uses: actions/upload-artifact@v4
+        with:
+          name: guitarset-end-to-end-report
+          path: |
+            eval/report.md
+            eval/run.json
           if-no-files-found: error
 
   real-small-guitar:
