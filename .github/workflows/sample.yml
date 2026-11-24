@@ -11,8 +11,13 @@
 #
 # Without the secret the job fails fast with a clear message rather than
 # pretending the sample ran.
+#
+# PARKED: manual dispatch only. It deliberately has no push trigger — one run is
+# ~20 minutes of runner time at "large", which is too expensive to fire on every
+# commit to samples/showcase. Run it by hand when the gallery or the CLI surface
+# changes, and expect to wait.
 
-name: Sample gallery
+name: Sample gallery (manual)
 
 on:
   workflow_dispatch:
@@ -22,10 +27,6 @@ on:
         type: choice
         options: [large, small]
         default: large
-  push:
-    paths:
-      - "samples/showcase/**"
-      - ".github/workflows/sample.yml"
 
 permissions:
   contents: read

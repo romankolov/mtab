@@ -77,6 +77,12 @@ It is still real audio, real weights and a real decode; it just finishes. The
 timeout is 350 minutes and the job runs on `workflow_dispatch` rather than on
 every push. Dispatch with `size: small` for the fastest sample.
 
+> **Parked (2026-11-22).** This gallery is manual-dispatch only now. A full run
+> is roughly twenty minutes of hosted-runner time at `large`, which is too much
+> to pay on every commit, and nothing in the library depends on it. Re-run the
+> `Sample gallery (manual)` workflow by hand when the CLI surface changes. The
+> checked-in `ci-run-large/` output below stays as the last real run.
+
 ## Real CI run
 
 `ci-run-large/` is the unedited output of the workflow at `large` on the
