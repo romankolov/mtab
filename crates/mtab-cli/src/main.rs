@@ -13,6 +13,8 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 
+mod download;
+
 use mtab_core::lm::{GenOptions, LmConfig, LmModel};
 use mtab_core::{ModelSize, ModelSource, MtabError, Result, WeightsInfo};
 use mtab_export::ExportFormat;
@@ -45,7 +47,16 @@ enum Cmd {
         /// Path to a .safetensors file
         path: PathBuf,
     },
-    /// Download helper placeholder (not yet implemented)
+    /// Fetch the gated weights explicitly, with your own Hugging Face token
+    #[command(
+        long_about = "Downloads the CC BY-NC 4.0 weights for one variant into a local \
+file. This is the only command that touches the network, it only runs when you \
+call it, and it requires a Hugging Face token whose account has accepted the \
+license. The token is read from an environment variable, never written to disk \
+or printed. The file is downloaded to <output>.part and only renamed once it \
+parses as safetensors and matches the requested size, so an interrupted run \
+cannot leave a file that looks usable but is not."
+    )]
     Download {
         /// Model variant to fetch
         #[arg(long, default_value = "medium")]
@@ -53,6 +64,9 @@ enum Cmd {
         /// Environment variable holding the Hugging Face token
         #[arg(long = "token-env", default_value = "HF_TOKEN")]
         token_env: String,
+        /// Destination file (default: muscriptor-<size>.safetensors)
+        #[arg(long, short)]
+        out: Option<std::path::PathBuf>,
     },
     /// Detect tuning and capo from audio (or list known tunings)
     DetectTuning {
@@ -236,7 +250,21 @@ fn run(cli: Cli) -> Result<()> {
         }
         Some(Cmd::InspectWeights { path }) => inspect_weights(&path),
         Some(Cmd::DetectTuning { list, input }) => detect_tuning(list, input.as_deref()),
-        Some(Cmd::Download { size, token_env }) => download(size, &token_env),
+        Some(Cmd::Download {
+            size,
+            token_env,
+            out,
+        }) => {
+            let destination = out.unwrap_or_else(|| {
+                std::path::PathBuf::from(format!("muscriptor-{size}.safetensors"))
+            });
+            download::download(&download::DownloadRequest {
+                size,
+                destination,
+                token_env,
+            })
+            .map(|path| println!("{}", path.display()))
+        }
         Some(Cmd::Eval(args)) => eval(args),
         Some(Cmd::Transcribe(args)) => transcribe(args),
     }
@@ -333,15 +361,6 @@ fn detect_tuning(list: bool, input: Option<&std::path::Path>) -> Result<()> {
         println!("Insufficient or ambiguous evidence; default is standard tuning, capo 0.");
     }
     Ok(())
-}
-
-fn download(size: ModelSize, token_env: &str) -> Result<()> {
-    let _ = std::env::var(token_env).map_err(|_| MtabError::LicenseGateRequired {
-        repo: size.hf_repo().to_owned(),
-    })?;
-    Err(MtabError::NotImplemented(
-        "weights download helper (milestone M3)",
-    ))
 }
 
 fn eval(args: EvalArgs) -> Result<()> {

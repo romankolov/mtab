@@ -36,6 +36,31 @@ mtab transcribe song.wav --size small --weights small
 mtab transcribe song.wav --size small --weights hf://MuScriptor/muscriptor-small
 ```
 
+### Or let mtab fetch it, explicitly
+
+`mtab download` is the only command that touches the network, and it only runs
+when you call it:
+
+```console
+export HF_TOKEN=hf_...           # a token whose account accepted the license
+mtab download --size small --out ./muscriptor-small.safetensors
+```
+
+It reads the token from the variable you name with `--token-env` (default
+`HF_TOKEN`), never writes it to disk or prints it, and:
+
+- asks the Hub for the file's published size and LFS SHA-256 first, so a 401/403
+  is reported as what it is — the license gate, not a network failure;
+- writes to `<out>.part`, resuming a partial download with a `Range` request;
+- verifies the SHA-256 before the file is given its real name, and deletes it on
+  mismatch — a corrupt or truncated download can never end up looking like
+  weights;
+- opens the finished file with the same safetensors parser `inspect-weights`
+  uses and checks that its parameter count matches `--size`.
+
+Nothing else in `mtab` fetches anything. `transcribe` still requires a local
+path or an existing cache entry.
+
 `mtab inspect-weights model.safetensors` prints size, key names and a parameter
 count without running anything — useful to confirm the file matches `--size`
 before a long run.

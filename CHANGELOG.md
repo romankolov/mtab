@@ -7,6 +7,13 @@ versioning: [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `mtab download` works. It is the only networked command and runs only when
+  invoked. It fetches the size and LFS SHA-256 from the Hub, resumes a
+  `.<name>.part` with a `Range` request, verifies the checksum before renaming,
+  deletes the file on mismatch, and refuses a file whose parameter count does not
+  match `--size`. A 401/403 is reported as the license gate with its URL. Verified
+  against the live gated Hub: 411,888,600 bytes, 122 tensors, sha256 match,
+  resume from 300 MB, and one deliberately flipped byte rejected.
 - `muscriptor-tab` facade crate implementing the §6.11 API: `Transcriber::builder()`
   with `.size()`, `.weights()`, `.model()` (already-loaded), `.guitar()`,
   `.decode()`, `.grid()` and `.tempo()`; `Transcriber::transcribe_file` and
