@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning: [SemVer](https://semver.org/).
 
+## [0.1.0] - 2026-11-24
+
+First tagged release. Audio to guitar tablature in pure Rust on MuScriptor:
+`.mid`, `.gp5`, `.musicxml` and ASCII tab out of any common audio format plus a
+local or explicitly downloaded weights file.
+
+Release archives for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
+`x86_64-apple-darwin`, `aarch64-apple-darwin` and `x86_64-pc-windows-msvc`, each
+with `SHA256SUMS.txt` and no model weights (§10.1).
+
+**Known limitations at this tag** — read these before relying on output:
+
+- No GPU or SIMD path: f64 on CPU only, ~0.37× real time on `small` and ~0.03×
+  on `large`. §6.13's targets assume a backend that does not exist yet.
+- No stem separation (`--separate` is refused).
+- No reliable beat tracker; notation uses a constant tempo and a fixed 1/32 grid.
+- Tunings, capo and techniques are detected by uncalibrated heuristics.
+- No GuitarSet corpus accuracy figure and no tab-labeler-v3 comparison, so
+  fingering quality against the §9 acceptance criterion is unmeasured.
+
 ## [Unreleased]
 
 ### Added
