@@ -27,6 +27,14 @@ with `SHA256SUMS.txt` and no model weights (§10.1).
 ## [Unreleased]
 
 ### Added
+- The GuitarSet oracle-note report now decomposes by reference feasibility. 111 of
+  360 excerpts (30.8%) contain a physically impossible instant — a fretted span
+  over four frets between simultaneous notes, or one string sounding two pitches —
+  dominated by the same pitch appearing on two neighbouring strings, which is
+  hexaphonic pickup bleed rather than a double stop. On the 249 feasible excerpts
+  the strict solver scores 68.28% string accuracy against 46.24% for the per-note
+  greedy baseline, both measured over 41,138 notes. All 40 strict failures were
+  already infeasible excerpts.
 - `mtab download` works. It is the only networked command and runs only when
   invoked. It fetches the size and LFS SHA-256 from the Hub, resumes a
   `.<name>.part` with a `Range` request, verifies the checksum before renaming,
