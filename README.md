@@ -13,12 +13,19 @@ of these are not yet implemented or reliably inferred.
 > **Status: in development.** The audio frontend, transformer inference,
 > chunk decoder, and MIDI writer have preliminary implementations. The CLI
 > supports raw-note JSONL and preliminary MIDI export with string/fret assignment.
-> Experimental, restricted GP5, MusicXML and ASCII tab export are available. The preliminary
-> fingering search has not been compared with tab-labeler-v3 on held-out audio.
-> The official small checkpoint has
-> been checked against upstream on a synthetic plucked-string fixture and
-> tested on one real-guitar excerpt. Corpus-level accuracy and end-to-end
-> performance targets remain unverified.
+> Experimental, restricted GP5, MusicXML and ASCII tab export are available.
+> The official small checkpoint has been checked against upstream on a synthetic
+> plucked-string fixture.
+>
+> **First end-to-end GuitarSet numbers (held-out players, `small`, CPU).** On 40
+> ten-second excerpts from sessions 03–05 — players the solver was not tuned on —
+> the full audio → tab pipeline scores **65.30% multi-pitch F1** and **74.75%
+> pitch+onset note F1**, but only **44.96% tab+onset F1**: the notes are
+> substantially right and the *string* choice is where it falls apart. Three of
+> the 40 excerpts (9.8% of reference notes) fail outright when the strict beam
+> cannot place a note. These are not a `tab-labeler-v3` comparison and not
+> TabCNN's protocol; details, per-entry breakdown and the correction history are
+> in [`benches/guitarset-end-to-end.md`](benches/guitarset-end-to-end.md).
 
 ## Library
 

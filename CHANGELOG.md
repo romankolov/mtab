@@ -21,10 +21,31 @@ with `SHA256SUMS.txt` and no model weights (§10.1).
 - No stem separation (`--separate` is refused).
 - No reliable beat tracker; notation uses a constant tempo and a fixed 1/32 grid.
 - Tunings, capo and techniques are detected by uncalibrated heuristics.
-- No GuitarSet corpus accuracy figure and no tab-labeler-v3 comparison, so
-  fingering quality against the §9 acceptance criterion is unmeasured.
+- No tab-labeler-v3 comparison, so the §9 tablature acceptance criterion is
+  still unverified; the end-to-end GuitarSet numbers under `[Unreleased]` are
+  the closest evidence and were measured after this tag.
 
 ## [Unreleased]
+
+### Added
+- First end-to-end GuitarSet evaluation (audio through the model and the
+  string/fret solver, not oracle notes) in the Nightly workflow. On 40 ten-second
+  excerpts from **unseen players** (sessions 03–05, `small`, greedy, CPU):
+  65.30% multi-pitch F1, 74.75% pitch+onset note F1, 44.96% tab+onset F1,
+  TDR-style 60.78%, wrong-string 39.22%. Tablature accuracy is the weak link:
+  the mean pitch-minus-tab gap is 29.8 points, and it is larger on solo takes
+  (34.2) than on comping takes (24.7) even though pitch is *better* on solos.
+  Report: [`benches/guitarset-end-to-end.md`](benches/guitarset-end-to-end.md).
+
+### Fixed
+- The GuitarSet excerpt manifest paired a trimmed clip with the **untrimmed**
+  JAMS file, so 24 of the first 40 evaluated excerpts were scored against a
+  timeline shifted by their lead-in (median 551 ms). Correct notes counted as
+  early. On 7 excerpts scored from identical predictions, F1 was 69.09% with the
+  bad pairing and 85.36% rebased; the worst single take went 4.44% → 88.89%.
+  The tool now writes a rebased `*.excerpt.jams` per clip and hashes it, and
+  `tools/test_make_guitarset_excerpt_manifest.py` pins the behaviour. The
+  earlier 39.33% multi-pitch / 23.92% tab result is withdrawn.
 
 ### Changed
 - String/fret assignment now tracks a **hand window** instead of a single
