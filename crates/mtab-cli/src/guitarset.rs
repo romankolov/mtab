@@ -52,6 +52,7 @@ struct Counts {
     feasible_partial_correct: usize,
     feasible_partial_assigned: usize,
     feasible_greedy_correct: usize,
+    feasible_anatomy: Anatomy,
 }
 
 #[derive(Debug)]
@@ -153,6 +154,39 @@ pub(super) fn parse_jams(path: &Path) -> Result<Vec<Reference>> {
     Ok(refs)
 }
 
+/// Error anatomy: which notes the solver gets wrong and how.
+///
+/// The point is to tell chord-shape work from single-line work. A solver that
+/// is wrong on isolated melody notes has a different problem from one that is
+/// wrong inside chords, and the fix for the two is not the same.
+#[derive(Debug, Default, Clone, Copy)]
+struct Anatomy {
+    /// Notes whose onset has no other note sounding — single-line playing.
+    melodic_notes: usize,
+    melodic_correct: usize,
+    /// Notes sharing an onset with at least one other note.
+    chord_notes: usize,
+    chord_correct: usize,
+    /// Reference string is open (fret 0).
+    open_reference_notes: usize,
+    open_reference_correct: usize,
+    /// We picked an open string where the reference frets.
+    chose_open_over_fretted: usize,
+    /// Errors where we chose a higher-pitched string than the reference.
+    err_higher_string: usize,
+    /// Errors where we chose a lower-pitched string than the reference.
+    err_lower_string: usize,
+    /// Sum of |our fret - reference fret| over errors, for a mean miss.
+    err_fret_distance: usize,
+    errors: usize,
+    /// Totals for the systematic-bias check: are we consistently too high or
+    /// too low on the neck?
+    reference_fret_sum: usize,
+    chosen_fret_sum: usize,
+    /// Errors where we picked the open string but the reference frets.
+    open_instead_of_fret: usize,
+}
+
 /// Per-excerpt outcome, kept so the feasibility subset can be accumulated
 /// without re-running the solver.
 #[derive(Debug, Default, Clone, Copy)]
@@ -162,6 +196,7 @@ struct ExcerptScore {
     partial_assigned: usize,
     partial_correct: usize,
     greedy_correct: usize,
+    anatomy: Anatomy,
 }
 
 fn score_file(refs: &[Reference], counts: &mut Counts) -> (Option<Failure>, ExcerptScore) {
@@ -190,6 +225,7 @@ fn score_file(refs: &[Reference], counts: &mut Counts) -> (Option<Failure>, Exce
             excerpt.strict_correct = correct;
             excerpt.partial_assigned = assigned.len();
             excerpt.partial_correct = correct;
+            excerpt.anatomy = error_anatomy(refs, &assigned);
         }
         Err(error) => {
             counts.failures += 1;
@@ -333,6 +369,66 @@ fn reference_conflicts(refs: &[Reference], index: usize) -> Option<(bool, bool)>
     Some((span > 4, collision))
 }
 
+/// Attribute the strict solver's errors to melodic vs chordal contexts and to
+/// the direction of the string miss.
+///
+/// "Melodic" here means the note is the only one sounding at its onset, which
+/// is what a single-shape template cannot help with. Everything sharing an
+/// onset is "chordal".
+fn error_anatomy(refs: &[Reference], assigned: &[mtab_guitar::TabNote]) -> Anatomy {
+    const OPEN: [u8; 6] = [40, 45, 50, 55, 59, 64];
+    let mut anatomy = Anatomy::default();
+    // `refs` is onset-sorted, so simultaneous notes are adjacent.
+    let mut index = 0;
+    while index < refs.len() {
+        let onset = refs[index].note.start;
+        let mut end = index + 1;
+        while end < refs.len() && (refs[end].note.start - onset).abs() < 1e-9 {
+            end += 1;
+        }
+        let simultaneous = end - index;
+        for position in index..end {
+            let reference = &refs[position];
+            let ours = &assigned[position];
+            let correct = reference.string == ours.string;
+            if simultaneous > 1 {
+                anatomy.chord_notes += 1;
+                anatomy.chord_correct += usize::from(correct);
+            } else {
+                anatomy.melodic_notes += 1;
+                anatomy.melodic_correct += usize::from(correct);
+            }
+            let reference_fret = reference
+                .note
+                .midi
+                .saturating_sub(OPEN[usize::from(reference.string.min(5))]);
+            if reference.note.midi >= OPEN[usize::from(reference.string.min(5))]
+                && reference_fret == 0
+            {
+                anatomy.open_reference_notes += 1;
+                anatomy.open_reference_correct += usize::from(correct);
+            }
+            let our_fret = usize::from(ours.fret);
+            anatomy.reference_fret_sum += usize::from(reference_fret);
+            anatomy.chosen_fret_sum += our_fret;
+            if !correct {
+                anatomy.errors += 1;
+                if our_fret == 0 && reference_fret > 0 {
+                    anatomy.open_instead_of_fret += 1;
+                }
+                if ours.string > reference.string {
+                    anatomy.err_higher_string += 1;
+                } else {
+                    anatomy.err_lower_string += 1;
+                }
+                anatomy.err_fret_distance += usize::from(ours.fret.abs_diff(reference_fret));
+            }
+        }
+        index = end;
+    }
+    anatomy
+}
+
 /// Whether a single left hand could hold everything the annotations ask for at
 /// any one instant.
 ///
@@ -383,6 +479,23 @@ fn reference_feasibility(refs: &[Reference]) -> (bool, bool) {
         }
     }
     (wide, overlap)
+}
+
+fn accumulate_anatomy(total: &mut Anatomy, part: &Anatomy) {
+    total.melodic_notes += part.melodic_notes;
+    total.melodic_correct += part.melodic_correct;
+    total.chord_notes += part.chord_notes;
+    total.chord_correct += part.chord_correct;
+    total.open_reference_notes += part.open_reference_notes;
+    total.open_reference_correct += part.open_reference_correct;
+    total.chose_open_over_fretted += part.chose_open_over_fretted;
+    total.err_higher_string += part.err_higher_string;
+    total.err_lower_string += part.err_lower_string;
+    total.err_fret_distance += part.err_fret_distance;
+    total.errors += part.errors;
+    total.reference_fret_sum += part.reference_fret_sum;
+    total.chosen_fret_sum += part.chosen_fret_sum;
+    total.open_instead_of_fret += part.open_instead_of_fret;
 }
 
 fn percent(numerator: usize, denominator: usize) -> String {
@@ -443,6 +556,7 @@ pub fn evaluate(path: &Path, report: Option<&Path>) -> Result<()> {
             counts.feasible_partial_assigned += excerpt.partial_assigned;
             counts.feasible_partial_correct += excerpt.partial_correct;
             counts.feasible_greedy_correct += excerpt.greedy_correct;
+            accumulate_anatomy(&mut counts.feasible_anatomy, &excerpt.anatomy);
         }
         if let Some(failure) = failure {
             let name = file.file_name().unwrap_or_default().to_string_lossy();
@@ -536,6 +650,51 @@ and how much is the solver.\n",
             counts.feasible_notes - counts.feasible_greedy_correct,
             counts.feasible_notes
         ),
+    ));
+    let a = &counts.feasible_anatomy;
+    result.push_str(&format!(
+        "\n## Where the errors are (feasible excerpts only)\n\n\
+Splitting the strict solver's mistakes by context says which fix is worth \
+building. A note is *melodic* when nothing else sounds at its onset and \
+*chordal* when it shares that onset with another note.\n\n\
+| Context | Notes | Correct | Accuracy |\n\
+| --- | ---: | ---: | ---: |\n\
+| Melodic (alone at onset) | {} | {} | {} |\n\
+| Chordal (shares onset) | {} | {} | {} |\n\
+| Open-string reference | {} | {} | {} |\n\n\
+- Wrong-string direction: {} chose a higher-pitched string, {} a lower one\n\
+- Mean fret distance on errors: {:.2} frets\n\
+- Mean fret: reference {:.2}, ours {:.2}\n\
+- Errors where we took the open string but the reference frets: {}\n\n\
+If melodic accuracy is already high, chord-shape templates are not the next \
+lever; the loss is in single-line choices.\n",
+        a.melodic_notes,
+        a.melodic_correct,
+        percent(a.melodic_correct, a.melodic_notes),
+        a.chord_notes,
+        a.chord_correct,
+        percent(a.chord_correct, a.chord_notes),
+        a.open_reference_notes,
+        a.open_reference_correct,
+        percent(a.open_reference_correct, a.open_reference_notes),
+        a.err_higher_string,
+        a.err_lower_string,
+        if a.errors == 0 {
+            0.0
+        } else {
+            a.err_fret_distance as f64 / a.errors as f64
+        },
+        if a.melodic_notes + 0 == 0 {
+            0.0
+        } else {
+            a.reference_fret_sum as f64 / (a.melodic_notes + 0) as f64
+        },
+        if a.melodic_notes == 0 {
+            0.0
+        } else {
+            a.chosen_fret_sum as f64 / a.melodic_notes as f64
+        },
+        a.open_instead_of_fret,
     ));
     if !failures.is_empty() {
         result.push_str("\n## Strict-search failures and adaptive retry\n\n");
