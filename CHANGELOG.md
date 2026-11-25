@@ -38,7 +38,10 @@ with `SHA256SUMS.txt` and no model weights (§10.1).
   two player halves disagree about the optimum (00–02 peaks at 0.15, 03–05 at
   ~0.6) because open-string use is a style difference, so 0.4 is a compromise
   that favours the held-out half and its 73.40% should be read as mildly
-  optimistic.
+  optimistic. Ten-second excerpts are about 2.7 points harder than whole
+  recordings on the same build; a cold start was ruled out as the cause (giving
+  the solver the same passage beforehand changes nothing), the difference is
+  which notes the window samples.
 
 ### Added
 - First end-to-end GuitarSet evaluation (audio through the model and the

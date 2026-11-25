@@ -78,35 +78,38 @@ If melodic accuracy is already high, chord-shape templates are not the next leve
 Every figure above scores **whole recordings** (1–3 minutes, 157 annotated notes
 per file on average). The end-to-end audio harness
 ([`guitarset-end-to-end.md`](guitarset-end-to-end.md)) scores **ten-second
-windows**, 52 notes per excerpt. These are not the same task and the solver does
-not score the same on them:
+windows**, 52 notes per excerpt. Both rows below come from the same build, so the
+comparison is clean:
 
 | Scope | Half | Feasible excerpts | Feasible notes | String accuracy |
 | --- | --- | ---: | ---: | ---: |
-| Whole recording | 00–02 | 118 of 180 | 20,742 | 74.25% |
-| Whole recording | 03–05 | 131 of 180 | 20,396 | 70.76% |
-| Whole recording | all 360 | 249 of 360 | 41,138 | 75.19% |
+| Whole recording | 00–02 | 118 of 180 | 20,742 | 74.28% |
+| Whole recording | 03–05 | 131 of 180 | 20,396 | **76.12%** |
+| Whole recording | pooled | 249 of 360 | 41,138 | **75.19%** |
 | Ten-second excerpts | 00–02 | 158 of 180 | 9,609 | 72.41% |
 | Ten-second excerpts | 03–05 | 160 of 180 | 8,452 | **73.40%** |
 | Ten-second excerpts | pooled | 318 of 360 | 18,061 | **72.88%** |
 
-Scoring a ten-second excerpt removes most of the note history the position cost
-is built on: the solver has no earlier notes to establish a hand window with, so
-its first choice is a cold start, and the hand-window search has at most ten
-seconds to settle. The shorter window also changes which excerpts are feasible
-(160 rather than 131 — a ten-second slice is much less likely to contain a
-four-fret stretch).
+Ten-second excerpts are about **2.7 points harder** on the held-out half
+(73.40% against 76.12%). Two candidate explanations were tested and one was
+rejected:
 
-The two-session rows come from the earlier build and the all-360 row from the
-current one; on ten-second excerpts the earlier build scored 65.90% held out and
-70.99% on the tuning half, against 73.40% and 72.41% now. The open-string term
-described in the next section accounts for the change, and it is what took the
-whole corpus from 72.52% to 75.19%.
+- **Cold start — rejected.** Giving the solver ten seconds of the *same passage*
+  before the scored copy changes nothing: 76.43% either way on 60 excerpts. The
+  solver's first choice is already its best estimate, because a position prior is
+  not something ten more notes would improve.
+- **Which notes are sampled — supported.** Cutting the same 80 recordings by time
+  only (first ten seconds) scores 75.89%, against 77.77% for those recordings in
+  full. A ten-second window is a different, generally more locally concentrated
+  passage, and it contains fewer of the notes a long recording's hand-window
+  history would have stabilised around.
 
-Both scopes are correct for their own question. **Quote 70.76% for fingering
-given notes on full recordings and 73.40% for the ten-second excerpt task**, and
-never mix the two: an end-to-end figure measured on ten-second windows must be
-compared against the excerpt row, not the whole-recording row.
+Both scopes are correct for their own question, and they must not be mixed:
+**an end-to-end tablature figure measured on ten-second windows belongs next to
+73.40%, not 76.12%.** The README previously compared a 44.96% end-to-end figure
+against the whole-recording 70.76%, which was a five-point error of exactly this
+kind; the whole-recording numbers have since been re-measured on the same build,
+so the current tables are consistent.
 
 ## The open-string term, and why the two halves disagree
 

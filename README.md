@@ -385,21 +385,26 @@ wander; pricing it above makes the solver refuse shapes a player would reach
 for.
 
 **Then the open-string term was retuned, and that exposed a scope problem.**
-Every figure above (`70.14%`, `72.52%`, `70.76%`) scores *whole recordings*. The
-audio harness scores **ten-second excerpts**, on which the same solver is much
-weaker: 65.90% before the retune. Comparing an end-to-end figure to `70.76%`
-was therefore wrong by about five points. The retuned term (`+0.4` instead of
-`−0.1` per open string) brings the ten-second result to **73.40% held out /
-72.41% on the tuning half, 72.88% pooled**, and the whole corpus to 75.19%. The
-halves still disagree — 00–02 peaks near 0.15, 03–05 near 0.6, because
-open-string use is a player's style, not a corpus constant — so 0.4 is the best
-value that is near-optimal on the half not used to pick it, and `73.40%` should
-be read as mildly optimistic.
+Every figure above scores *whole recordings*; the audio harness scores
+**ten-second excerpts**, where the same solver is about 2.7 points weaker. The
+retuned term (`+0.4` instead of `−0.1` per open string) on the same build:
 
-**Quote 73.40% on unseen players for the ten-second task**, and 70.76% only for
-whole-recording fingering given notes. Both mean roughly one note in four lands
-on a different string than the annotator chose, against 44–48% for a per-note
-greedy assignment.
+| Scope | A (00–02) | B held out (03–05) | Pooled |
+| --- | ---: | ---: | ---: |
+| Whole recording | 74.28% | **76.12%** | **75.19%** |
+| Ten-second excerpts | 72.41% | **73.40%** | **72.88%** |
+
+The halves still disagree about the best value — 00–02 peaks near 0.15, 03–05
+near 0.6 — because open-string use is a player's style, not a corpus constant,
+so 0.4 is the best value that is near-optimal on the half not used to pick it
+and `73.40%`/`76.12%` should be read as mildly optimistic.
+
+**Quote the number for the scope you measured.** 76.12% for whole-recording
+fingering given notes, 73.40% for the ten-second excerpt task the audio harness
+uses. Both mean roughly one note in four lands on a different string than the
+annotator chose, against 44–48% for a per-note greedy assignment. A cold start
+was ruled out as the cause of the excerpt penalty: giving the solver the same
+passage ten seconds earlier changes nothing (76.43% both ways).
 
 Every one of the 40 strict failures was already an infeasible excerpt, so
 nothing is being excused — only the denominator changed. The honest reading is
