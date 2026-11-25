@@ -24,7 +24,21 @@ this document does not measure AutoTab's audio frontend.
 | Annotation | per-clip `*.excerpt.jams`, note times rebased onto the clip and clipped to the window |
 | Model | `MuScriptor/muscriptor-small` safetensors, 411,888,600 B, SHA-256 verified |
 | Runner | Local run on Linux x86-64 at commit `a0a3993`; the same job is wired into `nightly.yml` → `end-to-end-eval`, which is where the original 40-entry figures came from |
-| Reproduce | `mtab eval --corpus guitarset --audio-manifest eval/e2e60.json --weights <small.safetensors> --size small --partial-fingering --max-gen-len 2000` |
+| Manifest | [`eval/guitarset-e2e-60.json`](../eval/guitarset-e2e-60.json) — 60 entries with audio and annotation SHA-256 |
+| Report | [`eval/guitarset-e2e-60-report.md`](../eval/guitarset-e2e-60-report.md) — the run these numbers come from |
+
+Regenerate the clips and score them:
+
+```sh
+python3 tools/make_guitarset_excerpt_manifest.py \
+  --audio audio --annotations annotations \
+  --out eval/heldout.json --clips eval/clips \
+  --seconds 10 --sessions 03,04,05
+python3 -c 'import json;m=json.load(open("eval/heldout.json"));json.dump(m[:60],open("eval/run.json","w"))'
+./target/release/mtab eval --corpus guitarset --audio-manifest eval/run.json \
+  --weights "$RUNNER_TEMP/mtab-small.safetensors" --size small \
+  --max-gen-len 2000 --partial-fingering --report eval/report.md
+```
 
 ## Results
 
