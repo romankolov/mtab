@@ -636,6 +636,7 @@ fn run_audio_entries<F>(
     model_label: &str,
     max_tokens: usize,
     partial: bool,
+    ir_dir: Option<&Path>,
     mut infer: F,
 ) -> Result<(String, usize)>
 where
@@ -656,6 +657,14 @@ where
         );
         let effective = (entry.duration * 16000.0).floor() / 16000.0;
         let result = infer(entry).and_then(|prediction| {
+            // Dump the assignment even when scoring fails: an unusable IR is
+            // still evidence of what the fingerer did, and a comparison run
+            // needs it. The index matches the report's row number.
+            if let Some(dir) = ir_dir {
+                let path = dir.join(format!("e{}.json", i + 1));
+                std::fs::write(&path, serde_json::to_string_pretty(&prediction.document)?)?;
+                eprintln!("wrote {}", path.display());
+            }
             let score = score_document(&entry.reference, &prediction.document, effective)?;
             Ok((score, prediction.omitted_notes))
         });
@@ -715,19 +724,27 @@ pub fn evaluate_audio_manifest(
     size: mtab_core::ModelSize,
     max_tokens: usize,
     partial: bool,
+    ir_dir: Option<&Path>,
     report: Option<&Path>,
 ) -> Result<()> {
     if max_tokens == 0 || max_tokens > 2000 {
         return Err(fail("--max-gen-len must be in 1–2000"));
     }
+    if let Some(dir) = ir_dir {
+        std::fs::create_dir_all(dir)?;
+    }
     let entries = load_audio_manifest(manifest, weights, report)?;
     let manifest_hash = sha256(manifest)?;
     let weights_hash = sha256(weights)?;
     let model = mtab_core::lm::LmModel::load(mtab_core::lm::LmConfig::from_size(size), weights)?;
-    let (mut result, failures) =
-        run_audio_entries(&entries, &size.to_string(), max_tokens, partial, |entry| {
-            transcribe_for_evaluation(&model, entry, max_tokens, partial)
-        })?;
+    let (mut result, failures) = run_audio_entries(
+        &entries,
+        &size.to_string(),
+        max_tokens,
+        partial,
+        ir_dir,
+        |entry| transcribe_for_evaluation(&model, entry, max_tokens, partial),
+    )?;
     result.push_str(&format!("\n## Reproducibility identifiers\n\n- Audio manifest SHA-256: `{manifest_hash}`\n- Model weights SHA-256: `{weights_hash}`\n\nHashes identify bytes, not authorization, license, dataset completeness, or split independence.\n"));
     if let Some(path) = report {
         std::fs::write(path, result)?;
@@ -789,7 +806,7 @@ mod tests {
             }],
         });
         let mut n = 0;
-        let (report, failures) = run_audio_entries(&entries, "fixture", 512, false, |_| {
+        let (report, failures) = run_audio_entries(&entries, "fixture", 512, false, None, |_| {
             n += 1;
             if n == 1 {
                 Ok(AudioPrediction {
@@ -871,7 +888,7 @@ mod tests {
             duration: 1.0,
             hashes_verified: false,
         };
-        let (report, failures) = run_audio_entries(&[entry], "fixture", 512, true, |_| {
+        let (report, failures) = run_audio_entries(&[entry], "fixture", 512, true, None, |_| {
             Ok(AudioPrediction {
                 document: doc.clone(),
                 omitted_notes: omitted,
@@ -936,6 +953,7 @@ mod tests {
             "tiny-test-only",
             2,
             false,
+            None,
             |e| transcribe_for_evaluation(&model, e, 2, false),
         )
         .unwrap();

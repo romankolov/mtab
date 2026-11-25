@@ -115,6 +115,9 @@ struct EvalArgs {
     /// Maximum generated tokens per chunk for end-to-end evaluation
     #[arg(long, default_value_t = 2000)]
     max_gen_len: usize,
+    /// Also write each entry's TabDocument IR as JSON into this directory
+    #[arg(long, requires = "audio_manifest")]
+    emit_ir_dir: Option<PathBuf>,
     /// Evaluation duration in seconds (required for tab-IR frame evaluation)
     #[arg(long)]
     clip_duration: Option<f64>,
@@ -376,6 +379,7 @@ fn eval(args: EvalArgs) -> Result<()> {
             args.size,
             args.max_gen_len,
             args.partial_fingering,
+            args.emit_ir_dir.as_deref(),
             args.report.as_deref(),
         );
     }
