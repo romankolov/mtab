@@ -44,8 +44,9 @@ with `SHA256SUMS.txt` and no model weights (§10.1).
 - First end-to-end GuitarSet evaluation (audio through the model and the
   string/fret solver, not oracle notes) in the Nightly workflow. On 40 ten-second
   excerpts from **unseen players** (sessions 03–05, `small`, greedy, CPU):
-  65.30% multi-pitch F1, 74.75% pitch+onset note F1, 44.96% tab+onset F1,
-  TDR-style 60.78%, wrong-string 39.22%. Tablature accuracy is the weak link:
+  65.30% multi-pitch F1, 74.75% pitch+onset note F1, 46.13% tab+onset F1,
+  TDR-style 61.69%, wrong-string 38.31%. The open-string retune above accounts
+  for +1.17 of the tab figure; pitch rows are unchanged. Tablature accuracy is the weak link:
   the mean pitch-minus-tab gap is 29.8 points, and it is larger on solo takes
   (34.2) than on comping takes (24.7) even though pitch is *better* on solos.
   Report: [`benches/guitarset-end-to-end.md`](benches/guitarset-end-to-end.md).

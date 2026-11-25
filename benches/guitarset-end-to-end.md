@@ -29,14 +29,23 @@ source separation, no dynamics, no technique inference.
 | Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Multi-pitch frames | 35,190 | 20,777 | 16,616 | 62.88% | 67.93% | **65.30%** |
-| Tab position frames | 21,389 | 34,578 | 30,501 | 38.22% | 41.22% | **39.66%** |
+| Tab position frames | 21,707 | 34,260 | 30,183 | 38.79% | 41.83% | **40.25%** |
 | Pitch + onset notes | 1,468 | 499 | 493 | 74.63% | 74.86% | **74.75%** |
 | Pitch + onset + offset notes | 753 | 1,214 | 1,208 | 38.28% | 38.40% | 38.34% |
-| Tab + onset notes | 883 | 1,084 | 1,078 | 44.89% | 45.03% | **44.96%** |
-| Tab + onset + offset notes | 453 | 1,514 | 1,508 | 23.03% | 23.10% | 23.07% |
+| Tab + onset notes | 906 | 1,061 | 1,055 | 46.06% | 46.20% | **46.13%** |
+| Tab + onset + offset notes | 440 | 1,527 | 1,521 | 22.37% | 22.44% | 22.40% |
 
-TDR-style ratio 21,389 / 35,190 = **60.78%**. Wrong-string among pitch-matched
-string instances 13,801 / 35,190 = **39.22%**.
+TDR-style ratio 21,707 / 35,190 = **61.69%**. Wrong-string among pitch-matched
+string instances 13,483 / 35,190 = **38.31%**.
+
+The pitch rows are identical to the earlier run, which is the check that the
+open-string retune only touched string choice: multi-pitch frames are 35,190 TP
+in both. Tablature moved +1.17 points on pitch+onset (44.96% → 46.13%) and
+wrong-string fell 0.91, from that retune (see "the open-string term" in
+[`guitarset-oracle.md`](guitarset-oracle.md)). The oracle experiment predicted a
+much larger gain (65.90% → 73.40% given ground-truth notes), and the gap between
+that prediction and the +1.2 measured here is the honest measure of how much of
+the end-to-end loss is the solver's *policy* versus the notes it is handed.
 
 ## The fingering solver is the bottleneck, not the model
 
@@ -46,26 +55,28 @@ completed:
 | | Median | Min | Max |
 | --- | ---: | ---: | ---: |
 | Multi-pitch F1 (pitch content) | 71.3% | 52.9% | 85.2% |
-| Tab-position F1 (string + fret) | 43.1% | 9.9% | 84.0% |
+| Tab-position F1 (string + fret) | 42.8% | 1.8% | 84.0% |
 
-The mean gap between the two is **29.8 points**, and it is not uniform. The
-entries that lose most are uniformly **solo** takes — a single monophonic line
-with no simultaneous pitches to anchor a shape:
+The mean gap between the two is **28.2 points**, and it is not uniform. Four of
+the five worst entries are **solo** takes — a single monophonic line with no
+simultaneous pitches to anchor a shape. The single exception is entry 37, a
+comping take at 98 reference notes in ten seconds, which is a dense strummed
+pattern where every note is a separate attack:
 
 | Entry | Take | Reference notes | Distinct pitches | Multi-pitch F1 | Tab F1 | Gap |
 | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 37 | `03_Rock1-130-A_comp` | 98 | 10 | 77.5% | 1.8% | 75.7 |
 | 38 | `03_Rock1-130-A_solo` | 27 | 10 | 74.6% | 9.9% | 64.7 |
-| 14 | `03_Funk1-114-Ab_solo` | 35 | 7 | 72.8% | 10.3% | 62.5 |
 | 26 | `03_Jazz1-130-D_solo` | 33 | 16 | 83.9% | 12.0% | 71.8 |
-| 10 | `03_BN3-119-G_solo` | 24 | 11 | 77.2% | 12.8% | 64.3 |
+| 10 | `03_BN3-119-G_solo` | 24 | 11 | 77.2% | 12.9% | 64.3 |
 
 Pitch is essentially right and the string choice still fails. Split by take
 type, the failure is on the melodic side:
 
 | Take | Entries scored | Mean multi-pitch F1 | Mean tab F1 | Gap |
 | --- | ---: | ---: | ---: | ---: |
-| `comp` (chords) | 17 of 20 | 66.9% | 42.3% | 24.7 |
-| `solo` (single line) | 20 of 20 | 73.5% | 39.3% | 34.2 |
+| `comp` (chords) | 17 of 20 | 66.9% | 42.5% | 24.4 |
+| `solo` (single line) | 20 of 20 | 73.5% | 42.0% | 31.5 |
 
 Solo takes are *easier* for the model — 73.5% pitch against 66.9% — and still
 land lower on tab. A single melodic line removes every constraint the fingerer
