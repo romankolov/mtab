@@ -394,10 +394,17 @@ retuned term (`+0.4` instead of `−0.1` per open string) on the same build:
 | Whole recording | 74.77% | **77.72%** | **76.23%** |
 | Ten-second excerpts | 76.44% | **76.62%** | **76.52%** |
 
-The halves still disagree about the best value — 00–02 peaks near 0.15, 03–05
-near 0.6 — because open-string use is a player's style, not a corpus constant,
-so 0.4 is the best value that is near-optimal on the half not used to pick it
-and `76.62%`/`77.72%` should be read as mildly optimistic.
+The halves disagree about the best open-string value on their own — 00–02 peaks
+near 0.15, 03–05 near 0.6 — and that disagreement is real, but it is not a
+difference between players: open strings are 18.4% of the reference notes in
+00–02 and 18.6% in 03–05, so the two halves cannot be telling us that one set of
+players uses them more. The sweep at the top of this section shows what is
+actually going on: the open-string term and the starting hand window trade off
+against each other, and only the paired value `0.4 + fret 7` improves both
+halves. Fixing one knob while leaving the other alone is what made them look
+irreconcilable. `76.62%`/`77.72%` are still mildly optimistic for a new player
+because `0.4` was chosen after seeing 03–05, and that trade is reported rather
+than hidden.
 
 **Quote the number for the scope you measured.** 77.72% for whole-recording
 fingering given notes, 76.62% for the ten-second excerpt task the audio harness

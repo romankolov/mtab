@@ -175,11 +175,16 @@ excerpts only:
 | 0.9 | — | 73.38% |
 
 The halves want different values, and this is not noise: 00–02 peaks near 0.15
-while 03–05 keeps improving to about 0.6. Open-string use is a *style*
-difference between players, so no single value is optimal for both. The shipped
-value is **0.4** — the best setting that does not sacrifice the held-out half.
-It gives up 1.4 points on the tuning half to buy 6.0 held out, and it is the
-only choice in the table that is near-optimal on the half not used to pick it.
+while 03–05 keeps improving to about 0.6. It is *not* a difference in how much
+the two sets of players use open strings — they use them almost identically
+(18.4% of reference notes in 00–02, 18.6% in 03–05), so the gap is in the
+solver, not the players. Held-out tests with the start window fixed (see the
+seed section above) show the two knobs interact: at the old blind start the
+halves pull opposite ways, and with the seed at fret 7 they stop doing so. The
+open-string table above was measured *before* the seed existed, so it should be
+read as the shape of the term at the old start rather than as an argument for a
+per-player value. The shipped pair is **0.4 + seed 7**, the only combination
+that improves both halves over the previous build.
 
 That framing is deliberate and it is a real limitation: choosing 0.4 *after*
 looking at 03–05 makes 73.40% a mildly optimistic estimate of what a new player

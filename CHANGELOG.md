@@ -28,6 +28,18 @@ with `SHA256SUMS.txt` and no model weights (§10.1).
 ## [Unreleased]
 
 ### Changed
+- Every passage now starts from a hand window centred on **fret 7** instead of
+  no window at all. GuitarSet's annotated median position is fret 6 (mean 6.1
+  over 180 excerpts), and pricing the first note from a blind start at the
+  bottom of the neck biased every later choice low (our mean fret 4.91 against
+  the reference's 5.33). The window was swept on players 00–02 only — 4: 69.57%,
+  5: 71.86%, 6: 75.44%, **7: 76.44%**, 8: 76.32%, 9: 75.87%, no seed: 72.41% —
+  and the peak transfers held out: 03–05 goes 73.40% → **76.62%**. Whole-corpus
+  fingering, feasible only, strict beam: 75.19% → **76.23%** (A 74.77%, B
+  77.72%); wrong-string 24.81% → 23.77%. The seed and the open-string term
+  interact, and picking the seed on the tuning half alone would have chosen
+  `0.0 + seed 7` (81.05% on A, 73.47% held out); the shipped pair `0.4 + seed 7`
+  is the only one that improves both halves (A +4.0, B +3.2).
 - The string/fret solver now **penalises** open strings (+0.4) instead of
   rewarding them (−0.1). Measured on ten-second excerpts, feasible only, where
   the audio harness scores: held-out 65.90% → **73.40%**, tuning half 70.99% →
@@ -35,13 +47,13 @@ with `SHA256SUMS.txt` and no model weights (§10.1).
   the form "took the open string where the reference frets" fall from 565 to
   136. Open-string *reference* accuracy falls 97.6% → 56.5% as the price; open
   strings are ~7% of notes, so it is net +2.7 points on the whole corpus. The
-  two player halves disagree about the optimum (00–02 peaks at 0.15, 03–05 at
-  ~0.6) because open-string use is a style difference, so 0.4 is a compromise
-  that favours the held-out half and its 73.40% should be read as mildly
-  optimistic. Ten-second excerpts are about 2.7 points harder than whole
-  recordings on the same build; a cold start was ruled out as the cause (giving
-  the solver the same passage beforehand changes nothing), the difference is
-  which notes the window samples.
+  two player halves disagree about the optimum at this stage (00–02 peaks at
+  0.15, 03–05 at ~0.6); that is an interaction with the solver's blind start,
+  not a player difference (open strings are 18.4% of reference notes in 00–02
+  and 18.6% in 03–05). The next entry resolves it. Ten-second excerpts are
+  about 2.7 points harder than whole recordings on the same build; a cold start
+  was ruled out as the cause (giving the solver the same passage beforehand
+  changes nothing), the difference is which notes the window samples.
 
 ### Added
 - First end-to-end GuitarSet evaluation (audio through the model and the

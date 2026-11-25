@@ -306,12 +306,16 @@ fn assign_impl(
                     //   held-out half (03-05): 0.0 -> 67.44%, 0.2 -> 70.71%,
                     //                        0.4 -> 73.40%, 0.6 -> 73.43%,
                     //                        0.9 -> 73.38%   (peaks near 0.6)
-                    // The halves disagree because open-string use is a style
-                    // difference between players, so no single value is
-                    // corpus-optimal. 0.4 is chosen because it is the best value
-                    // that does not sacrifice the held-out half; tuning-half
-                    // accuracy gives up 1.4 points to buy 6.0 held out.
-                    // Pooled 73.10% at 0.4 against 70.85% at 0.0.
+                    // The halves disagree at the old blind start, but not
+                    // because of player taste: open strings are 18.4% of the
+                    // reference notes in 00-02 and 18.6% in 03-05. With the
+                    // start window seeded (START_POSITION below) the two knobs
+                    // interact and this value stops being a compromise: the
+                    // shipped pair (0.4 + seed 7) is the only one that improves
+                    // both halves, A +4.0 and B +3.2, to 76.44/76.62.
+                    // 0.0 + seed 7 scores 81.05 on A and loses on B (73.47),
+                    // which is why the seed and the term must be chosen together.
+                    // Pooled 73.10% at 0.4 against 70.85% at 0.0 at the old start.
                     score += 0.4;
                 } else {
                     score += fret as f64 * 0.015;

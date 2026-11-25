@@ -538,8 +538,36 @@ fn assign_for_evaluation(
 ) -> Result<(Vec<mtab_guitar::TabNote>, usize)> {
     let tuning = Tuning::standard();
     let options = mtab_guitar::FingeringOptions::default();
+    // Drop notes that do not exist on a guitar before assigning. The decoder can
+    // emit pitches far outside the instrument (MIDI 22, 117, 127 have been seen
+    // on real excerpts); no string can carry them, and one such note used to
+    // fail an entire recording. Dropping them is neither generous nor harsh:
+    // they cannot be correct, so they are scored as the false negatives they are.
+    let low = tuning.strings.iter().copied().min().unwrap_or(40);
+    let high = tuning
+        .strings
+        .iter()
+        .copied()
+        .max()
+        .unwrap_or(64)
+        .saturating_add(options.max_fret);
+    let (playable, impossible): (Vec<_>, Vec<_>) = notes
+        .iter()
+        .copied()
+        .partition(|note| note.midi >= low && note.midi <= high);
+    if !impossible.is_empty() {
+        eprintln!(
+            "warning: {} generated note(s) lie outside the {}-{} playable range and were dropped",
+            impossible.len(),
+            low,
+            high
+        );
+    }
+    let notes = playable.as_slice();
     match mtab_guitar::assign_notes(notes, &tuning, mtab_guitar::Capo::NONE, options) {
-        Ok(assigned) => Ok((assigned, 0)),
+        // An impossible pitch cannot be a true positive on any string, so counting
+        // it as an omission costs nothing that could have been earned.
+        Ok(assigned) => Ok((assigned, impossible.len())),
         Err(mtab_core::MtabError::UnplayableNote { .. }) if partial => {
             let result = mtab_guitar::assign_notes_partial(
                 notes,
@@ -547,7 +575,7 @@ fn assign_for_evaluation(
                 mtab_guitar::Capo::NONE,
                 options,
             )?;
-            let omitted = result.unassigned_indices.len();
+            let omitted = result.unassigned_indices.len() + impossible.len();
             Ok((result.notes.into_iter().flatten().collect(), omitted))
         }
         Err(error) => Err(error),
@@ -678,7 +706,7 @@ where
     } else {
         "strict bounded beam (no retry)"
     };
-    Ok((format!("# GuitarSet end-to-end audio evaluation\n\nEntries: {}; failed entries: {failures}; total frames: {frames}; pairs with both supplied SHA-256 hashes verified: {hashes_verified}. Model architecture: {model_label}; greedy decoding, seed 0, guitar-family mask, strict EOS, token limit {max_tokens}, standard tuning, capo 0, 22 frets, fingering: {fingering_policy}; omitted generated notes in successful entries: {omitted_total}. The model is loaded once. Each manifest duration is rounded down to 16 kHz sample boundaries; only that prefix is transcribed and scored. No source separation, technique inference, or dynamics estimation.\n\n| Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n{}\n{}\n{}\n{}\n\nNote-event rows use same MIDI pitch and onset within 50 ms; the offset row also requires offset within max(50 ms, 20% of reference duration). Tab note rows additionally require the same string (and therefore the same fret in standard tuning). Each uses independent maximum-cardinality matching. Notes crossing the window end are clipped.\n\nTDR-style ratio (correct tab positions / correct unique pitches): {}. Simultaneous unisons can produce a ratio above 100%; it is not the complement of wrong-string rate.\n\nWrong-string among pitch-matched string instances: {} / {} = {}.\n\n| Manifest entry | Frames | Reference notes | Scored predicted notes | Omitted generated notes | Multi-pitch F1 | Tab-position F1 | Status |\n| ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n{details}\nOmitted generated notes are counted before clipping and excluded from scoring; they may have been true or false positives, so omission can change both precision and recall. Omission counts are unknown for failed entries and shown as n/a. Failures (including strict-EOS, decoding, assignment or short audio) count as empty predictions, never excluded; thus failures contribute reference false negatives but cannot estimate their hypothetical false positives. Pitch and tab metrics are 10 ms note-derived fixed-pitch frame sets, not continuous F0. The TDR-style ratio follows Wiggins and Kim (2019), Eq. 8, but the reference and frame grid differ from their protocol. No held-out split, tab-labeler-v3 baseline, or independent ground-truth pairing is established by the manifest. Keep the manifest and document data selection separately; supplied hashes verify identity against the manifest, not provenance or license. GuitarSet 1.1.0, Xi et al., CC BY 4.0; annotations can contain errors.\n", entries.len(), row("Multi-pitch frames", total.pitch_tp,total.pitch_ref,total.pitch_pred), row("Tab position frames", total.tab_tp,total.tab_ref,total.tab_pred), row("Pitch + onset notes", total.onset_tp,total.note_ref,total.note_pred), row("Pitch + onset + offset notes",total.onset_offset_tp,total.note_ref,total.note_pred), row("Tab + onset notes",total.tab_onset_tp,total.note_ref,total.note_pred), row("Tab + onset + offset notes",total.tab_onset_offset_tp,total.note_ref,total.note_pred), tdr(&total), total.wrong_string,total.pitch_string_matches,percent(total.wrong_string,total.pitch_string_matches)), failures))
+    Ok((format!("# GuitarSet end-to-end audio evaluation\n\nEntries: {}; failed entries: {failures}; total frames: {frames}; pairs with both supplied SHA-256 hashes verified: {hashes_verified}. Model architecture: {model_label}; greedy decoding, seed 0, guitar-family mask, strict EOS, token limit {max_tokens}, standard tuning, capo 0, 22 frets, fingering: {fingering_policy}; omitted generated notes in successful entries: {omitted_total}. The model is loaded once. Each manifest duration is rounded down to 16 kHz sample boundaries; only that prefix is transcribed and scored. No source separation, technique inference, or dynamics estimation.\n\n| Micro-aggregated metric | TP | FP | FN | Precision | Recall | F1 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n{}\n{}\n{}\n{}\n{}\n{}\n\nNote-event rows use same MIDI pitch and onset within 50 ms; the offset row also requires offset within max(50 ms, 20% of reference duration). Tab note rows additionally require the same string (and therefore the same fret in standard tuning). Each uses independent maximum-cardinality matching. Notes crossing the window end are clipped.\n\nTDR-style ratio (correct tab positions / correct unique pitches): {}. Simultaneous unisons can produce a ratio above 100%; it is not the complement of wrong-string rate.\n\nWrong-string among pitch-matched string instances: {} / {} = {}.\n\n| Manifest entry | Frames | Reference notes | Scored predicted notes | Omitted generated notes | Multi-pitch F1 | Tab-position F1 | Status |\n| ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n{details}\nOmitted generated notes are counted before clipping and excluded from scoring; they may have been true or false positives, so omission can change both precision and recall. A pitch outside the standard-tuning range 40-86 is included in that count for a stronger reason: no string can realize it, so it could never have been a true positive, and dropping it keeps one such note from failing an otherwise scoreable recording. Omission counts are unknown for failed entries and shown as n/a. Failures (including strict-EOS, decoding, assignment or short audio) count as empty predictions, never excluded; thus failures contribute reference false negatives but cannot estimate their hypothetical false positives. Pitch and tab metrics are 10 ms note-derived fixed-pitch frame sets, not continuous F0. The TDR-style ratio follows Wiggins and Kim (2019), Eq. 8, but the reference and frame grid differ from their protocol. No held-out split, tab-labeler-v3 baseline, or independent ground-truth pairing is established by the manifest. Keep the manifest and document data selection separately; supplied hashes verify identity against the manifest, not provenance or license. GuitarSet 1.1.0, Xi et al., CC BY 4.0; annotations can contain errors.\n", entries.len(), row("Multi-pitch frames", total.pitch_tp,total.pitch_ref,total.pitch_pred), row("Tab position frames", total.tab_tp,total.tab_ref,total.tab_pred), row("Pitch + onset notes", total.onset_tp,total.note_ref,total.note_pred), row("Pitch + onset + offset notes",total.onset_offset_tp,total.note_ref,total.note_pred), row("Tab + onset notes",total.tab_onset_tp,total.note_ref,total.note_pred), row("Tab + onset + offset notes",total.tab_onset_offset_tp,total.note_ref,total.note_pred), tdr(&total), total.wrong_string,total.pitch_string_matches,percent(total.wrong_string,total.pitch_string_matches)), failures))
 }
 
 pub fn evaluate_audio_manifest(
@@ -793,6 +821,26 @@ mod tests {
                 && report.contains("| n/a |"),
             "{report}"
         );
+    }
+    #[test]
+    fn pitches_off_the_fretboard_are_omitted_instead_of_failing_the_recording() {
+        let note = |midi| mtab_core::NoteEvent {
+            start: 0.0,
+            end: 1.0,
+            midi,
+            velocity: 100,
+            instrument: 24,
+        };
+        // Strict mode: one MIDI 127 note used to make every note of the take
+        // unassignable, which zeroed whole excerpts in the audio report.
+        let notes = [note(127), note(45), note(22)];
+        let (assigned, omitted) = assign_for_evaluation(&notes, false).unwrap();
+        assert_eq!(assigned.len(), 1);
+        assert_eq!(assigned[0].midi, 45);
+        assert_eq!(omitted, 2);
+        let (assigned, omitted) = assign_for_evaluation(&notes, true).unwrap();
+        assert_eq!(assigned.len(), 1);
+        assert_eq!(omitted, 2);
     }
     #[test]
     fn partial_audio_evaluation_reports_omitted_predictions_and_scores_remaining() {
