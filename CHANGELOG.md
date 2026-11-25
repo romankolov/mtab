@@ -73,14 +73,19 @@ with `SHA256SUMS.txt` and no model weights (§10.1).
   for entries whose fingering failed, so an assignment can be inspected or
   re-scored without re-running inference.
 - First end-to-end GuitarSet evaluation (audio through the model and the
-  string/fret solver, not oracle notes) in the Nightly workflow. On 40 ten-second
-  excerpts from **unseen players** (sessions 03–05, `small`, greedy, CPU):
-  65.30% multi-pitch F1, 74.75% pitch+onset note F1, 46.13% tab+onset F1,
-  TDR-style 61.69%, wrong-string 38.31%. The open-string retune above accounts
-  for +1.17 of the tab figure; pitch rows are unchanged. Tablature accuracy is the weak link:
-  the mean pitch-minus-tab gap is 29.8 points, and it is larger on solo takes
-  (34.2) than on comping takes (24.7) even though pitch is *better* on solos.
+  string/fret solver, not oracle notes) in the Nightly workflow, now on **60
+  ten-second excerpts** from unseen players (sessions 03–05, `small`, greedy,
+  CPU) with strict-then-partial fingering so every excerpt scores: **69.90%**
+  multi-pitch F1, **75.72%** pitch+onset note F1, **50.61%** tab+onset F1,
+  TDR-style 68.80%, wrong-string 31.20%. The first 40 excerpts, scored strictly,
+  give 65.30% / 74.75% / 46.13% / 61.69% / 38.31%; the four-row table in the
+  report separates what the seed (+2.33 tab-position), the larger excerpt set
+  (+2.76) and the partial retry (+2.69) each contributed.
   Report: [`benches/guitarset-end-to-end.md`](benches/guitarset-end-to-end.md).
+- Retraction: the earlier claim that string choice collapses specifically on
+  solo takes does not hold on 60 excerpts. The pitch-minus-tab gap is 22.6
+  points on 30 comping takes against 23.9 on 30 solo takes; the 40-entry picture
+  was dominated by the three excerpts that failed outright, two of them solo.
 
 ### Fixed
 - The GuitarSet excerpt manifest paired a trimmed clip with the **untrimmed**

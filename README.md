@@ -17,15 +17,17 @@ of these are not yet implemented or reliably inferred.
 > The official small checkpoint has been checked against upstream on a synthetic
 > plucked-string fixture.
 >
-> **First end-to-end GuitarSet numbers (held-out players, `small`, CPU).** On 40
+> **End-to-end GuitarSet numbers (held-out players, `small`, CPU).** On 60
 > ten-second excerpts from sessions 03–05 — players the solver was not tuned on —
-> the full audio → tab pipeline scores **65.30% multi-pitch F1** and **74.75%
-> pitch+onset note F1**, but only **46.13% tab+onset F1**: the notes are
-> substantially right and the *string* choice is where it falls apart. Three of
-> the 40 excerpts (9.8% of reference notes) fail outright when the strict beam
-> cannot place a note. These are not a `tab-labeler-v3` comparison and not
-> TabCNN's protocol; details, per-entry breakdown and the correction history are
-> in [`benches/guitarset-end-to-end.md`](benches/guitarset-end-to-end.md).
+> the full audio → tab pipeline scores **69.90% multi-pitch F1** and **75.72%
+> pitch+onset note F1**, but only **50.61% tab+onset F1**: the notes are
+> substantially right and the *string* choice is where it falls apart. All 60
+> excerpts are scored, with per-note omissions reported where the strict beam
+> cannot place a note. These are not TabCNN's protocol; details, per-entry
+> breakdown and the correction history are in
+> [`benches/guitarset-end-to-end.md`](benches/guitarset-end-to-end.md), and the
+> `tab-labeler-v3` comparison is in
+> [`benches/m5-tab-labeler-v3-head-to-head.md`](benches/m5-tab-labeler-v3-head-to-head.md).
 
 ## Library
 
