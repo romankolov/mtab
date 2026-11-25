@@ -22,3 +22,15 @@ mtab-guitar = { path = "../mtab-guitar" }
 mtab-export = { path = "../mtab-export" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[[example]]
+name = "basic"
+path = "../../examples/basic.rs"
+
+[[example]]
+name = "custom_guitar"
+path = "../../examples/custom_guitar.rs"
+
+[[example]]
+name = "streaming"
+path = "../../examples/streaming.rs"
