@@ -56,6 +56,22 @@ with `SHA256SUMS.txt` and no model weights (§10.1).
   changes nothing), the difference is which notes the window samples.
 
 ### Added
+- A head-to-head against `tab-labeler-v3` on **identical notes**: mtab's own
+  transcripts of 57 excerpts were sent through the unmodified AutoTab CLI and
+  both assignments scored by `mtab eval --tab-manifest`. Pitch rows come out
+  identical (61,451 true positives each), so the comparison isolates string
+  choice. **The solver loses**: tab-position frames 47.05% against 58.92%
+  (+11.87 for AutoTab), tab+onset 50.65% against 64.62% (+13.97). The §9
+  wrong-string criterion still passes — mtab 32.9% against greedy's 53.8% —
+  even though AutoTab's own wrong-string rate is worse (43.1%). mtab's errors
+  are coherent-but-misplaced shapes; AutoTab's are the right position with
+  noisier notes. Report:
+  [`benches/m5-tab-labeler-v3-head-to-head.md`](benches/m5-tab-labeler-v3-head-to-head.md).
+  AutoTab's v3 model was trained on GuitarSet, so its side is contaminated by
+  construction and is not a generalization estimate.
+- `mtab eval --emit-ir-dir <dir>` writes every entry's TabDocument IR, including
+  for entries whose fingering failed, so an assignment can be inspected or
+  re-scored without re-running inference.
 - First end-to-end GuitarSet evaluation (audio through the model and the
   string/fret solver, not oracle notes) in the Nightly workflow. On 40 ten-second
   excerpts from **unseen players** (sessions 03–05, `small`, greedy, CPU):

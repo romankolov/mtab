@@ -433,9 +433,29 @@ assignment (§6.6) has to close.
 
 This comparison is affected by strict failures counting the whole excerpt as
 unassigned. These corpus-informed results are not held-out. This is **not**
-end-to-end audio accuracy or a tab-labeler-v3 comparison; the full acceptance
-evaluation remains outstanding. The `Nightly` workflow runs this annotation-only
+end-to-end audio accuracy. The `Nightly` workflow runs this annotation-only
 check with `run_oracle=true`.
+
+**Where the solver stands against `tab-labeler-v3`.** Both fingerers were given
+the same notes — mtab's own transcriptions of 57 excerpts — and scored by the
+same code, so the pitch rows are identical on both sides (61,451 true positives
+each) and only string choice differs:
+
+| Metric | mtab | AutoTab v3 | Difference |
+| --- | ---: | ---: | ---: |
+| Tab-position frames F1 | 47.05% | **58.92%** | +11.87 |
+| Tab + onset note F1 | 50.65% | **64.62%** | +13.97 |
+
+**The solver loses this comparison**, and the way it loses is diagnostic: mtab
+keeps a coherent hand position but sometimes picks the wrong one. On a G-shape
+comp in open position it plays the whole passage five frets too high — a
+playable, internally consistent shape that scores zero. AutoTab instead has a
+**43.1% wrong-string rate, worse than mtab's 32.9%**, but lands the right
+position, so its individual errors cost less. mtab needs a per-excerpt position
+estimate and end-of-excerpt scoring, not better per-note tie-breaking;
+[the head-to-head bench](benches/m5-tab-labeler-v3-head-to-head.md) has the
+mechanism, the method and the caveats (AutoTab's model was trained on
+GuitarSet, so its side is not a generalization estimate).
 
 ### Real-guitar note smoke and evaluation
 
