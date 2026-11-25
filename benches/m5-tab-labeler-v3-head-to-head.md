@@ -67,17 +67,19 @@ which errors matter.
 
 ## What AutoTab is doing differently
 
-On a single excerpt (entry 1, a G-shape comp in a fixed position) the reference
-assigns pitch 67→string 4, 62→string 3, 58→string 2, 51→string 1 throughout.
-AutoTab reproduces that mapping essentially exactly — its per-pitch string
-histogram for those pitches is 13/13/14/5 against the reference's 15/14/14/11.
-mtab puts the entire passage **five frets higher**: 67 on string 5 fret 3, 62 on
-string 4 fret 3, 58 on string 3 fret 3 — mean fret 3.11 where AutoTab's is 6.33.
+On a single excerpt (entry 1) the players stay high on the neck: the reference
+mean fret is **6.62** (median 7, range 4–8), and AutoTab reproduces that with
+mean fret **6.33** (median 7). mtab plays the same notes at mean fret **3.11**.
 
-So mtab's error is a *global position shift* that is internally consistent.
-Every note of the excerpt is played as a coherent, playable shape; it is simply
-the wrong shape. Under a framewise metric that reads as a total loss on the
-excerpt: entry 1 scores 24.6% for mtab and 75.6% for AutoTab.
+The specific shift is down and toward thin strings. The reference takes 67 on
+string 4 fret 8, 62 on string 3 fret 7 and 51 on string 1 fret 6; mtab takes
+67 on string 5 fret 3, 62 on string 4 fret 3 and 51 on string 2 fret 1 — a
+coherent, playable shape, displaced about five frets toward the headstock.
+
+So mtab's error is a *global position shift* that is internally consistent:
+every note of the excerpt is played as a shape a hand could actually make. It
+is simply the wrong shape, and a framewise metric reads that as a total loss.
+Entry 1 scores 24.6% for mtab and 75.6% for AutoTab.
 
 AutoTab loses points differently. Its 43% wrong-string rate is spread thin:
 it puts individual notes in places a hand would not go, but it lands the global
@@ -85,10 +87,11 @@ position right, so the notes it does get right score. Partial credit everywhere
 beats total credit nowhere, and F1 rewards the first.
 
 The correlation between AutoTab's mean fret on an entry and its margin over
-mtab is **−0.10** — essentially zero — so this is *not* simply "AutoTab plays
-higher, and higher happens to be right". It is that AutoTab's position choices
-are better calibrated to the players, while its within-position choices are
-worse than mtab's.
+mtab is **−0.10** — essentially zero — so this is not a matter of "play higher
+and you win"; an excerpt where AutoTab sits high and one where it sits low
+contribute equally. What separates them is calibration: AutoTab's position
+choices line up with the players' on each excerpt, while its within-position
+choices are worse than mtab's.
 
 ## What this implies for the solver
 
@@ -99,9 +102,11 @@ AutoTab lacks — a sequence-level search that keeps one hand position coherent
 AutoTab has: a prior over *which* position a passage is in.
 
 The seed at fret 7 was a global version of that prior and bought +4.0/+3.2
-points on the two halves. This run shows the remaining loss is concentrated in
-excerpts where the correct position is nowhere near it: entry 1 sits at frets
-0–3 and mtab plays it at fret 3+ on the top strings, five frets too high.
+points on the two halves. This run shows what a global constant cannot do: the
+corpus *median* is 6, but this excerpt sits at 4–8 with its centre at 7, and
+mtab answers 3.1. A constant seed prices the first note's distance from fret 7
+and then lets the beam drift, and on a repeated figure that repeats an
+already-wrong shape it never pays to leave it.
 
 Two candidate fixes, both testable against this harness in about 20 minutes:
 
@@ -113,6 +118,36 @@ Two candidate fixes, both testable against this harness in about 20 minutes:
    positions alive across the excerpt and choose at the end by total cost,
    with a term for how much the hand must travel. That is closer to what a
    player optimises and to what the tab-labeler is doing.
+
+## The obvious fix does not work, and that is informative
+
+The first fix to try is to estimate the position from the excerpt's own pitches:
+take each note's lowest playable fret and use the median. It makes the solver
+**worse** — 73.55% → 63.48% on the tuning half — and the reason is visible
+before writing any solver code:
+
+| Quantity | Mean across 180 excerpts |
+| --- | ---: |
+| Reference fretted median | **6.03** |
+| Median of each note's lowest playable fret | **2.30** |
+| Median of each note's lowest playable fret, open strings excluded | 2.84 |
+| Reference minus the lowest-fret estimate | +2.76 (sd 2.30) |
+
+The gap is positive and *variable*. No constant correction repairs it, and that
+is the point: which position a player used for a note is **not a function of the
+note's pitch**. It depends on the chord shape being held, on where the phrase
+came from, on string choice for tone — none of which are in a pitch list. A
+pitch histogram answers "how low *could* this be played", never "how high *did*
+they play it".
+
+That is exactly the information `tab-labeler` gets from training on GuitarSet's
+string labels, and exactly what mtab's hand-window beam is trying to reconstruct
+online. The seed at fret 7 beats the pitch-derived estimate because the corpus
+prior (median 6) is a better predictor of an excerpt's position than that
+excerpt's own pitches are.
+
+`MTAB_SEED_FROM_PITCHES` and `seed_from_pitches` were written, measured and
+removed; the numbers above are why.
 
 ## Caveats — read before quoting
 

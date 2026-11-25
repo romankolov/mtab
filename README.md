@@ -447,12 +447,13 @@ each) and only string choice differs:
 | Tab + onset note F1 | 50.65% | **64.62%** | +13.97 |
 
 **The solver loses this comparison**, and the way it loses is diagnostic: mtab
-keeps a coherent hand position but sometimes picks the wrong one. On a G-shape
-comp in open position it plays the whole passage five frets too high — a
-playable, internally consistent shape that scores zero. AutoTab instead has a
-**43.1% wrong-string rate, worse than mtab's 32.9%**, but lands the right
-position, so its individual errors cost less. mtab needs a per-excerpt position
-estimate and end-of-excerpt scoring, not better per-note tie-breaking;
+keeps a coherent hand position but sometimes picks the wrong one. On one comp
+the players sit at mean fret 6.6 and mtab answers 3.1 — a playable, internally
+consistent shape displaced five frets toward the headstock, worth zero. AutoTab
+instead has a **43.1% wrong-string rate, worse than mtab's 32.9%**, but lands
+the right position, so its individual errors cost less. mtab needs a per-excerpt
+position estimate and end-of-excerpt scoring, not better per-note
+tie-breaking;
 [the head-to-head bench](benches/m5-tab-labeler-v3-head-to-head.md) has the
 mechanism, the method and the caveats (AutoTab's model was trained on
 GuitarSet, so its side is not a generalization estimate).
