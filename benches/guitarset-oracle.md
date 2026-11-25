@@ -92,8 +92,8 @@ comparison is clean:
 
 Whole-recording and ten-second scores are now within a point of each other on
 the held-out half (77.72% against 76.62%), because the seeded start removed most
-of the earlier gap. Two candidate explanations were tested and one was
-rejected:
+of the earlier gap. Two candidate explanations were tested on the **pre-seed**
+build, when the gap was 2.7 points, and one was rejected:
 
 - **Cold start — rejected.** Giving the solver ten seconds of the *same passage*
   before the scored copy changes nothing: 76.43% either way on 60 excerpts. The
@@ -105,12 +105,18 @@ rejected:
   passage, and it contains fewer of the notes a long recording's hand-window
   history would have stabilised around.
 
+The seeded start is a *better first estimate* of exactly the kind the cold-start
+test showed was missing, which is why it shrank the gap without contradicting
+either finding.
+
 Both scopes are correct for their own question, and they must not be mixed:
 **an end-to-end tablature figure measured on ten-second windows belongs next to
-73.40%, not 76.12%.** The README previously compared a 44.96% end-to-end figure
-against the whole-recording 70.76%, which was a five-point error of exactly this
-kind; the whole-recording numbers have since been re-measured on the same build,
-so the current tables are consistent.
+the ten-second row (76.52% pooled), not the whole-recording one (76.23%).** The
+two are close enough today that a mix-up looks harmless, but that is new: when
+the gap was 2.7 points the README compared a 44.96% end-to-end figure against
+the whole-recording 70.76%, a five-point error of exactly this kind. The gap is
+small now only because the seeded start removed most of the excerpt penalty; the
+scopes are still different tasks and the rule still holds.
 
 ## Every passage started at the bottom of the neck
 

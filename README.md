@@ -410,8 +410,11 @@ than hidden.
 fingering given notes, 76.62% for the ten-second excerpt task the audio harness
 uses. Both mean roughly one note in four lands on a different string than the
 annotator chose, against 44–48% for a per-note greedy assignment. A cold start
-was ruled out as the cause of the excerpt penalty: giving the solver the same
-passage ten seconds earlier changes nothing (76.43% both ways).
+was ruled out as the cause of the excerpt penalty — on the pre-seed build,
+giving the solver the same passage ten seconds earlier changed nothing (76.43%
+both ways), so the difference is which notes a short window happens to sample,
+and the seeded start has since closed most of the remaining gap (77.72% whole
+against 76.62% on excerpts).
 
 **Then the start position.** The solver began every track with no hand window,
 which let the first note choose from a blind start — and GuitarSet's players sit
