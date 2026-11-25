@@ -66,16 +66,20 @@ fn evaluates_jams_and_protects_annotations() {
     );
     let output = std::fs::read_to_string(&report).unwrap();
     assert!(output.contains("Reference notes: 3"), "{output}");
+    // Three notes, one on each of strings 0, 1 and 4. E4 (64) has four valid
+    // spellings; with the seeded start window the solver takes G-string fret 9
+    // rather than the open high string, so it matches two of three and the
+    // per-note lowest-fret baseline matches E4 but misses the other two.
     assert!(
-        output.contains("| Bounded beam | 3 | 0 | 2 | 66.67% | 33.33% |"),
+        output.contains("| Bounded beam | 3 | 0 | 1 | 33.33% | 66.67% |"),
         "{output}"
     );
     assert!(
-        output.contains("| Adaptive span 4→7 | 3 | 0 | 2 | 66.67% | 33.33% |"),
+        output.contains("| Adaptive span 4→7 | 3 | 0 | 1 | 33.33% | 66.67% |"),
         "{output}"
     );
     assert!(
-        output.contains("| Partial retry span 4 | 3 | 0 | 2 | 66.67% | 33.33% |"),
+        output.contains("| Partial retry span 4 | 3 | 0 | 1 | 33.33% | 66.67% |"),
         "{output}"
     );
     assert!(

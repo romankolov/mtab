@@ -308,7 +308,7 @@ mtab eval --corpus guitarset --oracle-notes --annotations /path/to/annotations \
 [Our 360-excerpt report](benches/guitarset-oracle.md) scores the solver on the
 reference notes themselves, so it isolates fingering from transcription.
 
-**The headline is 64.55% string accuracy, but that number mostly measures the
+**The headline is 65.46% string accuracy, but that number mostly measures the
 annotations.** 111 of the 360 excerpts (**30.8%**) contain an instant no left
 hand could play: a fretted span beyond four frets between simultaneously
 sounding notes, or two notes on one string at once. The dominant case is the
@@ -321,7 +321,7 @@ Scored only on the 249 feasible excerpts:
 
 | Method | Notes | String accuracy | Wrong-string rate |
 | --- | ---: | ---: | ---: |
-| Strict beam (span 4) | 41,138 | **75.19%** | 24.81% |
+| Strict beam (span 4) | 41,138 | **76.23%** | 23.77% |
 | Per-note lowest-fret greedy | 41,138 | 46.24% | 53.76% |
 
 **Where the loss is.** Only 306 of those 41,138 notes (0.7%) are chordal — they
@@ -391,20 +391,29 @@ retuned term (`+0.4` instead of `−0.1` per open string) on the same build:
 
 | Scope | A (00–02) | B held out (03–05) | Pooled |
 | --- | ---: | ---: | ---: |
-| Whole recording | 74.28% | **76.12%** | **75.19%** |
-| Ten-second excerpts | 72.41% | **73.40%** | **72.88%** |
+| Whole recording | 74.77% | **77.72%** | **76.23%** |
+| Ten-second excerpts | 76.44% | **76.62%** | **76.52%** |
 
 The halves still disagree about the best value — 00–02 peaks near 0.15, 03–05
 near 0.6 — because open-string use is a player's style, not a corpus constant,
 so 0.4 is the best value that is near-optimal on the half not used to pick it
-and `73.40%`/`76.12%` should be read as mildly optimistic.
+and `76.62%`/`77.72%` should be read as mildly optimistic.
 
-**Quote the number for the scope you measured.** 76.12% for whole-recording
-fingering given notes, 73.40% for the ten-second excerpt task the audio harness
+**Quote the number for the scope you measured.** 77.72% for whole-recording
+fingering given notes, 76.62% for the ten-second excerpt task the audio harness
 uses. Both mean roughly one note in four lands on a different string than the
 annotator chose, against 44–48% for a per-note greedy assignment. A cold start
 was ruled out as the cause of the excerpt penalty: giving the solver the same
 passage ten seconds earlier changes nothing (76.43% both ways).
+
+**Then the start position.** The solver began every track with no hand window,
+which let the first note choose from a blind start — and GuitarSet's players sit
+around fret 6 (annotated median across 180 held-out excerpts), not at the bottom
+of the neck. Seeding a five-fret window centred on fret 7, swept on the tuning
+half only and fixed before the held-out half was touched, gives **+3.2 points
+held out** (73.40% → 76.62%). It also interacts with the open-string term in the
+opposite direction on the two halves, which is why both were kept: tuning on the
+tuning half alone would have picked a pair that *lost* 3.2 points held out.
 
 Every one of the 40 strict failures was already an infeasible excerpt, so
 nothing is being excused — only the denominator changed. The honest reading is

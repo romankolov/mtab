@@ -7,13 +7,18 @@ use mtab_guitar::{assign_notes, Capo, FingeringOptions, TabNote, Tuning};
 
 const OPEN: [u8; 6] = [40, 45, 50, 55, 59, 64];
 
+/// Must match `mtab_guitar::fingering`'s start window; a mismatch makes this
+/// oracle check a different objective than the solver.
+const START_POSITION: u8 = 7;
+
 // Calculate constraints and cost from a complete path rather than maintaining
 // the beam's active-state representation. Notes are in chronological order.
 fn path_cost(notes: &[NoteEvent], path: &[(u8, u8)], span: u8) -> Option<f64> {
     let mut score = 0.0;
     // Mirrors `State::reach` / `State::shifted` in the solver: a window of
-    // frets the hand occupies, moved one fret at a time.
-    let mut position: Option<(u8, u8)> = None;
+    // frets the hand occupies, moved one fret at a time, starting from the same
+    // seeded window so both are minimising the same objective.
+    let mut position: Option<(u8, u8)> = Some((START_POSITION - 2, START_POSITION + 2));
     let mut last: Option<u8> = None;
     for (i, &(string, fret)) in path.iter().enumerate() {
         let mut sounding_frets = Vec::new();

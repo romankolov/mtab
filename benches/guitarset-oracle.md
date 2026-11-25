@@ -27,9 +27,9 @@ These reference diagnostics may overlap and are not proof of failure cause.
 
 | Method | Assigned | Unassigned | Correct strings | String accuracy (all notes) | Wrong-string rate (assigned) |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Bounded beam | 54666 | 7810 | 40329 | 64.55% | 26.23% |
-| Adaptive span 4→7 | 61638 | 838 | 45374 | 72.63% | 26.39% |
-| Partial retry span 4 | 62417 | 59 | 46388 | 74.25% | 25.68% |
+| Bounded beam | 54666 | 7810 | 40898 | 65.46% | 25.19% |
+| Adaptive span 4→7 | 61638 | 838 | 46456 | 74.36% | 24.63% |
+| Partial retry span 4 | 62417 | 59 | 47159 | 75.48% | 24.45% |
 | Per-note lowest-fret greedy | 62476 | 0 | 28365 | 45.40% | 54.60% |
 
 Settings: standard EADGBE, capo 0, frets 0–22, normal span 4, adaptive retry span 7, beam width 512.
@@ -50,8 +50,8 @@ The same three methods, scored only on the feasible excerpts:
 
 | Method | Feasible notes | Correct strings | String accuracy | Wrong-string rate (assigned) |
 | --- | ---: | ---: | ---: | ---: |
-| Strict beam (span 4) | 41138 | 30933 | **75.19%** | 24.81% |
-| Partial retry (span 4) | 41138 | 30933 | 75.19% | 24.81% |
+| Strict beam (span 4) | 41138 | 31360 | 76.23% | 23.77% |
+| Partial retry (span 4) | 41138 | 31360 | 76.23% | 23.77% |
 | Per-note lowest-fret greedy | 41138 | 19021 | 46.24% | 53.76% |
 
 Comparing the two tables shows how much of the headline gap is the reference data and how much is the solver.
@@ -62,14 +62,14 @@ Splitting the strict solver's mistakes by context says which fix is worth buildi
 
 | Context | Notes | Correct | Accuracy |
 | --- | ---: | ---: | ---: |
-| Melodic (alone at onset) | 40832 | 30721 | 75.24% |
-| Chordal (shares onset) | 306 | 212 | 69.28% |
-| Open-string reference | 2928 | 1654 | 56.49% |
+| Melodic (alone at onset) | 40832 | 31138 | 76.26% |
+| Chordal (shares onset) | 306 | 222 | 72.55% |
+| Open-string reference | 2928 | 1584 | 54.10% |
 
-- Wrong-string direction: 6941 chose a higher-pitched string, 3264 a lower one
+- Wrong-string direction: 6096 chose a higher-pitched string, 3682 a lower one
 - Mean fret distance on errors: 4.78 frets
-- Mean fret: reference 5.33, ours 4.91
-- Errors where we took the open string but the reference frets: 136
+- Mean fret: reference 5.33, ours 5.06
+- Errors where we took the open string but the reference frets: 108
 
 If melodic accuracy is already high, chord-shape templates are not the next lever; the loss is in single-line choices.
 
@@ -83,15 +83,16 @@ comparison is clean:
 
 | Scope | Half | Feasible excerpts | Feasible notes | String accuracy |
 | --- | --- | ---: | ---: | ---: |
-| Whole recording | 00–02 | 118 of 180 | 20,742 | 74.28% |
-| Whole recording | 03–05 | 131 of 180 | 20,396 | **76.12%** |
-| Whole recording | pooled | 249 of 360 | 41,138 | **75.19%** |
-| Ten-second excerpts | 00–02 | 158 of 180 | 9,609 | 72.41% |
-| Ten-second excerpts | 03–05 | 160 of 180 | 8,452 | **73.40%** |
-| Ten-second excerpts | pooled | 318 of 360 | 18,061 | **72.88%** |
+| Whole recording | 00–02 | 118 of 180 | 20,742 | 74.77% |
+| Whole recording | 03–05 | 131 of 180 | 20,396 | **77.72%** |
+| Whole recording | pooled | 249 of 360 | 41,138 | **76.23%** |
+| Ten-second excerpts | 00–02 | 158 of 180 | 9,609 | 76.44% |
+| Ten-second excerpts | 03–05 | 160 of 180 | 8,452 | **76.62%** |
+| Ten-second excerpts | pooled | 318 of 360 | 18,061 | **76.52%** |
 
-Ten-second excerpts are about **2.7 points harder** on the held-out half
-(73.40% against 76.12%). Two candidate explanations were tested and one was
+Whole-recording and ten-second scores are now within a point of each other on
+the held-out half (77.72% against 76.62%), because the seeded start removed most
+of the earlier gap. Two candidate explanations were tested and one was
 rejected:
 
 - **Cold start — rejected.** Giving the solver ten seconds of the *same passage*
@@ -110,6 +111,52 @@ Both scopes are correct for their own question, and they must not be mixed:
 against the whole-recording 70.76%, which was a five-point error of exactly this
 kind; the whole-recording numbers have since been re-measured on the same build,
 so the current tables are consistent.
+
+## Every passage started at the bottom of the neck
+
+The solver began each track with no hand window at all — `position: None` — which
+means it priced every string candidate from a blind start and let the first note
+choose. GuitarSet's players do not play there: across the 180 held-out excerpts
+the annotated **median position is fret 6** (mean 6.1), distributed as 2–12 with
+a peak at 6–7. Starting at the bottom biases every later choice low, and the
+whole-corpus anatomy confirms the direction — our mean fret was 4.91 against the
+reference's 5.33.
+
+Seeding a five-fret window centred on fret 7 (so the first note pays its distance
+from there, exactly like any later reach) was swept on the **tuning half only**:
+
+| Start window | A (00–02), ten-second excerpts |
+| --- | ---: |
+| none (old) | 72.41% |
+| fret 4 | 69.57% |
+| fret 5 | 71.86% |
+| fret 6 | 75.44% |
+| **fret 7** | **76.44%** |
+| fret 8 | 76.32% |
+| fret 9 | 75.87% |
+
+That is a clean interior peak, and the value was fixed before the held-out half
+was touched. Held out it gives **73.40% → 76.62%**, so the gain transfers:
+**+3.2 points on players never used to pick it.**
+
+The seed also interacts with the open-string term, and the interaction is
+counter-intuitive. Fixing the start makes the steep open-string penalty
+*unnecessary* on the tuning half:
+
+| Open term | Start | A (tuning) | B (held out) |
+| ---: | --- | ---: | ---: |
+| 0.0 | none | 73.86% | 67.44% |
+| 0.0 | fret 7 | **81.05%** | 73.47% |
+| 0.4 | none | 72.41% | 73.40% |
+| **0.4** | **fret 7** | 76.44% | **76.62%** |
+
+Tuning on A alone would pick `0.0 + fret 7` and **lose 3.2 points on B**. The
+shipped pair is `0.4 + fret 7`, the only combination that improves *both* halves
+over the previous build (A +4.0, B +3.2). That is an argument for keeping a
+held-out half and not just a tuning set: the two knobs are not independent, and
+the interaction runs in opposite directions on the two halves.
+
+Whole corpus: 75.19% → **76.23%**; wrong-string 24.81% → 23.77%.
 
 ## The open-string term, and why the two halves disagree
 
