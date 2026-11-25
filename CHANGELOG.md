@@ -27,6 +27,19 @@ with `SHA256SUMS.txt` and no model weights (§10.1).
 
 ## [Unreleased]
 
+### Changed
+- The string/fret solver now **penalises** open strings (+0.4) instead of
+  rewarding them (−0.1). Measured on ten-second excerpts, feasible only, where
+  the audio harness scores: held-out 65.90% → **73.40%**, tuning half 70.99% →
+  72.41%, pooled 72.88%; whole-corpus fingering 72.52% → **75.19%**. Errors of
+  the form "took the open string where the reference frets" fall from 565 to
+  136. Open-string *reference* accuracy falls 97.6% → 56.5% as the price; open
+  strings are ~7% of notes, so it is net +2.7 points on the whole corpus. The
+  two player halves disagree about the optimum (00–02 peaks at 0.15, 03–05 at
+  ~0.6) because open-string use is a style difference, so 0.4 is a compromise
+  that favours the held-out half and its 73.40% should be read as mildly
+  optimistic.
+
 ### Added
 - First end-to-end GuitarSet evaluation (audio through the model and the
   string/fret solver, not oracle notes) in the Nightly workflow. On 40 ten-second

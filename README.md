@@ -308,7 +308,7 @@ mtab eval --corpus guitarset --oracle-notes --annotations /path/to/annotations \
 [Our 360-excerpt report](benches/guitarset-oracle.md) scores the solver on the
 reference notes themselves, so it isolates fingering from transcription.
 
-**The headline is 59.65% string accuracy, but that number mostly measures the
+**The headline is 64.55% string accuracy, but that number mostly measures the
 annotations.** 111 of the 360 excerpts (**30.8%**) contain an instant no left
 hand could play: a fretted span beyond four frets between simultaneously
 sounding notes, or two notes on one string at once. The dominant case is the
@@ -321,7 +321,7 @@ Scored only on the 249 feasible excerpts:
 
 | Method | Notes | String accuracy | Wrong-string rate |
 | --- | ---: | ---: | ---: |
-| Strict beam (span 4) | 41,138 | **70.14%** | 29.86% |
+| Strict beam (span 4) | 41,138 | **75.19%** | 24.81% |
 | Per-note lowest-fret greedy | 41,138 | 46.24% | 53.76% |
 
 **Where the loss is.** Only 306 of those 41,138 notes (0.7%) are chordal — they
@@ -332,21 +332,33 @@ toward a higher-pitched string and 4,086 toward a lower one, with a mean fret
 error of 5.19 — the solver is not failing to reach the high register, it is
 picking the wrong member of an equivalent-sounding set.
 
-One such bias was measurable and is fixed. The old flat bonus for open strings
-was strong enough to override position continuity: it took the open string where
-the reference frets it **3,671 times**. Sweeping the weight across the corpus
-gave 68.28% at the old 0.8, 70.70% at 0.0 and 65.82% at 2.0; it is now 0.1, which
-lets position cost decide. That alone moved feasible accuracy from 68.28% to
-70.14%.
+Two such biases were measurable and are fixed. The old flat bonus for open
+strings was strong enough to override position continuity: it took the open
+string where the reference frets it **3,671 times**. Sweeping the weight across
+the corpus gave 68.28% at the old 0.8, 70.70% at 0.0 and 65.82% at 2.0; it was
+cut to 0.1, which moved feasible accuracy from 68.28% to 70.14%. That was still
+too generous. Measuring on ten-second excerpts — the scope the audio harness
+uses — showed the term should be a **penalty**, not a bonus: the solver now
+scores `+0.4` per open string, which takes the whole corpus to **75.19%** and
+cuts "took the open string where the reference frets" from 565 to 136 errors.
+The full sweep, and why the two player halves disagree about the best value, are
+in [`benches/guitarset-oracle.md`](benches/guitarset-oracle.md).
 
-**Those weights were tuned on this corpus, so that 70.14% is not a held-out
+The cost is visible: open-string *reference* accuracy falls from 97.6% to 56.5%,
+because the solver now frets notes the annotator played open. It is net +2.7
+points because open strings are only 7% of the notes.
+
+**Those weights were tuned on this corpus, so that 72.5% is not a held-out
 number.** GuitarSet's six recording sessions split cleanly by player, so the
 honest check is to tune on some players and report on others:
 
-| Split | Players | Old bonus 0.8 | New bonus 0.1 |
+| Split | Players | Old bonus 0.8 | Bonus 0.1 |
 | --- | --- | ---: | ---: |
 | Tune set | 00–02 | 70.26% | 71.83% |
 | **Held out** | **03–05** | **66.26%** | **68.43%** |
+
+(Whole recordings. The `0.1` column is the intermediate build, before the term
+was measured on the ten-second excerpts the harness actually scores.)
 
 The improvement survives on players the weight was never fitted to: **+2.2
 points held out**. The held-out set also scores lower in absolute terms than the
@@ -370,18 +382,30 @@ The reach-vs-shift weight was swept rather than guessed, and 1.0 is a genuine
 optimum: 0.3 gives 67.31%, 0.1 gives 63.08%, 2.0 gives 68.58%, against 70.76%
 at 1.0 on the held-out half. Pricing a stretch below a shift lets the hand
 wander; pricing it above makes the solver refuse shapes a player would reach
-for. Every figure above was measured on players not used to choose it.
+for.
 
-**70.8% on unseen players** is the number to quote: roughly three notes in four
-land on the string a human annotator chose, against 44–48% for a per-note
+**Then the open-string term was retuned, and that exposed a scope problem.**
+Every figure above (`70.14%`, `72.52%`, `70.76%`) scores *whole recordings*. The
+audio harness scores **ten-second excerpts**, on which the same solver is much
+weaker: 65.90% before the retune. Comparing an end-to-end figure to `70.76%`
+was therefore wrong by about five points. The retuned term (`+0.4` instead of
+`−0.1` per open string) brings the ten-second result to **73.40% held out /
+72.41% on the tuning half, 72.88% pooled**, and the whole corpus to 75.19%. The
+halves still disagree — 00–02 peaks near 0.15, 03–05 near 0.6, because
+open-string use is a player's style, not a corpus constant — so 0.4 is the best
+value that is near-optimal on the half not used to pick it, and `73.40%` should
+be read as mildly optimistic.
+
+**Quote 73.40% on unseen players for the ten-second task**, and 70.76% only for
+whole-recording fingering given notes. Both mean roughly one note in four lands
+on a different string than the annotator chose, against 44–48% for a per-note
 greedy assignment.
 
 Every one of the 40 strict failures was already an infeasible excerpt, so
 nothing is being excused — only the denominator changed. The honest reading is
-that the solver beats the naive baseline by 22 points, and about one in three
-notes still lands on the wrong string. That is the gap chord-shape-aware
-assignment (§6.6) has to close, and it is much larger than the naive baseline's
-gap suggests.
+that the solver beats the naive baseline by about 29 points, and roughly one
+note in four still lands on the wrong string. That is the gap shaped-aware
+assignment (§6.6) has to close.
 
 This comparison is affected by strict failures counting the whole excerpt as
 unassigned. These corpus-informed results are not held-out. This is **not**

@@ -38,7 +38,7 @@ fn path_cost(notes: &[NoteEvent], path: &[(u8, u8)], span: u8) -> Option<f64> {
         if fret == 0 {
             // Must mirror `fingering.rs`; a mismatch turns this test into a
             // check of two different objectives.
-            score -= 0.1;
+            score += 0.4;
         } else {
             score += f64::from(fret) * 0.015;
             let shifted = match position {

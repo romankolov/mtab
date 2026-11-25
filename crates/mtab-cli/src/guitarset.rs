@@ -787,7 +787,11 @@ mod tests {
         }];
         let mut counts = Counts::default();
         assert!(score_file(&refs, &mut counts).0.is_none());
-        assert_eq!((counts.notes, counts.assigned, counts.correct), (1, 1, 0));
+        // E4 (64) sits on the B string at fret 5 and on the open high E. With
+        // the open-string term priced as a penalty the position-aware search
+        // takes the fretted B-string reading and matches the reference; the
+        // per-note lowest-fret baseline still takes the open string and misses.
+        assert_eq!((counts.notes, counts.assigned, counts.correct), (1, 1, 1));
         assert_eq!((counts.greedy_assigned, counts.greedy_correct), (1, 0));
     }
     #[test]
