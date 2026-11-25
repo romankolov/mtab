@@ -189,14 +189,17 @@ jobs:
           ./target/release/mtab eval --corpus guitarset \
             --audio-manifest eval/run.json \
             --weights "$RUNNER_TEMP/mtab-small.safetensors" \
-            --size small --max-gen-len 2000 --report eval/report.md
+            --size small --max-gen-len 2000 --partial-fingering \
+            --emit-ir-dir eval/ir --report eval/report.md
       - name: Show the headline metrics
         if: always()
         run: |
           sed -n '/| Micro-aggregated/,/^$/p' eval/report.md || true
           echo '--- entries that did not score ---'
           grep -E '\| (failed|error) ' eval/report.md || echo 'none' 
-      - name: Upload the report (no model weights)
+      - name: Upload the report and the emitted IR (no model weights)
+        # eval/ir is what tools/autotab_head_to_head.py needs to put a rival
+        # fingerer on exactly these notes; it holds tablature JSON only.
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -204,6 +207,7 @@ jobs:
           path: |
             eval/report.md
             eval/run.json
+            eval/ir
           if-no-files-found: error
 
   real-small-guitar:
