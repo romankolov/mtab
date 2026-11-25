@@ -149,6 +149,27 @@ excerpt's own pitches are.
 `MTAB_SEED_FROM_PITCHES` and `seed_from_pitches` were written, measured and
 removed; the numbers above are why.
 
+### The fret prior is not the culprit either
+
+The other obvious candidate is the low-fret prior, `0.015 × fret` per note,
+which does bias every choice downward. Removing it **loses** 1.65 points
+(73.55% → 71.90% on the tuning half), and it turns out to be propping up the
+seeded start rather than fighting it:
+
+| Start window | Fret prior | Tuning-half accuracy |
+| --- | ---: | ---: |
+| seeded at 7 (shipped) | 0.015 (shipped) | **73.55%** |
+| seeded at 7 | 0.0 | 71.90% |
+| blind (pre-seed) | 0.015 | 68.90% |
+| blind | 0.0 | 62.14% |
+
+Both knobs earn their place and neither substitutes for the other: the seed
+prices the *first* note's distance from the window, the prior taxes every
+*fretted* note, and on a passage that stays in one position the prior is what
+pays for holding it. Removing either one alone loses more than the other
+gains. That also rules out "just delete the bias" as the fix for the wrong-
+position failures.
+
 ## Caveats — read before quoting
 
 - **AutoTab's v3 model was trained on GuitarSet** and its model card says
