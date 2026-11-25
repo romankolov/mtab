@@ -170,6 +170,22 @@ pays for holding it. Removing either one alone loses more than the other
 gains. That also rules out "just delete the bias" as the fix for the wrong-
 position failures.
 
+### Re-solving from the position the first pass chose does not transfer
+
+The next idea is a fixed point: solve once, take the median fret the solver
+actually used, and re-solve with the start window centred there. On the tuning
+half it works — 73.55% → **73.97%** — and on the held-out half it **loses**
+73.63% → **72.57%**. It was rejected without being merged.
+
+The asymmetry is the same trap the constant seed could have fallen into. A
+re-centred window makes each excerpt more internally consistent, and a more
+consistent excerpt is more likely to be *confidently wrong*: on players the
+value was not tuned against, the second pass doubles down on the first pass's
+mistake rather than correcting it. Fixing a wrong-position failure needs an
+external signal about which position is right, and every cheap proxy for that
+signal — pitch content, the first pass's own answer — has now been measured and
+found wanting.
+
 ## Caveats — read before quoting
 
 - **AutoTab's v3 model was trained on GuitarSet** and its model card says
