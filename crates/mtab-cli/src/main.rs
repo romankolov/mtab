@@ -163,9 +163,9 @@ struct TranscribeArgs {
     #[arg(long, conflicts_with = "allow_wide_stretch")]
     partial_report: Option<PathBuf>,
 
-    /// Isolate the guitar stem before transcription (Demucs)
-    #[arg(long)]
-    separate: bool,
+    /// Isolate the guitar stem before transcription (local six-stem Demucs ONNX model)
+    #[arg(long, value_name = "ONNX_MODEL")]
+    separate: Option<PathBuf>,
 
     /// Estimate relative velocities from audio (experimental; mix energy, not isolated notes)
     #[arg(long)]
@@ -517,6 +517,7 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<TempoMap> {
             });
     let protected: Vec<&std::path::Path> = std::iter::once(args.input.as_path())
         .chain(local_weights.as_deref())
+        .chain(args.separate.as_deref())
         .chain(args.beat_times.as_deref())
         .collect();
     let protected_paths: std::collections::HashSet<PathBuf> =
@@ -538,7 +539,7 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<TempoMap> {
         if let Some(identity) = path_identity(path) {
             if protected_paths.contains(&identity) {
                 return Err(MtabError::InvalidOutput(
-                    "output must not overwrite input audio, weights or beat times".into(),
+                    "output must not overwrite input audio, weights, separation model or beat times".into(),
                 ));
             }
             if !output_paths.insert(identity) {
@@ -552,7 +553,7 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<TempoMap> {
         if let Some(identity) = existing_file_identity(path)? {
             if protected_files.contains(&identity) {
                 return Err(MtabError::InvalidOutput(
-                    "output must not overwrite input audio, weights or beat times (hard-link alias)".into(),
+                    "output must not overwrite input audio, weights, separation model or beat times (hard-link alias)".into(),
                 ));
             }
             if !output_files.insert(identity) {
@@ -573,10 +574,18 @@ fn validate_transcribe(args: &TranscribeArgs) -> Result<TempoMap> {
                 .into(),
         });
     }
-    if args.separate {
+    if let Some(_model) = args.separate.as_deref() {
+        #[cfg(not(feature = "separation"))]
         return Err(MtabError::NotImplemented(
-            "separation requires an auxiliary model and is not implemented",
+            "--separate requires the CLI `separation` feature; rebuild with `--features mtab-cli/separation`",
         ));
+        #[cfg(feature = "separation")]
+        if !_model.is_file() {
+            return Err(MtabError::InvalidModelSource(format!(
+                "separation model {} does not exist; provide a local six-stem ONNX file (no download is performed)",
+                _model.display()
+            )));
+        }
     }
     if mode == OutputMode::Jsonl {
         if args.emit_ir.is_some()
@@ -751,7 +760,21 @@ fn protect_resolved_weights(args: &TranscribeArgs, path: &std::path::Path) -> Re
 }
 
 fn transcribe_with_model(args: &TranscribeArgs, model: &LmModel, tempo: &TempoMap) -> Result<()> {
-    let audio = mtab_audio::load_model_input(&args.input)?;
+    let input_audio = mtab_audio::load_model_input(&args.input)?;
+    #[cfg(feature = "separation")]
+    let audio = if let Some(path) = &args.separate {
+        let mut separator = mtab_audio::separate::Separator::new(path)?;
+        eprintln!(
+            "isolating guitar stem with local ONNX model ({} stems, {} samples per window)",
+            separator.stems(),
+            separator.segment_samples()
+        );
+        separator.guitar_stem(&input_audio)?
+    } else {
+        input_audio
+    };
+    #[cfg(not(feature = "separation"))]
+    let audio = input_audio;
     let estimated_tempo = if args.experimental_beat_tracking {
         eprintln!("warning: experimental beat tracking is inaccurate, can lock to offbeats or subdivisions, has no confidence or downbeat detection, and requires review; meter is assumed 4/4");
         let hypothesis = mtab_audio::automatic_beat::automatic_beats(&audio)?.ok_or_else(|| {
@@ -1666,8 +1689,13 @@ mod tests {
         // Raw JSONL has no IR, so these flags are rejected there.
         assert!(validate_transcribe(&args(&["--techniques", "--format", "jsonl"])).is_err());
         assert!(validate_transcribe(&args(&["--chords", "--format", "jsonl"])).is_err());
-        // Separation still needs an auxiliary model.
-        assert!(validate_transcribe(&args(&["--separate"])).is_err());
+        // Separation requires an explicit local model, and is only available
+        // when the optional ONNX Runtime feature is enabled.
+        assert!(
+            Cli::try_parse_from(["mtab", "transcribe", audio.to_str().unwrap(), "--separate"])
+                .is_err()
+        );
+        assert!(validate_transcribe(&args(&["--separate", "missing.onnx"])).is_err());
         std::fs::remove_file(audio).unwrap();
     }
 

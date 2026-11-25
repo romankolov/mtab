@@ -25,6 +25,8 @@ pub mod periodicity;
 pub mod pitch_histogram;
 pub mod pitch_track;
 pub mod resample;
+#[cfg(feature = "separation")]
+pub mod separate;
 pub mod transcribe;
 
 #[cfg(test)]

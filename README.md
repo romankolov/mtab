@@ -33,7 +33,9 @@ of these are not yet implemented or reliably inferred.
 
 Runnable programs live in [`examples/`](examples/): `basic.rs` (transcribe and
 export), `custom_guitar.rs` (fixed tuning and capo), `streaming.rs` (one model,
-many files, with progress). They build on every CI run.
+many files, with progress). They build on every CI run. Optional guitar-stem
+separation with a local six-stem Demucs ONNX model is documented in
+[`docs/separation.md`](docs/separation.md).
 
 The workspace ships a facade crate so callers do not have to wire six stages
 themselves:

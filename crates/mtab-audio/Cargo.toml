@@ -29,3 +29,15 @@ symphonia = { version = "0.5", default-features = false, features = [
     "caf",
     "aiff",
 ] }
+
+[dependencies.ort]
+version = "=2.0.0-rc.14"
+default-features = false
+features = ["std", "api-22", "load-dynamic"]
+optional = true
+
+[features]
+default = []
+# Guitar stem separation (PROMPT.md §7.1). Loads ONNX Runtime at runtime, so the
+# core stays a plain Rust binary and nothing is linked in unless asked for.
+separation = ["dep:ort"]
