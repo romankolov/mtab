@@ -1,0 +1,210 @@
+{
+  "protocol": "benches/m6-contextual-string-probe.md",
+  "train_sessions": [
+    "00",
+    "01",
+    "02"
+  ],
+  "test_sessions": [
+    "03",
+    "04",
+    "05"
+  ],
+  "input_feature_note": "pitch, duration, onset-group pitch summaries, and up to three neighboring onset groups; no string, filename, or audio features",
+  "onset_group_tolerance_seconds": 0.03,
+  "classifier": "sklearn HistGradientBoostingClassifier(max_iter=250, learning_rate=0.08, max_leaf_nodes=31, l2_regularization=1.0, random_state=0)",
+  "files": 360,
+  "notes_by_session": {
+    "00": 13223,
+    "01": 11268,
+    "02": 9659,
+    "03": 9358,
+    "04": 10253,
+    "05": 8715
+  },
+  "training_notes": 34150,
+  "test_notes": 28326,
+  "annotations_sha256_manifest": "72c12b479c73463f65c1de756ba8d4ace359ed457eaf0df624335e2a6147b160",
+  "unconstrained_classifier": {
+    "correct": 20825,
+    "notes": 28326,
+    "accuracy": 0.735190284544235,
+    "confusion_rows_true_columns_predicted_strings_0_to_5": [
+      [
+        1447,
+        466,
+        2,
+        0,
+        0,
+        0
+      ],
+      [
+        40,
+        2604,
+        440,
+        3,
+        0,
+        0
+      ],
+      [
+        8,
+        456,
+        4764,
+        742,
+        6,
+        4
+      ],
+      [
+        0,
+        2,
+        989,
+        5347,
+        816,
+        7
+      ],
+      [
+        0,
+        0,
+        38,
+        1651,
+        4539,
+        569
+      ],
+      [
+        0,
+        0,
+        0,
+        84,
+        1178,
+        2124
+      ]
+    ]
+  },
+  "classifier_with_0_to_22_fret_legality_mask": {
+    "correct": 20825,
+    "notes": 28326,
+    "accuracy": 0.735190284544235,
+    "confusion_rows_true_columns_predicted_strings_0_to_5": [
+      [
+        1447,
+        466,
+        2,
+        0,
+        0,
+        0
+      ],
+      [
+        40,
+        2604,
+        440,
+        3,
+        0,
+        0
+      ],
+      [
+        8,
+        456,
+        4764,
+        742,
+        6,
+        4
+      ],
+      [
+        0,
+        2,
+        989,
+        5347,
+        816,
+        7
+      ],
+      [
+        0,
+        0,
+        38,
+        1651,
+        4539,
+        569
+      ],
+      [
+        0,
+        0,
+        0,
+        84,
+        1178,
+        2124
+      ]
+    ]
+  },
+  "lowest_fret_baseline": {
+    "correct": 12696,
+    "notes": 28326,
+    "accuracy": 0.4482101249735226,
+    "confusion_rows_true_columns_predicted_strings_0_to_5": [
+      [
+        1194,
+        709,
+        12,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1507,
+        1493,
+        87,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        2376,
+        2917,
+        676,
+        11
+      ],
+      [
+        0,
+        0,
+        0,
+        1854,
+        4422,
+        885
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        2379,
+        4418
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        3386
+      ]
+    ]
+  },
+  "per_session": {
+    "03": {
+      "notes": 9358,
+      "classifier_accuracy": 0.7344518059414404,
+      "lowest_fret_accuracy": 0.5068390681769609
+    },
+    "04": {
+      "notes": 10253,
+      "classifier_accuracy": 0.7326636106505413,
+      "lowest_fret_accuracy": 0.455378913488735
+    },
+    "05": {
+      "notes": 8715,
+      "classifier_accuracy": 0.7389558232931727,
+      "lowest_fret_accuracy": 0.3768215720022949
+    }
+  }
+}
