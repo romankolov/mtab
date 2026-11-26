@@ -1,0 +1,55 @@
+{
+  "protocol": "benches/m6-contextual-string-probe.md",
+  "model": "HistGradientBoostingClassifier(max_iter=250, learning_rate=0.08, max_leaf_nodes=31, l2_regularization=1.0, random_state=0)",
+  "string_cost": "row-normalized negative log class probability; impossible strings receive cost 1000; lambda selected on session 02",
+  "lambda_validation": {
+    "train_sessions": ["00", "01"],
+    "validation_session": "02",
+    "feasible_files": 41,
+    "feasible_notes": 5935,
+    "values": [
+      {"lambda": 0.0, "correct": 4357, "accuracy_percent": 73.41},
+      {"lambda": 0.25, "correct": 4793, "accuracy_percent": 80.76},
+      {"lambda": 0.5, "correct": 4774, "accuracy_percent": 80.44},
+      {"lambda": 1.0, "correct": 4802, "accuracy_percent": 80.91},
+      {"lambda": 2.0, "correct": 4794, "accuracy_percent": 80.78}
+    ],
+    "selected_lambda": 1.0,
+    "tie_break": "highest feasible-note string accuracy; lower lambda if tied"
+  },
+  "oracle_notes_test": {
+    "train_sessions": ["00", "01", "02"],
+    "test_sessions": ["03", "04", "05"],
+    "feasible_files": 131,
+    "infeasible_files_skipped": 49,
+    "feasible_notes": 20396,
+    "solver_failures": 0,
+    "baseline": {"correct": 15852, "accuracy_percent": 77.72},
+    "lambda_1": {"correct": 16565, "accuracy_percent": 81.22},
+    "gain_percentage_points": 3.50
+  },
+  "predicted_notes_test": {
+    "source": "same mtab transcripts used in the 57-entry AutoTab head-to-head; the three unscored entries have no transcript file",
+    "entries": 57,
+    "transcribed_notes": 3113,
+    "all_notes_assigned_by_both": true,
+    "pitch_metrics_identical_by_construction": true,
+    "metrics_f1_percent": {
+      "multi_pitch_frames": {"baseline": 70.20, "lambda_1": 70.20, "gain": 0.00},
+      "pitch_onset_notes": {"baseline": 77.55, "lambda_1": 77.55, "gain": 0.00},
+      "tab_position_frames": {"baseline": 47.05, "lambda_1": 52.99, "gain": 5.94},
+      "tab_onset_notes": {"baseline": 50.65, "lambda_1": 58.40, "gain": 7.75},
+      "pitch_onset_offset_notes": {"baseline": 40.46, "lambda_1": 40.46, "gain": 0.00},
+      "tab_onset_offset_notes": {"baseline": 26.03, "lambda_1": 30.84, "gain": 4.81}
+    },
+    "wrong_string_rate_percent": {"baseline": 32.89, "lambda_1": 24.41},
+    "tdr_style_ratio_percent": {"baseline": 67.11, "lambda_1": 75.59}
+  },
+  "caveats": [
+    "The oracle-note score excludes physically infeasible annotations; it is not end-to-end accuracy.",
+    "The predicted-note result is conditioned on the existing notes and measures string/fret assignment only.",
+    "The 57-entry predicted-note set is the same-set AutoTab comparison, not a full 60-entry rerun.",
+    "GuitarSet labels include annotation errors and possible hexaphonic pickup bleed; this is a single dataset split.",
+    "No source separation or audio-transcription changes were made in this experiment."
+  ]
+}

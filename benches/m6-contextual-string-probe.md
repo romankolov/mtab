@@ -67,18 +67,106 @@ restricted to solver-feasible excerpts. Do not compare those percentages as if
 they were a matched benchmark. The classifier is below the existing mtab
 feasible-only oracle number, but the scopes differ.
 
-## Decision and next step
+## Constraint-aware integration result
 
-Do **not** replace the current solver or merge this independent classifier.
-The result is a positive signal probe but not a playable fingering system. The
-next useful test is to feed the learned per-string probabilities into a
-constraint-aware sequence search as unary costs, then evaluate that combined
-solver against the current solver on the **same held-out excerpts**, first with
-oracle notes and then with the existing predicted-note JSONL. Report feasible
-and infeasible annotations separately, plus both tab-position accuracy and
-wrong-string rate. The training split, feature set, and classifier settings
-must remain fixed before running that comparison.
+The per-note classifier was used only as an additive string-cost prior inside
+the production bounded fingering beam. Playability constraints and the
+existing ergonomic costs remain active; pitch/onset/offset predictions are
+unchanged. The library now exposes `assign_notes_with_string_costs` and its
+partial-assignment variant for callers that have externally calibrated
+per-note candidate costs.
+
+### Choose the prior scale on validation, then freeze it
+
+Train the classifier on sessions 00–01, select the cost multiplier on session
+02, and only then refit on 00–02 for the held-out 03–05 test. The fixed
+validation grid was λ ∈ {0, 0.25, 0.5, 1, 2}; score is exact string accuracy
+on the 41 feasible session-02 recordings (5,935 notes).
+
+| λ | Correct / feasible notes | Accuracy |
+| ---: | ---: | ---: |
+| 0 (current solver) | 4,357 / 5,935 | 73.41% |
+| 0.25 | 4,793 / 5,935 | 80.76% |
+| 0.5 | 4,774 / 5,935 | 80.44% |
+| **1.0 (selected)** | **4,802 / 5,935** | **80.91%** |
+| 2.0 | 4,794 / 5,935 | 80.78% |
+
+The selected λ=1.0 is fixed for the final test; no test-set tuning was used.
+
+### Oracle-note test, held-out sessions 03–05
+
+On the same **131 feasible recordings / 20,396 reference notes**, with 49
+infeasible recordings reported separately, the current solver scored
+**15,852 / 20,396 = 77.72%**. Adding the contextual prior scored
+**16,565 / 20,396 = 81.22%**, a **+3.50 percentage-point** gain. Neither run
+failed on a feasible recording. This is an oracle-note assignment result, not
+an audio-to-tab score.
+
+### Same predicted notes, 57 matched excerpts
+
+On the exact transcript set used by the existing AutoTab comparison, both
+variants receive the same 3,113 notes. Pitch rows are therefore unchanged by
+construction. The three entries that lack a transcript remain unscored on both
+sides. The prior changes only string/fret assignment:
+
+| Metric | Current solver | With prior | Change |
+| --- | ---: | ---: | ---: |
+| Multi-pitch frame F1 | 70.20% | 70.20% | 0.00 pp |
+| Pitch + onset F1 | 77.55% | 77.55% | 0.00 pp |
+| **Tab-position frame F1** | 47.05% | **52.99%** | **+5.94 pp** |
+| **Tab + onset F1** | 50.65% | **58.40%** | **+7.75 pp** |
+| Pitch + onset + offset F1 | 40.46% | 40.46% | 0.00 pp |
+| Tab + onset + offset F1 | 26.03% | **30.84%** | **+4.81 pp** |
+
+Wrong-string rate on pitch-matched instances fell from **32.89% to 24.41%**.
+This closes a substantial part of the earlier AutoTab gap, but does not close
+it: on that same 57-entry set AutoTab v3 scored 58.92% tab-position F1 and
+64.62% tab + onset F1. Its comparison remains training-contaminated, as
+explained in the head-to-head report.
+
+### Reproduction commands
+
+Use the same full annotation directory as the prior probe, the saved mtab
+transcripts for the 57-entry matched comparison, and local scratch directories
+for per-note costs and IRs:
+
+```sh
+# Select lambda on session 02, training only on 00-01.
+python3 tools/contextual_string_probe.py \
+  --annotations <guitarset-jams> --output /tmp/context-tune.json \
+  --train-sessions 00,01 --test-sessions 02 \
+  --write-test-priors-dir /tmp/context-costs-02
+cargo run -p mtab-cli --example contextual_fingering_eval -- \
+  <guitarset-jams> /tmp/context-costs-02 02 0,0.25,0.5,1,2
+
+# Refit on 00-02; evaluate oracle-note costs once on held-out sessions 03-05.
+python3 tools/contextual_string_probe.py \
+  --annotations <guitarset-jams> --output /tmp/context-test.json \
+  --write-test-priors-dir /tmp/context-costs-03-05
+cargo run -p mtab-cli --example contextual_fingering_eval -- \
+  <guitarset-jams> /tmp/context-costs-03-05 03,04,05 0,1
+
+# Apply the same trained classifier to the frozen predicted-note JSONL set.
+python3 tools/contextual_string_probe.py \
+  --annotations <guitarset-jams> --output /tmp/context-predicted.json \
+  --predicted-transcripts-dir <nN.jsonl-directory> \
+  --write-predicted-priors-dir /tmp/context-predicted-costs
+cargo run -p mtab-cli --example contextual_transcript_eval -- \
+  <nN.jsonl-directory> /tmp/context-predicted-costs <60-entry-manifest> \
+  /tmp/context-ir 1
+mtab eval --tab-manifest /tmp/context-ir/baseline-manifest.json
+mtab eval --tab-manifest /tmp/context-ir/prior-manifest.json
+```
+
+The result is promising enough to keep developing, but it is not yet a
+production-ready learned fingering system. The contextual probabilities are
+trained on GuitarSet strings; the current held-out split is only one player
+split; and the search still uses a fixed hand-window policy. Next, validate on
+a second independent dataset / guitarist, inspect the six largest per-entry
+regressions, and confirm that the gain survives the full 60-entry partial
+fingering path before changing default behavior.
 
 GuitarSet annotations are CC BY 4.0; annotation errors and hexaphonic pickup
-bleed can create duplicated note events. This small model and its probe are
-research diagnostics only and do not add a runtime dependency to mtab.
+bleed can create duplicated note events. The Python model is an offline
+research tool and adds no runtime dependency to mtab. Full aggregate counts
+are in [`contextual-fingering-results.json`](contextual-fingering-results.json).

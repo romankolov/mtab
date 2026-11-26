@@ -140,7 +140,7 @@ pub fn assign_notes(
     capo: Capo,
     options: FingeringOptions,
 ) -> Result<Vec<TabNote>> {
-    let result = assign_impl(notes, tuning, capo, options, false)?;
+    let result = assign_impl(notes, tuning, capo, options, false, None)?;
     Ok(result
         .notes
         .into_iter()
@@ -174,7 +174,42 @@ pub fn assign_notes_partial(
     capo: Capo,
     options: FingeringOptions,
 ) -> Result<PartialFingering> {
-    assign_impl(notes, tuning, capo, options, true)
+    assign_impl(notes, tuning, capo, options, true, None)
+}
+
+/// Assign notes using caller-supplied per-note, per-string costs in addition to
+/// the normal playability and ergonomic score. Lower costs are preferred.
+///
+/// `string_costs[note_index][string_index]` must be finite and nonnegative for
+/// every input note and every string in `tuning`. These costs are additive, so
+/// callers should calibrate their scale against this solver's ergonomic terms.
+/// This API does not relax overlap or hand-span constraints.
+pub fn assign_notes_with_string_costs(
+    notes: &[NoteEvent],
+    tuning: &Tuning,
+    capo: Capo,
+    options: FingeringOptions,
+    string_costs: &[Vec<f64>],
+) -> Result<Vec<TabNote>> {
+    let result = assign_impl(notes, tuning, capo, options, false, Some(string_costs))?;
+    Ok(result
+        .notes
+        .into_iter()
+        .map(|note| note.expect("strict search assigns every note"))
+        .collect())
+}
+
+/// Partial variant of [`assign_notes_with_string_costs`]. Skipped notes are
+/// reported in the same explicit `PartialFingering` fields as
+/// [`assign_notes_partial`].
+pub fn assign_notes_partial_with_string_costs(
+    notes: &[NoteEvent],
+    tuning: &Tuning,
+    capo: Capo,
+    options: FingeringOptions,
+    string_costs: &[Vec<f64>],
+) -> Result<PartialFingering> {
+    assign_impl(notes, tuning, capo, options, true, Some(string_costs))
 }
 
 fn assign_impl(
@@ -183,6 +218,7 @@ fn assign_impl(
     capo: Capo,
     options: FingeringOptions,
     allow_skip: bool,
+    string_costs: Option<&[Vec<f64>]>,
 ) -> Result<PartialFingering> {
     if !(Tuning::MIN_STRINGS..=Tuning::MAX_STRINGS).contains(&tuning.strings.len())
         || !tuning.strings.windows(2).all(|w| w[0] < w[1])
@@ -200,6 +236,18 @@ fn assign_impl(
         || options.beam_width > 4096
     {
         return Err(MtabError::InvalidTuning("fingering requires frets 1–36, capo within the fretboard, positive span and beam width 1–4096".into()));
+    }
+    if let Some(costs) = string_costs {
+        if costs.len() != notes.len()
+            || costs.iter().any(|row| {
+                row.len() != tuning.strings.len()
+                    || row.iter().any(|cost| !cost.is_finite() || *cost < 0.0)
+            })
+        {
+            return Err(MtabError::InvalidTuning(
+                "string costs must provide one finite, nonnegative cost per input note and tuning string".into(),
+            ));
+        }
     }
     for (index, note) in notes.iter().enumerate() {
         if !note.start.is_finite()
@@ -323,6 +371,9 @@ fn assign_impl(
                 }
                 if let Some(last) = state.last_string {
                     score += 0.15 * f64::from(string.abs_diff(last));
+                }
+                if let Some(costs) = string_costs {
+                    score += costs[index][usize::from(string)];
                 }
                 let mut active_next = active.clone();
                 active_next.push(Active {
@@ -508,6 +559,47 @@ mod tests {
             velocity: 91,
             instrument: 24,
         }
+    }
+
+    #[test]
+    fn per_string_costs_change_preference_without_bypassing_constraints() {
+        let notes = [note(64, 0.0, 1.0)];
+        let options = FingeringOptions::default();
+        let baseline = assign_notes(&notes, &Tuning::standard(), Capo::NONE, options).unwrap();
+        assert_ne!(baseline[0].string, 5);
+
+        let costs = vec![vec![10.0; 6]
+            .into_iter()
+            .enumerate()
+            .map(|(string, cost)| if string == 5 { 0.0 } else { cost })
+            .collect()];
+        let preferred = assign_notes_with_string_costs(
+            &notes,
+            &Tuning::standard(),
+            Capo::NONE,
+            options,
+            &costs,
+        )
+        .unwrap();
+        assert_eq!(preferred[0].string, 5);
+        assert_eq!(preferred[0].fret, 0);
+
+        assert!(assign_notes_with_string_costs(
+            &notes,
+            &Tuning::standard(),
+            Capo::NONE,
+            options,
+            &[vec![0.0; 5]],
+        )
+        .is_err());
+        assert!(assign_notes_with_string_costs(
+            &notes,
+            &Tuning::standard(),
+            Capo::NONE,
+            options,
+            &[vec![f64::NAN; 6]],
+        )
+        .is_err());
     }
 
     #[test]

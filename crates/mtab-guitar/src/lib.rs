@@ -21,7 +21,8 @@ pub use detection::{
     detect_tuning, standard_candidates, TuningCandidate, TuningDetection, TuningScore,
 };
 pub use fingering::{
-    assign_notes, assign_notes_partial, assign_notes_with_stretch, FingeringAssignment,
+    assign_notes, assign_notes_partial, assign_notes_partial_with_string_costs,
+    assign_notes_with_stretch, assign_notes_with_string_costs, FingeringAssignment,
     FingeringOptions, PartialFingering,
 };
 pub use rhythm::Grid;

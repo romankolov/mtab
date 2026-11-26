@@ -24,8 +24,6 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix
 
 OPEN_STRINGS = np.array([40, 45, 50, 55, 59, 64], dtype=np.int16)
-TRAIN_SESSIONS = {"00", "01", "02"}
-TEST_SESSIONS = {"03", "04", "05"}
 
 
 def digest(path: Path) -> str:
@@ -58,7 +56,7 @@ def read_events(path: Path) -> list[tuple[float, float, int, int]]:
             events.append((start, start + duration, pitch, string))
     if len(seen) != 6:
         raise ValueError(f"{path}: expected six note_midi arrays, found {len(seen)}")
-    return sorted(events)
+    return sorted(events, key=lambda event: (event[0], event[3], event[1], event[2]))
 
 
 def feature_rows(events: list[tuple[float, float, int, int]]) -> tuple[list[list[float]], list[int]]:
@@ -124,18 +122,57 @@ def score(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, object]:
     }
 
 
+def read_predicted_jsonl(path: Path) -> list[tuple[float, float, int, int]]:
+    events = []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        item = json.loads(line)
+        start, end, pitch = float(item["start"]), float(item["end"]), int(item["midi"])
+        if not (math.isfinite(start) and math.isfinite(end)) or start < 0 or end <= start or not 0 <= pitch <= 127:
+            raise ValueError(f"{path}: malformed predicted note {item}")
+        # String is a dummy placeholder; the feature model never reads it.
+        events.append((start, end, pitch, 0))
+    return sorted(events, key=lambda event: (event[0], event[1], event[2]))
+
+
+def probability_costs(probability: np.ndarray, pitch: int) -> list[float]:
+    frets = pitch - OPEN_STRINGS
+    legal = (frets >= 0) & (frets <= 22)
+    raw_cost = -np.log(np.maximum(probability, 1e-9))
+    raw_cost[~legal] = 1000.0
+    raw_cost[legal] -= float(raw_cost[legal].min())
+    return [float(x) for x in raw_cost]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--annotations", type=Path, required=True,
                         help="directory containing the 360 GuitarSet JAMS files")
     parser.add_argument("--output", type=Path, required=True,
                         help="write machine-readable JSON results here")
+    parser.add_argument("--write-test-priors-dir", type=Path,
+                        help="optionally write per-note held-out oracle-note costs")
+    parser.add_argument("--predicted-transcripts-dir", type=Path,
+                        help="optional JSONL directory to score with the same trained model")
+    parser.add_argument("--write-predicted-priors-dir", type=Path,
+                        help="write per-note costs for predicted JSONL notes")
+    parser.add_argument("--train-sessions", default="00,01,02",
+                        help="comma-separated training sessions (default: 00,01,02)")
+    parser.add_argument("--test-sessions", default="03,04,05",
+                        help="comma-separated test sessions (default: 03,04,05)")
     args = parser.parse_args()
+    train_sessions = set(args.train_sessions.split(","))
+    test_sessions = set(args.test_sessions.split(","))
+    if not train_sessions or not test_sessions or train_sessions & test_sessions:
+        raise SystemExit("train and test session sets must be nonempty and disjoint")
+    if (train_sessions | test_sessions) - {"00", "01", "02", "03", "04", "05"}:
+        raise SystemExit("session names must be in 00 through 05")
 
     paths = sorted(args.annotations.glob("*.jams"))
     if len(paths) != 360:
         raise SystemExit(f"expected 360 .jams files, found {len(paths)}")
-    if any(path.stem[:2] not in TRAIN_SESSIONS | TEST_SESSIONS for path in paths):
+    if any(path.stem[:2] not in {"00", "01", "02", "03", "04", "05"} for path in paths):
         raise SystemExit("unexpected session prefix; expected sessions 00 through 05")
 
     train_x: list[list[float]] = []
@@ -150,10 +187,10 @@ def main() -> None:
         session = path.stem[:2]
         note_counts[session] = note_counts.get(session, 0) + len(labels)
         hashes.append((path.name, digest(path)))
-        if session in TRAIN_SESSIONS:
+        if session in train_sessions:
             train_x.extend(rows)
             train_y.extend(labels)
-        else:
+        elif session in test_sessions:
             test_x.extend(rows)
             test_y.extend(labels)
             test_session.extend([session] * len(labels))
@@ -173,6 +210,49 @@ def main() -> None:
     probabilities = classifier.predict_proba(x_test)
     classes = classifier.classes_.astype(int)
 
+    if args.write_test_priors_dir is not None:
+        args.write_test_priors_dir.mkdir(parents=True, exist_ok=True)
+        for path in paths:
+            if path.stem[:2] not in test_sessions:
+                continue
+            events = read_events(path)
+            rows, _ = feature_rows(events)
+            per_note_probability = classifier.predict_proba(np.asarray(rows, dtype=np.float32))
+            records = []
+            for (start, end, pitch, truth), probability in zip(events, per_note_probability):
+                records.append({
+                    "start": start,
+                    "end": end,
+                    "midi": pitch,
+                    "reference_string": truth,
+                    "costs": probability_costs(probability, pitch),
+                })
+            (args.write_test_priors_dir / f"{path.stem}.json").write_text(
+                json.dumps({"annotation": path.name, "notes": records}, separators=(",", ":")) + "\n"
+            )
+
+    if args.predicted_transcripts_dir is not None:
+        transcript_paths = sorted(
+            args.predicted_transcripts_dir.glob("n*.jsonl"),
+            key=lambda path: int(path.stem[1:]),
+        )
+        if not transcript_paths:
+            raise SystemExit("no nN.jsonl predicted transcripts found")
+        if args.write_predicted_priors_dir is None:
+            raise SystemExit("--predicted-transcripts-dir requires --write-predicted-priors-dir")
+        args.write_predicted_priors_dir.mkdir(parents=True, exist_ok=True)
+        for path in transcript_paths:
+            events = read_predicted_jsonl(path)
+            rows, _ = feature_rows(events)
+            per_note_probability = classifier.predict_proba(np.asarray(rows, dtype=np.float32))
+            output_rows = [
+                {"start": start, "end": end, "midi": pitch,
+                 "costs": probability_costs(probability, pitch)}
+                for (start, end, pitch, _), probability in zip(events, per_note_probability)
+            ]
+            out_path = args.write_predicted_priors_dir / f"{path.stem}.json"
+            out_path.write_text(json.dumps({"transcript": path.name, "notes": output_rows}, separators=(",", ":")) + "\n")
+
     unconstrained = classes[np.argmax(probabilities, axis=1)].astype(np.int8)
     legal_masked = []
     lowest_fret = []
@@ -191,8 +271,8 @@ def main() -> None:
 
     result: dict[str, object] = {
         "protocol": "benches/m6-contextual-string-probe.md",
-        "train_sessions": sorted(TRAIN_SESSIONS),
-        "test_sessions": sorted(TEST_SESSIONS),
+        "train_sessions": sorted(train_sessions),
+        "test_sessions": sorted(test_sessions),
         "input_feature_note": "pitch, duration, onset-group pitch summaries, and up to three neighboring onset groups; no string, filename, or audio features",
         "onset_group_tolerance_seconds": 0.03,
         "classifier": "sklearn HistGradientBoostingClassifier(max_iter=250, learning_rate=0.08, max_leaf_nodes=31, l2_regularization=1.0, random_state=0)",
@@ -210,7 +290,7 @@ def main() -> None:
     }
     per_session: dict[str, object] = {}
     session_array = np.asarray(test_session)
-    for session in sorted(TEST_SESSIONS):
+    for session in sorted(test_sessions):
         mask = session_array == session
         per_session[session] = {
             "notes": int(mask.sum()),
